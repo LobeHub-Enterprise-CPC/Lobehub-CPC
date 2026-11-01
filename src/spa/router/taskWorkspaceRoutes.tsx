@@ -5,17 +5,28 @@ import { scheduledTasksRouteMeta, taskRouteMeta } from '@/features/AgentTasks/ro
 import { scheduledTaskListLoader } from '@/spa/router/scheduledTaskListLoader';
 import { dynamicElement, ErrorBoundary } from '@/utils/router';
 
+interface TaskWorkspaceOptions {
+  /** Debug-name prefix of the lazy segments (`Desktop`, `Mobile`). */
+  label: string;
+  /** Route-preload task the task list warms (each platform has its own list). */
+  preloadId: string;
+}
+
 /**
  * The cross-agent task workspace: `/tasks` and `/goals`, and the bare
- * `/task/:taskId` and `/goal/:goalId` details they open. Mounted under the
- * workspace layout in `desktopRouter.shared.tsx`.
+ * `/task/:taskId` and `/goal/:goalId` details they open. Desktop mounts it
+ * under the workspace layout in `desktopRouter.shared.tsx`; mobile mounts the
+ * same tree from `mobileWorkspaceRoutes.tsx`.
  */
-export const taskWorkspaceChildren: RouteObject[] = [
+export const createTaskWorkspaceChildren = ({
+  label,
+  preloadId,
+}: TaskWorkspaceOptions): RouteObject[] => [
   {
     children: [
       {
-        element: dynamicElement(() => import('@/routes/(main)/tasks'), 'Desktop > Tasks', {
-          preloadId: 'tasks',
+        element: dynamicElement(() => import('@/routes/(main)/tasks'), `${label} > Tasks`, {
+          preloadId,
         }),
         handle: { meta: scheduledTasksRouteMeta },
         index: true,
@@ -30,7 +41,7 @@ export const taskWorkspaceChildren: RouteObject[] = [
   {
     children: [
       {
-        element: dynamicElement(() => import('@/routes/(main)/goals'), 'Desktop > Goals'),
+        element: dynamicElement(() => import('@/routes/(main)/goals'), `${label} > Goals`),
         handle: { meta: goalsRouteMeta },
         index: true,
       },
@@ -43,7 +54,7 @@ export const taskWorkspaceChildren: RouteObject[] = [
       {
         element: dynamicElement(
           () => import('@/routes/(main)/task/[taskId]'),
-          'Desktop > Task Detail',
+          `${label} > Task Detail`,
         ),
         handle: { meta: taskRouteMeta },
         // Optional readable title tail — see the agent-scoped `task/:taskId/:slug?`
@@ -59,7 +70,7 @@ export const taskWorkspaceChildren: RouteObject[] = [
       {
         element: dynamicElement(
           () => import('@/routes/(main)/goal/[goalId]'),
-          'Desktop > Goal Detail',
+          `${label} > Goal Detail`,
         ),
         handle: { meta: goalDetailRouteMeta },
         path: ':goalId',
@@ -69,3 +80,8 @@ export const taskWorkspaceChildren: RouteObject[] = [
     path: 'goal',
   },
 ];
+
+export const taskWorkspaceChildren = createTaskWorkspaceChildren({
+  label: 'Desktop',
+  preloadId: 'tasks',
+});

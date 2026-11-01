@@ -9,7 +9,7 @@ import AsyncError from '@/components/AsyncError';
 import AgentBreadcrumb from '@/features/AgentBreadcrumb';
 import AgentProfileTabs, {
   AGENT_PROFILE_SHOWCASE_COLUMN,
-  AGENT_PROFILE_TABS_CENTER_STYLE,
+  getAgentProfileTabsCenterStyle,
 } from '@/features/AgentProfileTabs';
 import NavHeader from '@/features/NavHeader';
 import WideScreenContainer from '@/features/WideScreenContainer';
@@ -80,7 +80,7 @@ const AgentUsage = memo(() => {
         style={{ position: 'relative' }}
         styles={{
           // Center on the header midpoint (equal gaps), not the leftover track.
-          center: AGENT_PROFILE_TABS_CENTER_STYLE,
+          center: getAgentProfileTabsCenterStyle(),
           left: { minWidth: 0, paddingInlineStart: 8 },
         }}
       >

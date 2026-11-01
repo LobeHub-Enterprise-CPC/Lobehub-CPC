@@ -47,6 +47,7 @@ the next free number of that prefix.
 - **L-D7** Verify the deepest route of every section; a route-driven Segmented's active segment is inert, so deep routes need their own ancestor affordance.
 - **L-D11** A data-height popover is measured with its trigger at the bottom of the list: `rect.bottom` vs `innerHeight`, non-negative overflow is a defect.
 - **L-D12** Every menu entry you add is clicked and its effect asserted; "menu closed, nothing happened" is the failure signature.
+- **L-D13** Authority-monitor verification distinguishes explicit refusal, transient infrastructure failure and sustained outage; inspect interrupt writes and prove recovery and user cancellation as well as final task status.
 
 **Environment safety**
 
@@ -311,6 +312,22 @@ parent never runs.
 **Rule:** click every entry you add and assert its effect (dialog, request, store
 field). Treat "closed and nothing happened" as the expected failure signature;
 for a nested entry verify the child's own dispatch wiring.
+
+### L-D13 — Treating an infrastructure check failure as revoked authority
+
+`since 2026-11-01` · `holds-while: authority monitors observe admission and infrastructure errors through the same failure channel`
+
+**Trap:** a load run ends with interrupted tasks and no logged admission refusal;
+checking only final statuses cannot distinguish legitimate revocation from a
+timeout converted into cancellation. Absence of database errors is not proof that
+the checks succeeded when a caller catches them.
+
+**Rule:** exercise explicit refusal, a transient read failure, sustained outage and
+recovery separately. Inspect actual interrupt writes and running work, including
+user Stop during an outage. In controlled tests, verify cache expiry and failure
+streak reset; in product evidence, record which writer caused cancellation or
+disclose that attribution is unavailable. Keep failure-injection tests separate
+from capacity claims.
 
 ### L-D14 — Linking to an agent document with the Work's binding id
 

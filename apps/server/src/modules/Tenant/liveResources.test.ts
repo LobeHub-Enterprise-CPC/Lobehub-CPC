@@ -163,29 +163,96 @@ describe('TenantLiveResources', () => {
     expect(check).not.toHaveBeenCalled();
   });
 
-  it('fails closed when the tenant cannot be checked', async () => {
+  it.each([
+    new Error('platform down'),
+    new TenantGateError('TENANT_UNAVAILABLE'),
+    new Error('query wrapper', { cause: new TenantGateError('TENANT_UNAVAILABLE') }),
+  ])('closes only after three consecutive infrastructure failures: %s', async (error) => {
     const { live, refused } = setup();
     const close = vi.fn();
     live.bind('a', { close });
-    refused.set('a', new Error('platform down'));
+    refused.set('a', error);
+    await vi.advanceTimersByTimeAsync(INTERVAL * 2);
+    expect(close).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(INTERVAL);
-    expect(close).toHaveBeenCalledWith(expect.objectContaining({ code: 'TENANT_UNAVAILABLE' }));
+    expect(close).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ code: 'TENANT_UNAVAILABLE', source: 'infrastructure' }),
+    );
   });
 
-  it('fails closed when a check never answers, and keeps checking afterwards', async () => {
-    const { check, live } = setup();
+  it('tolerates a timed-out check and resets the failure streak after success', async () => {
+    const { check, live, refused } = setup();
+    const close = vi.fn();
+    live.bind('a', { close });
+    check.mockImplementationOnce(() => new Promise(() => {}));
+    await vi.advanceTimersByTimeAsync(INTERVAL + CHECK_TIMEOUT);
+    expect(close).not.toHaveBeenCalled();
+    // The timed-out read must not block the next successful check.
+    await vi.advanceTimersByTimeAsync(INTERVAL);
+    refused.set('a', new Error('platform down again'));
+    await vi.advanceTimersByTimeAsync(INTERVAL * 2);
+    expect(close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(INTERVAL);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds consecutive timeouts to three intervals, including the last check timeout', async () => {
+    const check = vi.fn(() => new Promise<void>(() => {}));
+    const live = new TenantLiveResources(check, INTERVAL, CHECK_TIMEOUT, ACTION_TIMEOUT);
+    const close = vi.fn();
+    live.bind('a', { close });
+    await vi.advanceTimersByTimeAsync(INTERVAL * 3 - 1);
+    expect(close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(close).toHaveBeenCalledTimes(1);
+    // The third scheduled check has no budget left to wait on the database.
+    expect(check).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps failure streaks isolated per tenant and local suspension immediate', async () => {
+    const { live, refused } = setup();
+    const a = vi.fn();
+    const b = vi.fn();
+    live.bind('a', { close: a });
+    live.bind('b', { close: b });
+    refused.set('a', new Error('platform down'));
+    await vi.advanceTimersByTimeAsync(INTERVAL * 2);
+    expect(a).not.toHaveBeenCalled();
+    expect(b).not.toHaveBeenCalled();
+    await live.suspend('a', FROZEN());
+    expect(a).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code: 'TENANT_FROZEN' }));
+    expect(b).not.toHaveBeenCalled();
+  });
+
+  it('keeps checking and reopens recoverable resources after the failure budget expires', async () => {
+    const { live, refused } = setup();
     const close = vi.fn();
     const reopen = vi.fn();
     live.bind('a', { close, reopen });
-    check.mockImplementationOnce(() => new Promise(() => {}));
-
-    await vi.advanceTimersByTimeAsync(INTERVAL + CHECK_TIMEOUT);
-    expect(close).toHaveBeenCalledWith(expect.objectContaining({ code: 'TENANT_UNAVAILABLE' }));
-
-    // The hung check does not block the watcher: the next answer reopens.
+    refused.set('a', new Error('platform down'));
+    await vi.advanceTimersByTimeAsync(INTERVAL * 3);
+    expect(close).toHaveBeenCalledTimes(1);
+    refused.delete('a');
     await vi.advanceTimersByTimeAsync(INTERVAL);
     expect(reopen).toHaveBeenCalledTimes(1);
+    refused.set('a', new Error('platform down again'));
+    await vi.advanceTimersByTimeAsync(INTERVAL * 2);
+    expect(close).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(INTERVAL);
+    expect(close).toHaveBeenCalledTimes(2);
   });
+
+  it.each(['TENANT_FROZEN', 'TENANT_EXPIRED', 'TENANT_DESTROYED', 'TENANT_NOT_READY'] as const)(
+    'closes immediately on an explicit %s admission refusal',
+    async (code) => {
+      const { live, refused } = setup();
+      const close = vi.fn();
+      live.bind('a', { close });
+      refused.set('a', new TenantGateError(code, undefined, { source: 'admission' }));
+      await vi.advanceTimersByTimeAsync(INTERVAL);
+      expect(close).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code }));
+    },
+  );
 
   it('retries a failed close on the next watch tick', async () => {
     const { live, refused } = setup();

@@ -7,6 +7,31 @@ import { describe, expect, it } from 'vitest';
 import { mobileRoutes } from './mobileRouter.config';
 import { getRouteMetaFromHandle } from './routeMeta';
 
+describe('mobileRouter workspace home', () => {
+  it.each(['/acme', '/acme/'])(
+    'renders the mobile home page and layout within the workspace boundary at %s',
+    (pathname) => {
+      const personalMatches = matchRoutes(mobileRoutes, '/')!;
+      const workspaceMatches = matchRoutes(mobileRoutes, pathname)!;
+
+      expect(workspaceMatches.some((match) => match.route.path === ':workspaceSlug')).toBe(true);
+      expect(workspaceMatches.at(-1)?.params.workspaceSlug).toBe('acme');
+      expect(workspaceMatches.at(-1)?.route.element).toBeTruthy();
+      expect(workspaceMatches.at(-1)?.route.element).toBe(personalMatches.at(-1)?.route.element);
+      expect(workspaceMatches.at(-2)?.route.element).toBe(personalMatches.at(-2)?.route.element);
+    },
+  );
+
+  it('keeps workspace conversations outside the home layout', () => {
+    const homeMatches = matchRoutes(mobileRoutes, '/acme')!;
+    const chatMatches = matchRoutes(mobileRoutes, '/acme/agent/agt_fixture')!;
+    const homeLayout = homeMatches.at(-2)?.route;
+
+    expect(chatMatches.at(-1)?.params).toMatchObject({ aid: 'agt_fixture', workspaceSlug: 'acme' });
+    expect(chatMatches.some((match) => match.route === homeLayout)).toBe(false);
+  });
+});
+
 describe('mobileRouter agent share route', () => {
   it('leaves the agent-share visitor surface to the business routes', () => {
     // Agent sharing runs a visitor's conversation on the creator's account, so
@@ -25,30 +50,29 @@ describe('mobileRouter agent share route', () => {
 });
 
 describe('mobileRouter task routes', () => {
-  it('registers task list and detail routes under the shared workspace layout', async () => {
-    const source = await readFile(
-      path.join(process.cwd(), 'src/spa/router/mobileRouter.config.tsx'),
-      'utf8',
-    );
-
-    expect(source).toContain("import('@/routes/(main)/(task-workspace)/_layout')");
-    expect(source).toContain("import('@/routes/(main)/tasks')");
-    expect(source).toContain("import('@/routes/(main)/task/[taskId]')");
-    expect(source).toContain("import('@/routes/(main)/agent/task/[taskId]')");
-    expect(source).toContain("path: 'tasks'");
-    expect(source).toContain("path: 'task'");
+  it.each([
+    ['/tasks', {}],
+    ['/goals', {}],
+    ['/task/tsk_1', { taskId: 'tsk_1' }],
     // The `:slug?` tail is the readable title segment; it never resolves the
     // task, so pre-slug links keep matching the same route.
-    expect(source).toContain("path: ':taskId/:slug?'");
-    expect(source).toContain("path: ':aid/task/:taskId/:slug?'");
-    expect(source).not.toContain("import('@/routes/(main)/tasks/_layout')");
+    ['/task/tsk_1/fix-login', { slug: 'fix-login', taskId: 'tsk_1' }],
+    ['/goal/gol_1', { goalId: 'gol_1' }],
+    ['/agent/agt_1/task/tsk_1', { aid: 'agt_1', taskId: 'tsk_1' }],
+  ])('mounts %s under the shared task workspace layout', (pathname, params) => {
+    const taskWorkspace = matchRoutes(mobileRoutes, '/tasks')!.at(-3)!.route;
+    const matches = matchRoutes(mobileRoutes, pathname)!;
+
+    expect(matches.some((match) => match.route === taskWorkspace)).toBe(true);
+    expect(matches.at(-1)?.route.path).not.toBe('*');
+    expect(matches.at(-1)?.params).toMatchObject(params);
   });
 });
 
 describe('mobileRouter workspace provider routes', () => {
   it('registers workspace provider list and path-shaped deep-link redirect', async () => {
     const source = await readFile(
-      path.join(process.cwd(), 'src/spa/router/mobileRouter.config.tsx'),
+      path.join(process.cwd(), 'src/spa/router/mobileWorkspaceSettingsRoutes.tsx'),
       'utf8',
     );
 

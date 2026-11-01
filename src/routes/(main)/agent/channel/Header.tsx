@@ -27,7 +27,7 @@ import { Link } from 'react-router';
 
 import SkeletonBar from '@/components/Skeleton/Bar';
 import AgentBreadcrumb from '@/features/AgentBreadcrumb';
-import AgentProfileTabs, { AGENT_PROFILE_TABS_CENTER_STYLE } from '@/features/AgentProfileTabs';
+import AgentProfileTabs, { getAgentProfileTabsCenterStyle } from '@/features/AgentProfileTabs';
 import NavHeader from '@/features/NavHeader';
 import type { SerializedPlatformDefinition } from '@/server/services/bot/platforms/types';
 import { useAgentStore } from '@/store/agent';
@@ -372,7 +372,7 @@ const Header = memo<HeaderProps>(
           }
           styles={{
             // Center on the header midpoint (equal gaps), not the leftover track.
-            center: AGENT_PROFILE_TABS_CENTER_STYLE,
+            center: getAgentProfileTabsCenterStyle(),
             left: { minWidth: 0, paddingInlineStart: 8 },
           }}
         >

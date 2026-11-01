@@ -11,10 +11,13 @@ const log = debug('lobe-server:tenant-live');
 export const TENANT_WATCH_INTERVAL_MS = 5000;
 
 /**
- * Longest a watcher waits for the platform database. A check that does not
- * answer in time counts as a refusal: the tenant's resources are closed.
+ * Longest a watcher waits for the platform database. A timeout counts as an
+ * infrastructure failure, not an admission refusal.
  */
 export const TENANT_WATCH_CHECK_TIMEOUT_MS = 2000;
+
+/** Consecutive infrastructure failures tolerated before closing live work (≤ 15 s by default). */
+const TENANT_WATCH_FAILURE_LIMIT = 3;
 
 /** Longest one resource may take to close or reopen before the attempt counts as failed. */
 export const TENANT_RESOURCE_ACTION_TIMEOUT_MS = 10_000;
@@ -41,8 +44,11 @@ export class TenantLiveResourceError extends AggregateError {
 }
 
 interface TenantEntry {
+  checkFailures: number;
   /** Bumped by every local suspend / resume: a watcher result read before it is stale. */
   generation: number;
+  /** Start of the last successful check; the final timeout must fit the failure budget. */
+  lastCheckAt: number;
   /** Serializes suspend, resume and watcher results for the tenant. */
   queue: Promise<unknown>;
   resources: Map<TenantLiveResource, 'closed' | 'open'>;
@@ -52,6 +58,7 @@ interface TenantEntry {
 }
 
 const withTimeout = async <T>(run: () => T | Promise<T>, ms: number, label: string) => {
+  if (ms <= 0) throw new Error(`${label} timed out: failure budget exhausted`);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -77,8 +84,10 @@ const withTimeout = async <T>(run: () => T | Promise<T>, ms: number, label: stri
  * the call rejects (the event fails and Console retries it), and the next
  * call retries only what is left. Every other process learns the event by
  * watching: while a tenant has resources here it is re-checked every
- * `intervalMs`, and a refusal, an error or a check slower than
- * `checkTimeoutMs` closes them;
+ * `intervalMs`. Admission refusals close immediately; infrastructure errors
+ * (including `checkTimeoutMs` timeouts) close after three consecutive failures.
+ * Success resets that streak. The final timeout fits inside three intervals
+ * from the last successful check's start (15 s by default), never on top of it.
  * the in-memory pin stays present until the actual work settles. Its process
  * reports a drained generation only then; crashed processes expire by lease.
  */
@@ -131,6 +140,8 @@ export class TenantLiveResources {
     const entry = this.tenants.get(tenantId);
     if (!entry) return Promise.resolve();
     entry.generation += 1;
+    entry.checkFailures = 0;
+    entry.lastCheckAt = Date.now();
     return this.enqueue(entry, () => this.reopenClosed(tenantId, entry));
   }
 
@@ -149,7 +160,14 @@ export class TenantLiveResources {
   private entry(tenantId: string) {
     let entry = this.tenants.get(tenantId);
     if (!entry) {
-      entry = { generation: 0, queue: Promise.resolve(), resources: new Map(), watching: false };
+      entry = {
+        checkFailures: 0,
+        generation: 0,
+        lastCheckAt: Date.now(),
+        queue: Promise.resolve(),
+        resources: new Map(),
+        watching: false,
+      };
       this.tenants.set(tenantId, entry);
     }
     return entry;
@@ -249,9 +267,20 @@ export class TenantLiveResources {
     if (entry.watching) return;
     entry.watching = true;
     const generation = entry.generation;
+    const startedAt = Date.now();
     let refusal: TenantGateError | undefined;
     try {
-      await withTimeout(() => this.check(tenantId), this.checkTimeoutMs, 'tenant check');
+      // Once closed, keep probing with the normal timeout so recoverable
+      // resources can reopen. Only the grace period has a shrinking budget.
+      const remainingMs =
+        entry.checkFailures > 0 && entry.checkFailures < TENANT_WATCH_FAILURE_LIMIT
+          ? entry.lastCheckAt + this.intervalMs * TENANT_WATCH_FAILURE_LIMIT - startedAt
+          : this.checkTimeoutMs;
+      await withTimeout(
+        () => this.check(tenantId),
+        Math.min(this.checkTimeoutMs, remainingMs),
+        'tenant check',
+      );
     } catch (error) {
       refusal =
         tenantGateErrorOf(error) ??
@@ -264,9 +293,26 @@ export class TenantLiveResources {
       await this.enqueue(entry, async () => {
         // A local suspend / resume since the check started is newer: keep it.
         if (entry.generation !== generation) return;
-        if (refusal) await this.closeOpen(tenantId, entry, refusal);
-        else if (entry.suspended || [...entry.resources.values()].includes('closed'))
-          await this.reopenClosed(tenantId, entry);
+        if (refusal) {
+          if (refusal.source === 'infrastructure') {
+            entry.checkFailures += 1;
+            console.error('[TenantLiveResources] infrastructure check failed', {
+              code: refusal.code,
+              failures: entry.checkFailures,
+              tenantId,
+            });
+            if (entry.checkFailures < TENANT_WATCH_FAILURE_LIMIT) return;
+          } else {
+            entry.checkFailures = 0;
+            entry.lastCheckAt = startedAt;
+          }
+          await this.closeOpen(tenantId, entry, refusal);
+        } else {
+          entry.checkFailures = 0;
+          entry.lastCheckAt = startedAt;
+          if (entry.suspended || [...entry.resources.values()].includes('closed'))
+            await this.reopenClosed(tenantId, entry);
+        }
       });
     } catch (error) {
       // Still registered; the next tick retries.

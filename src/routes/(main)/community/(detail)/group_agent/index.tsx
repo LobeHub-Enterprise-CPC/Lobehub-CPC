@@ -111,4 +111,8 @@ const GroupAgentDetailPage = memo<GroupAgentDetailPageProps>(({ mobile }) => {
   );
 });
 
+export const MobileGroupAgentDetailPage = (_props: { mobile?: boolean }) => {
+  return <GroupAgentDetailPage mobile={true} />;
+};
+
 export default GroupAgentDetailPage;
