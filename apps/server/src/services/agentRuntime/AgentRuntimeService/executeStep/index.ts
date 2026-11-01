@@ -412,6 +412,11 @@ export async function executeStep(
           if (scheduled.handedOffInline) handedOffInline = true;
         }
       } catch (error) {
+        // Known limit: the hand-off below does not add this step to the trace.
+        // The partial is one object rewritten whole and without a version
+        // check, and the next owner may already be writing it, so appending
+        // here could drop its steps. The committed step stays in the messages
+        // and the state; only the trace misses it.
         if (error instanceof StepOwnershipLostError && shouldContinue && !nextStepScheduled) {
           await queueNextStepAfterOwnershipLoss(deps, { operationId, stepIndex, stepResult });
         }
