@@ -233,7 +233,8 @@ export async function handleStepLockConflict(
       };
     }
 
-    if (currentState.status === 'waiting_for_client' && !resumeClientLlm)
+    // Behind the park, even a client resume is for an earlier park.
+    if (currentState.status === 'waiting_for_client')
       await rearmClientPark(deps, operationId, currentState);
 
     // Hatchet: a run that still owes its completion lifecycle is no stale
@@ -438,10 +439,14 @@ export async function skipUnrunnableStep(
   },
 ): Promise<AgentExecutionResult | undefined> {
   // A run parked for a client moves only through its own resume: any other
-  // delivery (a duplicate, a stale redrive) would replay the call with no
-  // client to take it. Checked before the stale-step skip below, because the
-  // delivery that has to re-arm a park may name an earlier step.
-  if (agentState.status === 'waiting_for_client' && !resumeClientLlm) {
+  // delivery (a duplicate, a stale redrive, a client resume for an earlier
+  // park) would replay the call with no client to take it. Checked before the
+  // stale-step skip below, because the delivery that has to re-arm a park may
+  // name an earlier step.
+  if (
+    agentState.status === 'waiting_for_client' &&
+    (!resumeClientLlm || agentState.stepCount > stepIndex)
+  ) {
     log('[%s][%d] Skipping step — operation is waiting for a client', operationId, stepIndex);
     await rearmClientPark(deps, operationId, agentState);
     return {
