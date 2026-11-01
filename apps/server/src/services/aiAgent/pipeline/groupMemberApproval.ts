@@ -90,7 +90,7 @@ export const createGroupMemberApprovalDeps = (models: {
 });
 
 /**
- * Route an approval decision on a group MEMBER's tool back to that member.
+ * Route an approval or human answer on a group MEMBER's tool back to that member.
  *
  * Members answer to the supervisor's approval mode, so a member can park on a
  * tool that needs approval. The client resolves it from the group conversation,
@@ -114,7 +114,9 @@ export const resolveGroupMemberApprovalContinuation = async (
   if (params.hooks?.length) return undefined;
 
   const targetMessageId =
-    params.resumeApproval?.parentMessageId ?? params.resumeApprovals?.[0]?.parentMessageId;
+    params.resumeApproval?.parentMessageId ??
+    params.resumeApprovals?.[0]?.parentMessageId ??
+    params.resumeToolResult?.parentMessageId;
   if (!targetMessageId) return undefined;
 
   const sourceOperationId =
