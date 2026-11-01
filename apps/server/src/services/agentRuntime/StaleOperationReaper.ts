@@ -1,6 +1,6 @@
 import type { AgentRuntimeContext, AgentState } from '@lobechat/agent-runtime';
 import debug from 'debug';
-import { and, asc, eq, isNotNull, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNotNull, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import urlJoin from 'url-join';
 
 import { AgentOperationModel } from '@/database/models/agentOperation';
@@ -39,11 +39,20 @@ const DEFAULT_MAX_REDRIVE_ATTEMPTS = 3;
 /** Bound the work of a single cron tick so one sweep cannot run long. */
 const DEFAULT_LIMIT = 50;
 
+/**
+ * Bound the oldest-first scan so long-dead rows without coordinator state
+ * cannot fill every candidate slot on every tick. Runtime state expires after
+ * two hours, so a day leaves ample room to recover recent failures.
+ */
+const DEFAULT_LOOKBACK_MS = 24 * 60 * 60_000;
+
 /** Bound how many overlapping topics one sweep reports. */
 const CONCURRENT_FOREGROUND_REPORT_LIMIT = 20;
 
 export interface ReapStaleOperationsParams {
   limit?: number;
+  /** Ignore rows whose lease froze longer ago than this. */
+  lookbackMs?: number;
   maxRedriveAttempts?: number;
   staleAfterMs?: number;
 }
@@ -124,9 +133,11 @@ export class StaleOperationReaper {
     const staleAfterMs = params?.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
     const maxRedriveAttempts = params?.maxRedriveAttempts ?? DEFAULT_MAX_REDRIVE_ATTEMPTS;
     const limit = params?.limit ?? DEFAULT_LIMIT;
-    const staleBefore = new Date(Date.now() - staleAfterMs);
+    const now = Date.now();
+    const staleBefore = new Date(now - staleAfterMs);
+    const notBefore = new Date(now - (params?.lookbackMs ?? DEFAULT_LOOKBACK_MS));
 
-    const candidates = await this.listStaleRunning(staleBefore, limit);
+    const candidates = await this.listStaleRunning(staleBefore, notBefore, limit);
     const result: ReapStaleOperationsResult = {
       abandoned: 0,
       alive: 0,
@@ -215,7 +226,7 @@ export class StaleOperationReaper {
    * model with the row's own owner so ownership is still enforced where it
    * matters.
    */
-  private async listStaleRunning(staleBefore: Date, limit: number) {
+  private async listStaleRunning(staleBefore: Date, notBefore: Date, limit: number) {
     return (
       this.db
         // Only what recovery needs: everything else about the run is read from
@@ -230,6 +241,8 @@ export class StaleOperationReaper {
           and(
             eq(agentOperations.status, 'running'),
             lt(agentOperations.updatedAt, staleBefore),
+            // Keep unrecoverable history out of the limited candidate window.
+            gte(agentOperations.updatedAt, notBefore),
             // A never-heartbeated row is only meaningful once it is older than
             // the window too; `startedAt` is the lease's initial value.
             or(isNull(agentOperations.startedAt), lt(agentOperations.startedAt, staleBefore)),
