@@ -135,19 +135,20 @@ export class TenantRuntime {
    */
   async assertAdmitted(tenantId: string, maxAgeMs = TENANT_ADMISSION_TTL_MS): Promise<void> {
     const entry = await this.admissionEntry(tenantId, maxAgeMs);
-    if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
+    if (!entry) throw new TenantGateError('TENANT_NOT_FOUND', undefined, { source: 'admission' });
     this.assertAvailable(entry);
   }
 
-  /** Platform-only fresh authority, including denied lifecycle states; never opens the business DB. */
-  async gatewayAdmission(tenantId: string) {
+  /** Platform-only authority; fresh by default, with bounded snapshots for live-step polling only. */
+  async gatewayAdmission(tenantId: string, maxAgeMs = 0) {
     const checkedAt = this.now().getTime();
-    const entry = await this.admissionEntry(tenantId, 0);
-    if (!entry) throw new TenantGateError('TENANT_NOT_FOUND');
-    if (entry.destroyed) throw new TenantGateError('TENANT_DESTROYED');
+    const entry = await this.admissionEntry(tenantId, maxAgeMs);
+    if (!entry) throw new TenantGateError('TENANT_NOT_FOUND', undefined, { source: 'admission' });
+    if (entry.destroyed)
+      throw new TenantGateError('TENANT_DESTROYED', undefined, { source: 'admission' });
     const lifecycle = entry.lifecycle;
     if (entry.directory.status !== 'active' || !lifecycle?.acceptedVersion)
-      throw new TenantGateError('TENANT_NOT_READY');
+      throw new TenantGateError('TENANT_NOT_READY', undefined, { source: 'admission' });
     const effective = effectiveTenantState(
       {
         desiredState: lifecycle.desiredState,
@@ -216,7 +217,8 @@ export class TenantRuntime {
   private assertAvailable(entry: RouteEntry) {
     const { directory, lifecycle } = entry;
     // From the destruction barrier on, whatever the lifecycle says: a destroyed tenant is never admitted.
-    if (entry.destroyed) throw new TenantGateError('TENANT_DESTROYED');
+    if (entry.destroyed)
+      throw new TenantGateError('TENANT_DESTROYED', undefined, { source: 'admission' });
     if (directory.status !== 'active')
       throw new TenantGateError('TENANT_NOT_READY', undefined, { source: 'admission' });
     // A tenant Console has never activated is not ready rather than offline.

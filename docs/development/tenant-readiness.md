@@ -96,6 +96,39 @@ This verifies configuration and database state under trusted provisioning owners
 does not authenticate a database against a malicious database administrator, nor does a
 successful response promise that a later database or credential change cannot occur.
 
+## Live-work admission monitoring (FR-CP-06 stages 2–3)
+
+While a tenant has live streams, bot connections or agent steps, each process checks
+its platform heartbeat and admission every five seconds, with a two-second check
+timeout. An explicit admission refusal (frozen, expired, offline, destroyed, missing
+or not ready) closes the tenant's live resources immediately. A local suspend event
+also closes them immediately, independently of polling or database availability.
+
+A timeout or other infrastructure failure alone does not revoke admitted work.
+Three consecutive failed checks close it; any successful check resets the streak.
+The final check's timeout is included in the three-interval budget measured from
+the start of the last successful check (or registration), so the default grace
+period is at most about 15 seconds, rather than 15 seconds plus another timeout.
+Once the budget is exhausted, that scheduled check fails without another database
+read. Closed recoverable resources keep receiving normal checks and can reopen
+after a successful admission check. Running agent steps are interrupted and do
+not replay completed work.
+
+Steps still check their interrupt sentinel every two seconds. Their authority
+review shares the tenant runtime's existing platform snapshots, at most five
+seconds old measured from read start; lifecycle invalidation drops those snapshots.
+Expired snapshots are never extended on a failed refresh. Normal gateway admission,
+ticket issuance and internal routing retain fresh reads by default. Infrastructure
+errors during the step review use its existing failure backoff without writing an
+interrupt; explicit tenant or gateway authorization refusals still interrupt. A
+user Stop is acted on before attempting another authority review.
+
+This deliberately permits already admitted work to continue for up to about 15
+seconds while the platform database cannot confirm a freeze. It does not relax
+new-request or transaction admission. The bound assumes the event loop can run
+its timers; resource shutdown and settlement remain separately bounded by the
+existing close-action timeout and drain contract.
+
 ## Durable execution and renewal
 
 Operation IDs and lifecycle event IDs are global identities. Concurrent requests cannot

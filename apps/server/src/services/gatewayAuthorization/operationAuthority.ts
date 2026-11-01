@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm';
 
 import { getServerDB } from '@/database/core/db-adaptor';
 import { agentOperations } from '@/database/schemas';
+import { tenantGateErrorOf } from '@/server/modules/Tenant/errors';
+import { TENANT_ADMISSION_TTL_MS } from '@/server/modules/Tenant/runtime';
 
 import { assertGatewayVersion } from './index';
 import type { GatewayExecutionContext } from './types';
@@ -39,6 +41,7 @@ export const operationExecutionContext = async (
 export const assertGatewayStateExecution = async (
   operationId: string,
   execution?: GatewayExecutionContext,
+  maxAgeMs = 0,
 ) => {
   const scope = currentTenantScope();
   if (!scope) return;
@@ -49,17 +52,23 @@ export const assertGatewayStateExecution = async (
     execution.sourceAcceptedVersion !== original.sourceAcceptedVersion
   )
     throw new GatewayAuthorizationError('TENANT_EXECUTION_VERSION_STALE', 409);
-  await assertGatewayVersion(original.tenantId, original.sourceAcceptedVersion);
+  await assertGatewayVersion(original.tenantId, original.sourceAcceptedVersion, maxAgeMs);
 };
+/** Live-step poll only: bounded platform facts, explicit refusals false, infrastructure failures thrown. */
 export const isGatewayStateExecutionCurrent = async (
   operationId: string,
   execution?: GatewayExecutionContext,
 ) => {
   try {
-    await assertGatewayStateExecution(operationId, execution);
+    await assertGatewayStateExecution(operationId, execution, TENANT_ADMISSION_TTL_MS);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (
+      error instanceof GatewayAuthorizationError ||
+      tenantGateErrorOf(error)?.source === 'admission'
+    )
+      return false;
+    throw error;
   }
 };
 
