@@ -470,7 +470,7 @@ count the versions under `node_modules/<pkg>` and every `packages/*/node_modules
 and require one distinct value — never from the root manifest. Remember `apps/desktop`
 and `apps/cli` are standalone installs that a root install never covers.
 
-#### L-S15 — Trusting a lockfile-false workspace's node\_modules to track current specs
+#### L-S15 — Trusting a lockfile-false workspace's node_modules to track current specs
 
 **Wrong approach:** debug a "missing export" build failure in a workspace with
 `lockfile: false` by bumping package.json specs or running `pnpm up`, assuming the
@@ -483,8 +483,29 @@ because it installs from scratch.
 
 **Correct approach:** when installed versions contradict fresh-resolution
 expectations, delete the hidden `node_modules/.pnpm/lock.yaml` (or the whole
-node\_modules) in the affected workspace root and reinstall, then re-verify the
+node_modules) in the affected workspace root and reinstall, then re-verify the
 actual resolved version via the importing package's symlink.
+
+#### L-S30 — The Hatchet diagnostic build that mixed two dependency roots (2026-10-31)
+
+A temporary Hatchet diagnostic build layered the standalone kernel's install
+over the Enterprise root. The kernel resolved Next 16.3.8 while Enterprise
+resolved its override, 16.3.0, and the build ran into the memory reclaim limit,
+so it could not serve as an acceptance build. After one offline install from
+the Enterprise workspace, the six business overrides and the Next resolution
+checked out. These versions are that run's evidence, not a lasting version
+requirement, and any performance gain still needs run evidence: it does not
+follow from fixing the layout.
+
+#### L-S29 — A token for the wrong Hatchet tenant (2026-10-31)
+
+With the token minted for the reserved `internal` tenant, operations got zero
+claims while the worker was registered. With the token corrected to the
+`Default` tenant, the same isolated source smoke finished one operation with
+four tools and the document neither duplicated nor missing, and three rounds
+after it each finished 30 operations with 660 unique claims. The harness that
+checked the tenant and token lived in that round's delivery evidence, outside
+this repository.
 
 ### Moved to PROCESS.md as rules that hold under pressure (narrative kept here)
 
