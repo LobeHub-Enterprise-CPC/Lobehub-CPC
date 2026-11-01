@@ -1,11 +1,13 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   after,
   afterUnscoped,
   flushScheduledWork,
+  pendingHostWorkCount,
   runWithScheduledWorkScope,
+  settleHostWork,
 } from './scheduleAfterResponse';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -160,5 +162,116 @@ describe('scheduled work scope', () => {
 
     await sleep(100);
     expect(finished).toBe(true);
+  });
+});
+
+describe('host work tracking', () => {
+  it('counts work handed to the host until it finishes', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    afterUnscoped(async () => {
+      await gate;
+    });
+
+    expect(pendingHostWorkCount()).toBe(1);
+    let settled = false;
+    const settling = settleHostWork().then(() => {
+      settled = true;
+    });
+    await sleep(5);
+    expect(settled).toBe(false);
+
+    release();
+    await settling;
+    expect(pendingHostWorkCount()).toBe(0);
+  });
+
+  it('tracks what a scope still has running when it returns', async () => {
+    // The scope hands leftovers to the host on exit; a drain started before
+    // that moment must still see them.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await runWithScheduledWorkScope(async () => {
+      after(async () => {
+        await gate;
+      });
+    });
+
+    expect(pendingHostWorkCount()).toBe(1);
+    release();
+    await settleHostWork();
+    expect(pendingHostWorkCount()).toBe(0);
+  });
+
+  it('settles failing host work too', async () => {
+    afterUnscoped(async () => {
+      throw new Error('boom');
+    });
+
+    await settleHostWork();
+    expect(pendingHostWorkCount()).toBe(0);
+  });
+
+  it('is shared across module instances, so the drain sees work handed over by route bundles', async () => {
+    // Route handlers hand work over from their own bundle; the drain runs in the instrumentation bundle.
+    vi.resetModules();
+    const route = await import('./scheduleAfterResponse');
+    vi.resetModules();
+    const instrumentation = await import('./scheduleAfterResponse');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    route.afterUnscoped(async () => {
+      await gate;
+    });
+    expect(instrumentation.pendingHostWorkCount()).toBe(1);
+
+    let settled = false;
+    const settling = instrumentation.settleHostWork().then(() => {
+      settled = true;
+    });
+    await sleep(5);
+    expect(settled).toBe(false);
+
+    release();
+    await settling;
+    expect(instrumentation.pendingHostWorkCount()).toBe(0);
+  });
+
+  describe('when the host never runs the work', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it('stops waiting after a bound, so it cannot hold the shutdown drain until SIGKILL', async () => {
+      vi.useFakeTimers();
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      afterUnscoped(() => new Promise<void>(() => {}));
+      expect(pendingHostWorkCount()).toBe(1);
+
+      let settled = false;
+      const settling = settleHostWork().then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled).toBe(true);
+      await settling;
+      // Given up on: a drain that checks again must not wait for it a second time.
+      expect(pendingHostWorkCount()).toBe(0);
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'after_response.settle_timeout', pending: 1 }),
+      );
+    });
   });
 });

@@ -71,6 +71,8 @@ the next free number of that prefix.
 - **L-S26** A hand-built Electron main bundle bakes its endpoints in: build with `OFFICIAL_CLOUD_SERVER` and `DEVICE_GATEWAY_URL` pointing at local or unreachable hosts, and before launch confirm `dist/main` carries those values (`DEVICE_GATEWAY_URL:` / `OFFICIAL_CLOUD_SERVER:` followed by the local URL, not `void 0`).
 - **L-S27** `apps/desktop` install relinks the shared `packages/*/node_modules` to the desktop store and breaks root type-check (duplicate `@types/react`); snapshot those links before the install and restore them after, or install in an isolated worktree.
 - **L-S28** 本地验收前核对所有对外服务的实际客户端和服务端请求：`MARKET_BASE_URL`、`NEXT_PUBLIC_MARKET_BASE_URL`、设备网关等须指向本地或已隔离的目标；S3、发信、模型等外部例外须有明确范围授权。
+- **L-S29** Hatchet 隔离验收显式选择 `Default` tenant，核对客户端 JWT 的 `sub` 与该 tenant id、worker 注册归属一致；有 worker 但操作零 claim 时先排除 tenant 不一致。
+- **L-S30** 启动或构建 Enterprise 前，依赖从 shell root 按其 workspace 安装并保留业务 overrides，不叠加独立内核的另一套依赖根；核对 Next 与业务包的实际解析路径，单测或类型检查通过不能证明布局正确。
 
 ## Entries
 
@@ -697,3 +699,30 @@ before handing the checkout back.
 **Rule:** 文本类执行记录用 `.txt` 或 `.json` 保存；必须用 Markdown 排版时，另附一份同内容的
 `.txt`。发布后用 `lh acceptance run result list --run <id> --json` 核对每项 verdict。已发布的轮次
 用 `lh acceptance run result submit --type text --file <x>.txt --verdict ...` 补交，不要新开一轮。
+
+### L-S29 — Hatchet worker 与投递使用了不同 tenant
+
+`since 2026-10-31` · `holds-while: Hatchet v0.114.2 token 的 sub 表示 tenant id，数据库同时包含 internal 与 Default tenant`
+
+**Trap:** 用 `SELECT id FROM "Tenant" LIMIT 1` 创建 token 会选到保留的
+`internal` tenant；worker 已正常注册，业务投递仍排队且零 claim。把 JWT 中
+不存在的 `tenant_id` 字段当身份依据，也不能验证实际归属。
+
+**Rule:** 隔离 harness 以 `WHERE name = 'Default'` 读取目标，启动前解析 token
+的 `sub` 并与该 id 比较，再核对 worker 的 tenant。注册成功或 gRPC 可连通
+不能替代同一 tenant 的真实操作完成；不一致先修 fixture，不归因为执行器停顿。
+
+### L-S30 — Enterprise 构建混入独立内核的依赖根
+
+`since 2026-10-31` · `holds-while: Enterprise 以 shell root 的 pnpm-workspace.yaml 统一安装内核与业务包，并在其中声明业务 overrides`
+
+**Trap:** 把独立内核检出时安装的 `.pnpm` 根叠到 Enterprise 根上，单测和类型检查
+都能过，构建也能启动；但内核与 Enterprise 各自解析出不同版本的 Next 和业务包，
+构建行为与内存占用都不再代表被测版本。
+
+**Rule:** 启动和构建应使用实际运行 workspace 的完整依赖布局。Enterprise
+从 shell root 按其 `pnpm-workspace.yaml` 安装，保留业务 overrides；可复用完整、
+已验证的依赖布局（包括各 package 的 `node_modules`），或从已有 store 离线安装。
+不要将独立内核安装的 `.pnpm` 根叠到 Enterprise 根上。复制或安装后，核对内核入口的
+`next/package.json`、各业务包及关键共享包的实际解析路径都属于被测副本，并符合该
+workspace 的 overrides；仅根目录存在、单测或类型检查通过不足以证明布局正确。

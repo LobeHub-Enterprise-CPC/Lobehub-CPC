@@ -15,6 +15,7 @@ import { platformWebhook } from './handlers/platformWebhook';
 import { reapOperations } from './handlers/reapOperations';
 import { runStep, runStepHealth } from './handlers/runStep';
 import { subAgentCallback } from './handlers/subAgentCallback';
+import { threadCallback } from './handlers/threadCallback';
 import { bearerSecretAuth } from './middlewares/bearerSecretAuth';
 import { qstashAuth } from './middlewares/qstashAuth';
 import { qstashOrApiKeyAuth } from './middlewares/qstashOrApiKeyAuth';
@@ -102,6 +103,8 @@ app.post('/webhooks/subagent-callback', qstashAuth(), subAgentCallback);
 
 // POST /api/agent/webhooks/group-member-callback — group-action member bridge (QStash)
 app.post('/webhooks/group-member-callback', qstashAuth(), groupMemberCallback);
+
+app.post('/webhooks/thread-callback', qstashAuth(), threadCallback);
 
 // POST /api/agent/webhooks/:platform[/:appId] — Chat SDK bot platform webhooks
 app.post('/webhooks/:platform/:appId?', platformWebhook);

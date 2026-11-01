@@ -1,4 +1,5 @@
-import type { ToolRunResult } from '@lobechat/agent-runtime';
+import type { AgentState, ToolRunResult } from '@lobechat/agent-runtime';
+import { isParkedStatus } from '@lobechat/agent-runtime';
 import { trackTenantWork } from '@lobechat/database/tenant';
 import type { SerializedAgentHook } from '@lobechat/types';
 import {
@@ -9,6 +10,8 @@ import {
 } from '@lobechat/types';
 import debug from 'debug';
 
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
+import { trackPublish } from '@/server/modules/Hatchet/pending';
 import { isQueueAgentRuntimeEnabled } from '@/server/services/queue/impls';
 
 import { deliverWebhook, executeToolCallWebhook } from './httpWebhook';
@@ -38,6 +41,26 @@ export class CriticalHookDeliveryError extends Error {
 }
 
 export { deliverWebhook } from './httpWebhook';
+
+/**
+ * Hatchet replays an owed completion lifecycle, so the same onComplete/onError
+ * can be published again. A key stable per logical event lets the queue drop
+ * the repeat inside its deduplication window. A park is not the run's end: the
+ * same operation can park again later, so its key also names the step it
+ * parked at (a replay of that park carries the same one).
+ */
+const completionDeduplicationId = (
+  operationId: string,
+  hookId: string,
+  type: AgentHookType,
+  event: AnyHookEvent,
+): string | undefined => {
+  if (!isHatchetDeliveryEnabled() || (type !== 'onComplete' && type !== 'onError')) return;
+  const { reason, steps } = event as { reason?: unknown; steps?: unknown };
+  const key = `${operationId}:${hookId}:${type}:${typeof reason === 'string' ? reason : ''}`;
+  if (typeof reason !== 'string' || !isParkedStatus(reason as AgentState['status'])) return key;
+  return `${key}:${typeof steps === 'number' ? steps : ''}`;
+};
 
 /** Discard legacy environment hooks and validate caller configs on every worker restore. */
 export function parseSerializedHooks(hooks: SerializedAgentHook[]): SerializedHook[] {
@@ -92,7 +115,20 @@ export class HookDispatcher {
     return this.dispatchHooks(operationId, type, event, serializedHooks);
   }
 
-  private async dispatchHooks(
+  private dispatchHooks(
+    operationId: string,
+    type: AgentHookType,
+    event: AnyHookEvent,
+    serializedHooks?: SerializedAgentHook[],
+    stopAfterHandler?: () => boolean,
+    consumer?: 'handler' | 'webhook',
+  ): Promise<void> {
+    return trackPublish(
+      this.dispatchHooksImpl(operationId, type, event, serializedHooks, stopAfterHandler, consumer),
+    );
+  }
+
+  private async dispatchHooksImpl(
     operationId: string,
     type: AgentHookType,
     event: AnyHookEvent,
@@ -125,7 +161,9 @@ export class HookDispatcher {
           });
           if (payload) {
             delete payload.mock;
-            await deliverWebhook(hook.webhook, payload);
+            const deduplicationId = completionDeduplicationId(operationId, hook.id, type, event);
+            if (deduplicationId) await deliverWebhook(hook.webhook, payload, { deduplicationId });
+            else await deliverWebhook(hook.webhook, payload);
           }
         }
       } catch (error) {

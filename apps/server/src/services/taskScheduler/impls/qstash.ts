@@ -1,6 +1,6 @@
-import type { Client } from '@upstash/qstash';
 import debug from 'debug';
 
+import type { DirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 
 import type { ScheduleNextTopicParams, TaskSchedulerImpl } from './type';
@@ -12,7 +12,7 @@ const HEARTBEAT_TICK_PATH = '/api/workflows/task/heartbeat-tick';
 export interface QStashTaskSchedulerConfig {
   /** Absolute base URL (e.g. `process.env.APP_URL`). Used to build the tick callback URL. */
   baseUrl: string;
-  qstashClient: Client;
+  qstashClient: DirectDeliveryClient;
 }
 
 /**
@@ -25,7 +25,7 @@ export interface QStashTaskSchedulerConfig {
  */
 export class QStashTaskScheduler implements TaskSchedulerImpl {
   private baseUrl: string;
-  private qstashClient: Client;
+  private qstashClient: DirectDeliveryClient;
 
   constructor(config: QStashTaskSchedulerConfig) {
     this.qstashClient = config.qstashClient;

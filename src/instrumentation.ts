@@ -67,6 +67,17 @@ export async function register() {
       });
   }
 
+  // Queue-mode agent deliveries through Hatchet: this process runs the workers
+  // that hand each delivery to its own routes. Started in the background — the
+  // workers wait until this server answers on its loopback address.
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { isHatchetDeliveryEnabled } = await import('@/server/modules/Hatchet/config');
+    if (isHatchetDeliveryEnabled()) {
+      const { startHatchetWorkers } = await import('@/server/modules/Hatchet/worker');
+      startHatchetWorkers();
+    }
+  }
+
   // Note: messenger system bot connections (Discord/Telegram) are managed
   // entirely from dc-center's System Bots admin — save / enable / forceReconnect
   // mutations call MessageGateway directly. The main app's only role here is

@@ -38,3 +38,5 @@ export {
   userExecutionPolicies,
   userExecutionPolicyCommandModes,
 } from './governance';
+export type { NewAgentSubAgentBridge } from './subAgentBridge';
+export { agentSubAgentBridges } from './subAgentBridge';

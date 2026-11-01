@@ -60,6 +60,7 @@ describe('OperationTraceRecorder', () => {
         stepResult: { events: [], newState: { activatedStepTools: [], messages: [] } },
       });
 
+      await recorder.flushPartial();
       const saved = store.savePartial.mock.calls[0][1];
       expect(saved.model).toBe('claude-sonnet-4-6');
       expect(saved.provider).toBe('lobehub');
@@ -110,6 +111,7 @@ describe('OperationTraceRecorder', () => {
         stepResult: { events, newState: { activatedStepTools: [], messages: [] } },
       });
 
+      await recorder.flushPartial();
       const step = store.savePartial.mock.calls[0][1].steps[0];
       const eventTypes = step.events.map((e: any) => e.type);
       expect(eventTypes).not.toContain('llm_stream');
@@ -146,6 +148,7 @@ describe('OperationTraceRecorder', () => {
         stepResult: { events: [], newState: { activatedStepTools: [], messages: afterMessages } },
       });
 
+      await recorder.flushPartial();
       const step = store.savePartial.mock.calls[0][1].steps[0];
       expect(step.messagesDelta).toEqual([{ role: 'tool' }]);
       expect(step.messagesBaseline).toBeUndefined();
@@ -173,6 +176,7 @@ describe('OperationTraceRecorder', () => {
         },
       });
 
+      await recorder.flushPartial();
       const step = store.savePartial.mock.calls[0][1].steps[0];
       expect(step.isCompressionReset).toBe(true);
       expect(step.messagesBaseline).toEqual(prevMessages);
@@ -196,6 +200,7 @@ describe('OperationTraceRecorder', () => {
         },
       });
 
+      await recorder.flushPartial();
       const step = store.savePartial.mock.calls[0][1].steps[0];
       expect(step.activatedStepToolsDelta).toEqual([{ id: 'b' }, { id: 'c' }]);
     });
@@ -224,6 +229,7 @@ describe('OperationTraceRecorder', () => {
         stepResult: { events: [], newState: { activatedStepTools: [], messages: [] } },
       });
 
+      await recorder.flushPartial();
       const step = store.savePartial.mock.calls[0][1].steps[0];
       expect(step.inputTokens).toBe(30);
       expect(step.outputTokens).toBe(20);
@@ -451,12 +457,12 @@ describe('OperationTraceRecorder', () => {
       ...overrides,
     });
 
-    const appendStepWithCe = (
+    const appendStepWithCe = async (
       ce: { input?: unknown; output?: unknown },
       prevStepsInStore: any[],
     ) => {
       store.loadPartial.mockResolvedValue({ startedAt: 1, steps: prevStepsInStore });
-      return recorder.appendStep('op-ce', {
+      await recorder.appendStep('op-ce', {
         afterStepSignalEvents: [],
         agentState: { messages: [] },
         beforeStepSignalEvents: [],
@@ -471,6 +477,7 @@ describe('OperationTraceRecorder', () => {
           newState: { activatedStepTools: [], messages: [] },
         },
       });
+      await recorder.flushPartial();
     };
 
     const getSavedStep = (newStepIndex: number) => {
@@ -647,6 +654,7 @@ describe('OperationTraceRecorder', () => {
         },
       });
 
+      await recorder.flushPartial();
       const saved = store.savePartial.mock.calls[0][1];
       const newStep = saved.steps.find((s: any) => s.stepIndex === 1);
       expect(newStep.contextEngine).toBeUndefined();

@@ -197,12 +197,20 @@ export class AgentRuntimeCoordinator {
   /**
    * Save Agent state and handle corresponding events
    */
-  async saveAgentState(operationId: string, state: AgentState): Promise<void> {
+  async saveAgentState(
+    operationId: string,
+    state: AgentState,
+    assertOwnership?: () => Promise<void>,
+    /** Runs once the state is written, ahead of a terminal state's end-of-stream events. */
+    afterWrite?: () => Promise<void>,
+  ): Promise<void> {
     try {
       const previousState = await this.stateManager.loadAgentState(operationId);
 
       // Save state
-      await this.stateManager.saveAgentState(operationId, state);
+      await assertOwnership?.();
+      await this.stateManager.saveAgentState(operationId, state, assertOwnership);
+      await afterWrite?.();
 
       // Send a terminal event once the operation first enters a terminal state.
       if (hasEnteredStreamEndState(previousState?.status, state.status)) {
@@ -230,12 +238,17 @@ export class AgentRuntimeCoordinator {
   /**
    * Save step result and handle corresponding events
    */
-  async saveStepResult(operationId: string, stepResult: StepResult): Promise<void> {
+  async saveStepResult(
+    operationId: string,
+    stepResult: StepResult,
+    assertOwnership?: () => Promise<void>,
+  ): Promise<void> {
     try {
       // Get previous state for detecting state changes
       const previousState = await this.stateManager.loadAgentState(operationId);
 
       // Save step result
+      await assertOwnership?.();
       await this.stateManager.saveStepResult(operationId, stepResult);
 
       // This ensures agent_runtime_end is sent after all step events.
@@ -367,7 +380,12 @@ export class AgentRuntimeCoordinator {
    * that arrives after the loop died resumes from the step it actually reached
    * instead of being dismissed as a stale duplicate.
    */
-  async saveInlineResume<T>(operationId: string, envelope: T): Promise<boolean> {
+  async saveInlineResume<T>(
+    operationId: string,
+    envelope: T,
+    assertOwnership?: () => Promise<void>,
+  ): Promise<boolean> {
+    await assertOwnership?.();
     return this.stateManager.saveInlineResume(operationId, JSON.stringify(envelope));
   }
 
@@ -398,6 +416,14 @@ export class AgentRuntimeCoordinator {
    */
   async clearInlineResume(operationId: string, ownerId: string): Promise<void> {
     return this.stateManager.clearInlineResume(operationId, ownerId);
+  }
+
+  /**
+   * Extend the expiry of every runtime key of the operation, so a run waiting
+   * on its next delivery attempt keeps its state. Errors propagate.
+   */
+  async touchOperation(operationId: string): Promise<void> {
+    return this.stateManager.touchOperation(operationId);
   }
 
   /**

@@ -8,6 +8,7 @@ import {
 
 import { type PendingInterventionsResult } from '../types';
 import { INTERVENTION_LIFECYCLE_CHECKPOINT_KEY } from './constants';
+import { StepOwnershipLostError } from './executionErrors';
 import type { AgentRuntimeServiceContext, InterventionLifecycleCheckpoint } from './types';
 
 const log = debug('lobe-server:agent-runtime-service');
@@ -396,6 +397,7 @@ export async function recordInterventionLifecycleCompletion(
   operationId: string,
   state: AgentState,
   stepIndex: number,
+  assertOwnership?: () => Promise<void>,
 ): Promise<void> {
   state.metadata = {
     ...state.metadata,
@@ -406,8 +408,9 @@ export async function recordInterventionLifecycleCompletion(
   };
 
   try {
-    await deps.coordinator.saveAgentState(operationId, state);
+    await deps.coordinator.saveAgentState(operationId, state, assertOwnership);
   } catch (error) {
+    if (error instanceof StepOwnershipLostError) throw error;
     // The Review and hook are already delivered. Do not turn a best-effort
     // dedup checkpoint failure into an agent error; a rare later redelivery
     // safely retries the batch-idempotent Review and at-least-once hook.

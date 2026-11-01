@@ -5,11 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { deliverWebhook, executeToolCallWebhook, resolveWebhookHeaders } from '../httpWebhook';
 
-const { fetchMock, publish } = vi.hoisted(() => ({ fetchMock: vi.fn(), publish: vi.fn() }));
+const { directPublish, fetchMock, hatchet, publish } = vi.hoisted(() => ({
+  directPublish: vi.fn(),
+  fetchMock: vi.fn(),
+  hatchet: { enabled: false },
+  publish: vi.fn(),
+}));
 vi.mock('@/libs/qstash', () => ({
   OtelQstashClient: class {
     publishJSON = publish;
   },
+}));
+vi.mock('@/server/modules/Hatchet/config', () => ({
+  isHatchetDeliveryEnabled: () => hatchet.enabled,
+}));
+vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
+  getDirectDeliveryClient: () => ({ publishJSON: directPublish }),
 }));
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
@@ -241,6 +252,51 @@ describe('HTTP hook primitive', () => {
     );
     expect(inspect(logger.mock.calls)).not.toContain('private-response');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Hatchet delivery mode', () => {
+  const dedup = 'op-1:hook-1:onComplete:done';
+
+  beforeEach(() => {
+    hatchet.enabled = true;
+    directPublish.mockReset().mockResolvedValue({ messageId: 'run_1' });
+    publish.mockReset().mockResolvedValue({ messageId: 'msg_1' });
+    fetchMock.mockReset();
+  });
+  afterEach(() => {
+    hatchet.enabled = false;
+    vi.unstubAllEnvs();
+  });
+
+  it('publishes through the direct delivery client without needing a QStash token', async () => {
+    vi.stubEnv('QSTASH_TOKEN', undefined);
+    await deliverWebhook(
+      { delivery: 'qstash', fallback: 'none', timeout: 4, url: config.url },
+      { value: 1 },
+      { deduplicationId: dedup },
+    );
+    await deliverWebhook({ delivery: 'qstash', url: config.url }, {}, { deduplicationId: dedup });
+
+    expect(publish).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    const [[first], [second]] = directPublish.mock.calls;
+    expect(first).toMatchObject({ body: { value: 1 }, timeout: 4, url: config.url });
+    // One stable, provider-safe key per hook event.
+    expect(first.deduplicationId).toMatch(/^[\da-f]{64}$/);
+    expect(second.deduplicationId).toBe(first.deduplicationId);
+  });
+
+  it('passes the same encoded key to QStash outside Hatchet mode, and none when not asked', async () => {
+    vi.stubEnv('QSTASH_TOKEN', 'test-token');
+    await deliverWebhook({ delivery: 'qstash', url: config.url }, {}, { deduplicationId: dedup });
+    hatchet.enabled = false;
+    await deliverWebhook({ delivery: 'qstash', url: config.url }, {}, { deduplicationId: dedup });
+    await deliverWebhook({ delivery: 'qstash', url: config.url }, {});
+
+    const [[viaQStash], [plain]] = publish.mock.calls;
+    expect(viaQStash.deduplicationId).toBe(directPublish.mock.calls[0][0].deduplicationId);
+    expect(plain).not.toHaveProperty('deduplicationId');
   });
 });
 

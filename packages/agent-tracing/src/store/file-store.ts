@@ -22,7 +22,7 @@ export class FileSnapshotStore implements ISnapshotStore {
 
   // ==================== Completed snapshots ====================
 
-  async save(snapshot: ExecutionSnapshot): Promise<void> {
+  async save(snapshot: ExecutionSnapshot, assertOwnership?: () => Promise<void>): Promise<void> {
     await fs.mkdir(this.dir, { recursive: true });
 
     const ts = new Date(snapshot.startedAt).toISOString().replaceAll(':', '-');
@@ -30,6 +30,7 @@ export class FileSnapshotStore implements ISnapshotStore {
     const filename = `${ts}_${shortId}.json`;
     const filePath = path.join(this.dir, filename);
 
+    await assertOwnership?.();
     await fs.writeFile(filePath, JSON.stringify(snapshot, null, 2), 'utf8');
 
     // Update latest symlink. Best-effort convenience pointer: two runs

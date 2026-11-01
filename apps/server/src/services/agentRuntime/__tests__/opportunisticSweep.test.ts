@@ -1,18 +1,30 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as HatchetConfig from '@/server/modules/Hatchet/config';
+
 import {
   OPPORTUNISTIC_SWEEP_INTERVAL_MS,
   OPPORTUNISTIC_SWEEP_SLOT_KEY,
   runOpportunisticSweep,
   scheduleOpportunisticStaleSweep,
 } from '../opportunisticSweep';
+import { StaleOperationReaper } from '../StaleOperationReaper';
 
 const sweepMock = vi.fn().mockResolvedValue({ abandoned: 0, redriven: 1 });
 vi.mock('../StaleOperationReaper', () => ({
   StaleOperationReaper: vi.fn().mockImplementation(function () {
     return { sweep: sweepMock };
   }),
+}));
+
+const hatchet = vi.hoisted(() => ({ enabled: false, probe: async () => 'none' as const }));
+vi.mock('@/server/modules/Hatchet/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof HatchetConfig>()),
+  isHatchetDeliveryEnabled: () => hatchet.enabled,
+}));
+vi.mock('@/server/modules/Hatchet/probe', () => ({
+  createHatchetDeliveryProbe: () => hatchet.probe,
 }));
 
 const getServerDBMock = vi.fn().mockResolvedValue({ db: 'server' });
@@ -149,5 +161,23 @@ describe('scheduleOpportunisticStaleSweep', () => {
 
     await expect(flush()).resolves.toBeUndefined();
     expect(sweepMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [true, hatchet.probe],
+    [false, undefined],
+  ])('asks Hatchet before redriving only in Hatchet delivery mode (%s)', async (enabled, probe) => {
+    hatchet.enabled = enabled;
+    vi.mocked(StaleOperationReaper).mockClear();
+
+    scheduleOpportunisticStaleSweep();
+    await flush();
+
+    const [, options] = vi.mocked(StaleOperationReaper).mock.calls[0] as unknown as [
+      unknown,
+      { deliveryProbe?: unknown },
+    ];
+    expect(options.deliveryProbe).toBe(probe);
+    hatchet.enabled = false;
   });
 });

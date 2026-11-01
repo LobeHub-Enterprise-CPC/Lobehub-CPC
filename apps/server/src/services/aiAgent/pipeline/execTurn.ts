@@ -14,6 +14,7 @@ import type { ConnectorModel } from '@/database/models/connector';
 import type { ConnectorToolModel } from '@/database/models/connectorTool';
 import type { MessageModel } from '@/database/models/message';
 import type { PluginModel } from '@/database/models/plugin';
+import { ThreadModel } from '@/database/models/thread';
 import type { TopicModel } from '@/database/models/topic';
 import { assertGatewayProviderCapability } from '@/server/modules/AgentRuntime/llmRelay/resolveLlmExecutionSite';
 import type { AgentConfigWithId } from '@/server/services/agent';
@@ -352,6 +353,27 @@ export const execAgentTurn = async (
     },
   );
   if (reusedContinuation) return reusedContinuation;
+
+  // Only a validated, newly owned continuation may replace the parked thread
+  // generation. Rejected approvals never reach this point; reuse returns above.
+  const threadHookBody = hooks?.find((hook) => hook.id === 'thread-completion')?.webhook?.body;
+  if (
+    approvalSourceOperationId &&
+    appContext?.isolationThread &&
+    appContext.threadId &&
+    typeof threadHookBody?.runToken === 'string'
+  ) {
+    const threadModel = new ThreadModel(deps.db, deps.userId, deps.workspaceId);
+    if (
+      !(await threadModel.setRunToken(
+        appContext.threadId,
+        threadHookBody.runToken,
+        approvalSourceOperationId,
+      ))
+    ) {
+      throw new Error('Approval source no longer owns the isolation thread');
+    }
+  }
 
   // Agent → agent attribution: resolve the launching run's agent into a
   // display snapshot once, before the turn rows exist, so the persisted user

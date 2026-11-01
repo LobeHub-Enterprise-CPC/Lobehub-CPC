@@ -75,7 +75,7 @@ describe('governance and Channel migration', () => {
           .sort(),
       }))
       .sort((a, b) => a.table_name.localeCompare(b.table_name));
-    expect(modelTables).toHaveLength(16);
+    expect(modelTables).toHaveLength(17);
     expect(rows).toEqual(expected);
   }, 30_000);
 

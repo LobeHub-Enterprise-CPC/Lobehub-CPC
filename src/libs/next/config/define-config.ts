@@ -34,6 +34,12 @@ export function defineConfig(config: CustomNextConfig) {
         'public/**/*',
         '.next/static/**/*',
 
+        // Hatchet SDK spawns its heartbeat worker by a runtime path via worker_threads, which nft
+        // cannot trace; include its runtime files for both the kernel repo and the enterprise
+        // workspace one level up (pnpm peer hash varies, hence the wildcard).
+        '../node_modules/.pnpm/@hatchet-dev+typescript-sdk@*/node_modules/@hatchet-dev/typescript-sdk/**/*.{js,mjs,cjs,json}',
+        'node_modules/.pnpm/@hatchet-dev+typescript-sdk@*/node_modules/@hatchet-dev/typescript-sdk/**/*.{js,mjs,cjs,json}',
+
         // Only needed for Docker standalone builds.
         // On Vercel (serverless), including native bindings can easily exceed function size limits.
         ...(buildWithDocker
@@ -378,6 +384,8 @@ export function defineConfig(config: CustomNextConfig) {
       'pdfjs-dist',
       'ajv',
       'oidc-provider',
+      // gRPC client with protobuf codegen and native-style dynamic requires.
+      '@hatchet-dev/typescript-sdk',
     ],
 
     transpilePackages: ['mermaid'],

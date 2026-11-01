@@ -109,10 +109,11 @@ vi.mock('model-bank', (...args) =>
 describe('AgentRuntimeService', () => {
   let service: AgentRuntimeService;
   let mockCoordinator: any;
+  let mockDb: any;
   const mockUserId = 'test-user-id';
 
   beforeEach(() => {
-    ({ service, mockCoordinator } = setUpService(AgentRuntimeService, mockUserId));
+    ({ service, mockCoordinator, mockDb } = setUpService(AgentRuntimeService, mockUserId));
   });
 
   afterEach(() => {
@@ -141,6 +142,67 @@ describe('AgentRuntimeService', () => {
       autoStart: true,
       initialMessages: [],
     };
+
+    it('cleans up the operation and hooks if onOperationCreated fails', async () => {
+      const error = new Error('binding failed');
+      const row: Record<string, unknown> = { status: 'running' };
+      vi.spyOn((service as any).completionLifecycle, 'recordStart').mockResolvedValue(true);
+      mockDb.update.mockReturnValue({
+        set: (updates: Record<string, unknown>) => ({
+          where: () => ({
+            returning: async () => {
+              Object.assign(row, updates);
+              return [{ id: mockParams.operationId }];
+            },
+          }),
+        }),
+      });
+      await expect(
+        service.createOperation({
+          ...mockParams,
+          hooks: [{ id: 'bridge', type: 'onComplete', webhook: { url: 'http://example.com' } }],
+          onOperationCreated: async () => {
+            throw error;
+          },
+        }),
+      ).rejects.toBe(error);
+      expect(mockCoordinator.deleteAgentOperation).toHaveBeenCalledWith(mockParams.operationId);
+      expect(hookDispatcher.hasHooks(mockParams.operationId)).toBe(false);
+      expect(row).toEqual(
+        expect.objectContaining({
+          completedAt: expect.any(Date),
+          completionReason: 'error',
+          error: expect.objectContaining({ type: 'operation_creation_callback_failed' }),
+          status: 'error',
+        }),
+      );
+    });
+
+    it('preserves the creation callback error when terminal persistence fails', async () => {
+      const error = new Error('binding failed');
+      vi.spyOn((service as any).agentOperationModel, 'recordCompletion').mockRejectedValue(
+        new Error('database unavailable'),
+      );
+      const logError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await expect(
+          service.createOperation({
+            ...mockParams,
+            onOperationCreated: async () => {
+              throw error;
+            },
+          }),
+        ).rejects.toBe(error);
+        expect(mockCoordinator.deleteAgentOperation).toHaveBeenCalledWith(mockParams.operationId);
+        expect(logError).toHaveBeenCalledWith(
+          expect.stringContaining('mark operation terminal'),
+          mockParams.operationId,
+          expect.any(Error),
+        );
+      } finally {
+        logError.mockRestore();
+      }
+    });
 
     it.each([undefined, 'parent-operation'])(
       'persists only caller hooks for a run with parent %s',

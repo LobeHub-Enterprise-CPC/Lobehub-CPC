@@ -43,6 +43,13 @@
       "when": 1792572574764,
       "tag": "0005_channel_run_isolation",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793362808138,
+      "tag": "0006_add_sub_agent_bridge",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,8 @@ import debug from 'debug';
 
 import { getServerDB } from '@/database/core/db-adaptor';
 import { getAgentRuntimeRedisClient } from '@/server/modules/AgentRuntime/redis';
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
+import { createHatchetDeliveryProbe } from '@/server/modules/Hatchet/probe';
 import { after } from '@/server/utils/scheduleAfterResponse';
 
 import { StaleOperationReaper } from './StaleOperationReaper';
@@ -120,7 +122,9 @@ export const scheduleOpportunisticStaleSweep = (): void => {
         console.error(`[opportunistic-sweep] ${phase} failed: %O`, error);
       },
       sweep: async () => {
-        const result = await new StaleOperationReaper(await getServerDB()).sweep();
+        const result = await new StaleOperationReaper(await getServerDB(), {
+          deliveryProbe: isHatchetDeliveryEnabled() ? createHatchetDeliveryProbe() : undefined,
+        }).sweep();
         log('sweep: %O', result);
       },
     }),

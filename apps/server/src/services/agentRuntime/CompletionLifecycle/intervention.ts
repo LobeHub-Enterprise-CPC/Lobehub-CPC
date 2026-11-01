@@ -6,6 +6,7 @@ import pMap from 'p-map';
 import { notifyAgentInterventionRequired } from '@/business/server/agent-run/agentInterventionReview';
 
 import { buildRuntimeInterventionNotification } from '../agentInterventionNotification';
+import { StepOwnershipLostError } from '../AgentRuntimeService/executionErrors';
 import type { CompletionLifecycleDeps } from './types';
 
 /**
@@ -30,6 +31,7 @@ export async function notifyPendingAgentIntervention(
   deps: CompletionLifecycleDeps,
   operationId: string,
   state: any,
+  assertOwnership?: () => Promise<void>,
 ): Promise<void> {
   try {
     const notification = await buildRuntimeInterventionNotification({
@@ -77,9 +79,14 @@ export async function notifyPendingAgentIntervention(
     // Contract boundary: Cloud resolves only after the generic batch is
     // durable. Push/Live Activity fanout failures are handled inside the
     // Cloud override and must not reject this call after persistence.
+    await assertOwnership?.();
     await notifyAgentInterventionRequired(notification);
   } catch (error) {
-    if (error instanceof CriticalAgentInterventionPersistenceError) throw error;
+    if (
+      error instanceof StepOwnershipLostError ||
+      error instanceof CriticalAgentInterventionPersistenceError
+    )
+      throw error;
     throw new CriticalAgentInterventionPersistenceError(operationId, error);
   }
 }

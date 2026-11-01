@@ -5,7 +5,7 @@ import type { Context } from 'hono';
 import { TaskModel } from '@/database/models/task';
 import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
-import { qstashClient } from '@/libs/qstash';
+import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { scheduleWindow } from '@/server/services/task/scheduleWindow';
 import { runScheduleTick } from '@/server/services/taskRunner/scheduleTick';
@@ -220,7 +220,7 @@ const fanout = async (db: ServerDB, due: DueTask[]): Promise<number> => {
 
     const results = await Promise.allSettled(
       due.map((d) =>
-        qstashClient.publishJSON({
+        getDirectDeliveryClient().publishJSON({
           body: { taskId: d.taskId, userId: d.userId },
           url,
         }),

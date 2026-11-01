@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
-import { qstashClient } from '@/libs/qstash';
+import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { forEachTenant } from '@/server/modules/Tenant/fanOut';
 import { startGatewayForAllTenants } from '@/server/services/gateway/tenantStart';
@@ -36,7 +36,7 @@ const fanOutSchedule = async (c: Context) => {
 
   const body = await c.req.json().catch(() => ({}));
   const { failed, succeeded } = await forEachTenant(`cron:${target}`, async () => {
-    const response = await qstashClient.publishJSON({
+    const response = await getDirectDeliveryClient().publishJSON({
       body,
       url: buildTenantCallbackUrl(target, process.env.APP_URL),
     });

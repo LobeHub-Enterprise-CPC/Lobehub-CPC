@@ -436,7 +436,46 @@ export async function createOperation(
       onInterventionPrepared?.();
     }
 
-    await params.onOperationCreated?.(operationId);
+    try {
+      await params.onOperationCreated?.(operationId);
+    } catch (error) {
+      if (hooksRegistered) hookDispatcher.unregister(operationId);
+      try {
+        const recorded = await deps.agentOperationModel.recordCompletion(operationId, {
+          completedAt: new Date(),
+          completionReason: 'error',
+          error: { type: 'operation_creation_callback_failed' },
+          status: 'error',
+        });
+        if (!recorded && operationStartPersisted) {
+          console.error(
+            'Failed to mark operation terminal after creation callback %s',
+            operationId,
+          );
+        }
+      } catch (recordError) {
+        console.error(
+          'Failed to mark operation terminal after creation callback %s: %O',
+          operationId,
+          recordError,
+        );
+      }
+      if (operationCreated) {
+        try {
+          await deps.coordinator.deleteAgentOperation(operationId);
+        } catch (cleanupError) {
+          console.error(
+            'Failed to cleanup operation after creation callback %s: %O',
+            operationId,
+            cleanupError,
+          );
+        }
+      }
+      // The callback owns the binding; without it this operation must not be redriven.
+      operationCreated = false;
+      hooksRegistered = false;
+      throw error;
+    }
 
     throwIfAborted(signal, 'Agent execution aborted before first step scheduling');
 

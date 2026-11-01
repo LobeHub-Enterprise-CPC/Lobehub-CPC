@@ -7,6 +7,8 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import { AgentOperationModel } from '@/database/models/agentOperation';
 import { agentOperations } from '@/database/schemas/agentOperations';
 import { AgentRuntimeCoordinator } from '@/server/modules/AgentRuntime';
+import { isDrainingAgentSteps } from '@/server/modules/AgentRuntime/stepDrain';
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
 import {
   AbandonOperationService,
   type AgentExecutionResult,
@@ -262,6 +264,11 @@ export async function runStep(c: Context): Promise<Response> {
       return c.json({ error: 'Invalid operation or unauthorized' }, 401);
     }
 
+    // A Hatchet delivery can wait in the queue (tenant concurrency) and between
+    // retries; every attempt pushes the runtime keys' expiry out again, so the
+    // state a delivery resumes from outlives the longest single wait.
+    if (isHatchetDeliveryEnabled()) await coordinator.touchOperation(operationId);
+
     const serverDB = await getServerDB();
     // Step through AiAgentService so the runtime keeps its `execSubAgent`
     // fork callback (needed by `lobe-agent.callSubAgent`). In QStash mode every
@@ -392,6 +399,15 @@ export async function runStep(c: Context): Promise<Response> {
           touchedEnvelope ||= Boolean(pendingContinuation);
 
           while (pendingContinuation) {
+            // Shutting down: finish at this step boundary and hand the next step
+            // to the queue, so another instance picks it up while this one drains.
+            if (isHatchetDeliveryEnabled() && isDrainingAgentSteps()) {
+              log(
+                `[${operationId}] Draining, handing step ${pendingContinuation.stepIndex} back to the queue`,
+              );
+              break;
+            }
+
             // Let the previous step's deferred work finish first. Its budget
             // hold is released there, and the next step reserves again.
             const settled = await flushScheduledWork({ timeoutMs: STEP_BOUNDARY_FLUSH_TIMEOUT_MS });

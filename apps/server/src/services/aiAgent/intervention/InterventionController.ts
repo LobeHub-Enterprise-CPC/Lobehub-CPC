@@ -406,6 +406,9 @@ export class InterventionController {
       });
     }
 
+    // The stopped operation is never resumed, so nothing reads its partial again.
+    await this.removeRetiredTracePartial(operationId);
+
     log(
       'stopPendingApproval: settled %d tool message(s), retired operation %s',
       targets.length,
@@ -448,7 +451,8 @@ export class InterventionController {
     if (!operation) {
       throw new Error(`retirePendingApprovalOperation: operation not found: ${operationId}`);
     }
-    if (operation.status === 'done' || operation.status === 'interrupted') return;
+    if (operation.status === 'done' || operation.status === 'interrupted')
+      return this.removeRetiredTracePartial(operationId);
     if (operation.status !== 'waiting_for_human') {
       throw new Error(
         `retirePendingApprovalOperation: expected waiting_for_human, got ${operation.status}`,
@@ -465,6 +469,23 @@ export class InterventionController {
       if (latest?.status !== 'done' && latest?.status !== 'interrupted') {
         throw new Error(`retirePendingApprovalOperation: failed to settle ${operationId}`);
       }
+    }
+    await this.removeRetiredTracePartial(operationId);
+  }
+
+  /**
+   * The park kept its trace partial for a resume under its own id; the decision
+   * continues on another operation, so nothing reads it again. Best-effort.
+   */
+  private async removeRetiredTracePartial(operationId: string): Promise<void> {
+    try {
+      await this.deps.agentRuntimeService.removeTracePartial(operationId);
+    } catch (error) {
+      log(
+        'retirePendingApprovalOperation: trace partial of %s not removed: %O',
+        operationId,
+        error,
+      );
     }
   }
 

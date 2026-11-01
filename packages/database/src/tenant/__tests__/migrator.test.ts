@@ -316,9 +316,19 @@ describe('the shared and tenant-only chains', () => {
           tenant.length,
         );
 
-        // The executor's verification covers the governance and Channel tables, whoever created them.
+        // The executor's verification covers tenant-only tables (governance, Channel, sub-agent bridges), whoever created them.
         const [lobehub] = getTenantMigrators();
         const context = { schemaName, tenantId };
+        await lobehub.verify(client, context);
+        await db.exec(
+          `ALTER TABLE "${schemaName}"."agent_sub_agent_bridges" DROP COLUMN "waiting_batch_id"`,
+        );
+        await expect(lobehub.verify(client, context)).rejects.toMatchObject({
+          reason: 'schema-not-provisioned',
+        });
+        await db.exec(
+          `ALTER TABLE "${schemaName}"."agent_sub_agent_bridges" ADD COLUMN "waiting_batch_id" text`,
+        );
         await lobehub.verify(client, context);
         await db.exec(
           `ALTER TABLE "${schemaName}"."command_governance_rules" DROP COLUMN "pattern"`,

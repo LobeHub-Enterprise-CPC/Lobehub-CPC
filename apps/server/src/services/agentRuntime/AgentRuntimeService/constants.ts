@@ -1,3 +1,5 @@
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
+
 /** Tries for a client wait's notice or expiry error on the assistant row. */
 export const CLIENT_WAIT_ROW_WRITE_ATTEMPTS = 3;
 
@@ -52,9 +54,12 @@ export const INTERVENTION_LIFECYCLE_CHECKPOINT_KEY = '_agentInterventionLifecycl
 
 /**
  * How many times a delivery that lost the operation lock re-queues itself
- * before giving up and falling back to a retryable response.
+ * before giving up and falling back to a retryable response. Hatchet delivery
+ * adds a 1s first retry ahead of the same backoff, so it gets one more.
  */
-export const STEP_LOCK_RETRY_MAX_ATTEMPTS = 12;
+export const STEP_LOCK_RETRY_MAX_ATTEMPTS = isHatchetDeliveryEnabled() ? 13 : 12;
+/** Hatchet delivery's first lock-conflict retry: a normal hand-off releases the lock within ms. */
+export const STEP_LOCK_FIRST_RETRY_DELAY_MS = 1000;
 /** Base delay for the first lock-conflict re-delivery. */
 export const STEP_LOCK_RETRY_BASE_DELAY_MS = 15_000;
 /**

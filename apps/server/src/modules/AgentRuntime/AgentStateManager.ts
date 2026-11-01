@@ -8,6 +8,9 @@ import { currentTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { type Redis } from 'ioredis';
 
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
+import { StepLockUnavailableError } from '@/server/services/agentRuntime/AgentRuntimeService/executionErrors';
+
 import { hasNonPersistedMessage } from './messagePersistence';
 import { getAgentRuntimeRedisClient } from './redis';
 
@@ -145,13 +148,19 @@ export class AgentStateManager {
   /**
    * Save Agent state
    */
-  async saveAgentState(operationId: string, state: AgentState): Promise<void> {
+  async saveAgentState(
+    operationId: string,
+    state: AgentState,
+    assertOwnership?: () => Promise<void>,
+  ): Promise<void> {
     const stateKey = `${this.STATE_PREFIX}:${operationId}`;
 
     try {
       const serializedState = this.serializeStateForPersist(state);
       await this.redis.setex(stateKey, this.DEFAULT_TTL, serializedState);
 
+      // The state write may have yielded long enough for this invocation to lose its lease.
+      await assertOwnership?.();
       // Update metadata
       await this.updateOperationMetadata(operationId, {
         lastActiveAt: new Date().toISOString(),
@@ -443,11 +452,9 @@ export class AgentStateManager {
     }
   }
 
-  /**
-   * Delete all data for Agent operation
-   */
-  async deleteAgentOperation(operationId: string): Promise<void> {
-    const keys = [
+  /** Every key an operation owns, besides its execution lock. */
+  private operationKeys(operationId: string): string[] {
+    return [
       `${this.STATE_PREFIX}:${operationId}`,
       `${this.STEPS_PREFIX}:${operationId}`,
       `${this.METADATA_PREFIX}:${operationId}`,
@@ -455,6 +462,28 @@ export class AgentStateManager {
       `${this.QUEUED_MESSAGES_PREFIX}:${operationId}`,
       `${this.INLINE_RESUME_PREFIX}:${operationId}`,
     ];
+  }
+
+  /**
+   * Extend every key of the operation by the full TTL (EXPIRE leaves absent
+   * keys absent). Each Hatchet step attempt calls this, so a run whose next
+   * attempt is still queued or waiting out a retry keeps its state. Errors
+   * propagate: a refresh that did not land must not read as done.
+   */
+  async touchOperation(operationId: string): Promise<void> {
+    const pipeline = this.redis.pipeline();
+    for (const key of this.operationKeys(operationId)) pipeline.expire(key, this.DEFAULT_TTL);
+
+    const results = await pipeline.exec();
+    const failure = results?.find(([error]) => error)?.[0];
+    if (failure) throw failure;
+  }
+
+  /**
+   * Delete all data for Agent operation
+   */
+  async deleteAgentOperation(operationId: string): Promise<void> {
+    const keys = this.operationKeys(operationId);
 
     try {
       await this.redis.del(...keys);
@@ -639,8 +668,11 @@ export class AgentStateManager {
 
       return result === 1;
     } catch (error) {
-      // Fail-open: on Redis error, allow execution to proceed
       console.error('Failed to acquire step lock:', error);
+      // Hatchet retries the delivery, so an unknown owner is not let through.
+      if (isHatchetDeliveryEnabled())
+        throw new StepLockUnavailableError(operationId, { cause: error });
+      // Fail-open: on Redis error, allow execution to proceed
       return true;
     }
   }
@@ -668,6 +700,10 @@ export class AgentStateManager {
       return result === 1;
     } catch (error) {
       console.error('Failed to refresh step lock:', error);
+      // Hatchet: `false` is "someone else holds it". An unreachable Redis says
+      // nothing about the owner, so it must not read as a loss.
+      if (isHatchetDeliveryEnabled())
+        throw new StepLockUnavailableError(operationId, { cause: error });
       return false;
     }
   }

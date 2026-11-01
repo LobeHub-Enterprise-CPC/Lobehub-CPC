@@ -25,6 +25,7 @@ import {
 import { CLIENT_LLM_WAIT_CAPABILITY } from '@/server/modules/AgentRuntime/llmRelay/protocol';
 
 import { CLIENT_WAIT_ROW_WRITE_ATTEMPTS } from './constants';
+import { StepOwnershipLostError } from './executionErrors';
 import type { AgentRuntimeServiceContext } from './types';
 
 const log = debug('lobe-server:agent-runtime-service');
@@ -64,6 +65,7 @@ export async function parkForClientLlm(
   context: AgentRuntimeContext | undefined,
   notAfter?: string,
   stepStartState?: AgentState,
+  assertOwnership?: () => Promise<void>,
 ): Promise<AgentState | undefined> {
   const reason = getClientLlmWaitableReason(errorState.error);
   if (!reason || !deps.queueService) return;
@@ -132,6 +134,7 @@ export async function parkForClientLlm(
   // Resume, expiry and Stop all key off the durable row, so it must say
   // `waiting_for_client` before anything advertises the wait. If it cannot,
   // fail the step as before rather than park a run nothing could settle.
+  await assertOwnership?.();
   try {
     const recorded = await deps.agentOperationModel.recordCompletion(operationId, {
       completionReason: 'waiting_for_client',
@@ -150,36 +153,61 @@ export async function parkForClientLlm(
   // only on the park it names: the parked state and the waiting notice must
   // already be in place, or it no-ops — or its terminal error is overwritten
   // by the notice — and the run waits with nothing left to end it.
+  //
+  // Once the parked state is written, the expiry is armed even if ownership
+  // goes: a redelivery ACKs a run in `waiting_for_client`, so nothing else
+  // would ever end the park, and an expiry naming another park is a no-op.
+  const armExpiry = () => armClientLlmWaitExpiry(deps, operationId, wait, parkedState.stepCount);
+
+  await assertOwnership?.();
   try {
-    await deps.coordinator.saveAgentState(operationId, parkedState);
+    await deps.coordinator.saveAgentState(operationId, parkedState, assertOwnership);
   } catch (error) {
+    if (error instanceof StepOwnershipLostError) {
+      // The loss can surface after the write landed.
+      try {
+        const current = await deps.coordinator.loadAgentState(operationId);
+        if (
+          current?.status === 'waiting_for_client' &&
+          current.clientLlmWait?.parkedAt === wait.parkedAt
+        )
+          await armExpiry();
+      } catch (armError) {
+        log('[%s] Could not arm the expiry of the saved park: %O', operationId, armError);
+      }
+      throw error;
+    }
     log('[%s] Could not save the parked state, failing instead: %O', operationId, error);
     return;
   }
 
   // The notice is the only thing a client that cannot run the provider sees
   // (its relay error handler re-reads the server-owned row), so a transient
-  // failure is retried rather than left as a silent park.
-  await deps.updateAssistantRowWithRetry(operationId, assistantMessage.id, {
-    error: buildClientLlmWaitMessageError(wait),
-  });
+  // failure is retried rather than left as a silent park. A lost ownership
+  // ends it; the park still gets its expiry before the loss is reported.
+  let ownershipLost: StepOwnershipLostError | undefined;
+  try {
+    await deps.updateAssistantRowWithRetry(
+      operationId,
+      assistantMessage.id,
+      { error: buildClientLlmWaitMessageError(wait) },
+      assertOwnership,
+    );
+  } catch (error) {
+    if (!(error instanceof StepOwnershipLostError)) throw error;
+    ownershipLost = error;
+  }
 
   try {
-    await deps.queueService.scheduleMessage({
-      context: undefined,
-      delay: Math.max(Date.parse(wait.expiresAt) - Date.now(), 0),
-      endpoint: `${deps.baseURL}/run`,
-      operationId,
-      payload: { clientLlmWaitExpired: wait.parkedAt },
-      priority: 'normal',
-      stepIndex: parkedState.stepCount,
-    });
+    await armExpiry();
   } catch (error) {
+    if (ownershipLost) throw ownershipLost;
     // Without the expiry the run could wait forever: fail it now instead
     // (the run's error then replaces the waiting notice on its row).
     log('[%s] Could not arm the client wait expiry, failing instead: %O', operationId, error);
     return;
   }
+  if (ownershipLost) throw ownershipLost;
 
   log(
     '[%s] Parked in waiting_for_client (provider=%s, reason=%s, until %s)',
@@ -189,6 +217,27 @@ export async function parkForClientLlm(
     wait.expiresAt,
   );
   return parkedState;
+}
+
+/**
+ * Queue the expiry check of a park, due at its deadline (at once past it).
+ * Arming it again is safe: an expiry acts only on the park it names.
+ */
+export async function armClientLlmWaitExpiry(
+  deps: Pick<ClientLlmWaitDeps, 'baseURL' | 'queueService'>,
+  operationId: string,
+  wait: AgentRunClientLlmWait,
+  stepIndex: number,
+) {
+  await deps.queueService?.scheduleMessage({
+    context: undefined,
+    delay: Math.max(Date.parse(wait.expiresAt) - Date.now(), 0),
+    endpoint: `${deps.baseURL}/run`,
+    operationId,
+    payload: { clientLlmWaitExpired: wait.parkedAt },
+    priority: 'normal',
+    stepIndex,
+  });
 }
 
 /**
@@ -337,17 +386,9 @@ export async function restoreClientLlmWait(
       .catch((error) => log('[%s] Failed to expire the overdue wait: %O', operationId, error));
     return;
   }
-  await deps.queueService
-    ?.scheduleMessage({
-      context: undefined,
-      delay: Math.max(Date.parse(wait.expiresAt) - Date.now(), 0),
-      endpoint: `${deps.baseURL}/run`,
-      operationId,
-      payload: { clientLlmWaitExpired: wait.parkedAt },
-      priority: 'normal',
-      stepIndex: parkedState.stepCount,
-    })
-    .catch((error) => log('[%s] Failed to re-arm the wait expiry: %O', operationId, error));
+  await armClientLlmWaitExpiry(deps, operationId, wait, parkedState.stepCount).catch((error) =>
+    log('[%s] Failed to re-arm the wait expiry: %O', operationId, error),
+  );
 }
 
 /** Put the claimed row back to `waiting_for_client`, riding out a transient DB error. */
@@ -495,12 +536,15 @@ export async function updateAssistantRowWithRetry(
   operationId: string,
   messageId: string,
   value: Parameters<MessageModel['update']>[1],
+  assertOwnership?: () => Promise<void>,
 ) {
   for (let attempt = 1; attempt <= CLIENT_WAIT_ROW_WRITE_ATTEMPTS; attempt += 1) {
+    await assertOwnership?.();
     try {
       await deps.messageModel.update(messageId, value);
       return;
     } catch (error) {
+      if (error instanceof StepOwnershipLostError) throw error;
       log('[%s] Failed to write the assistant row (%d): %O', operationId, attempt, error);
       if (attempt < CLIENT_WAIT_ROW_WRITE_ATTEMPTS) {
         await new Promise((resolve) => setTimeout(resolve, 100 * attempt));

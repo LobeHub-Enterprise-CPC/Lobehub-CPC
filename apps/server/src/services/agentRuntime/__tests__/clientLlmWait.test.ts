@@ -6,6 +6,7 @@ import { formatErrorForState } from '@/server/modules/AgentRuntime/formatErrorFo
 import { createClientLlmExecutorUnavailableError } from '@/server/modules/AgentRuntime/llmRelay/errors';
 
 import { AgentRuntimeService } from '../AgentRuntimeService';
+import { StepOwnershipLostError } from '../AgentRuntimeService/executionErrors';
 
 vi.mock('@/envs/app', () => ({ appEnv: { APP_URL: 'http://localhost:3010' } }));
 vi.mock('@/database/models/message', () => ({
@@ -173,6 +174,29 @@ describe('waiting_for_client (U4c)', () => {
   });
 
   describe('parking', () => {
+    it('does not write a client park after ownership is lost', async () => {
+      const t = createService();
+      t.messageModel.findLatestAssistantByOperationId.mockResolvedValue({
+        id: 'msg-assistant',
+        parentId: 'msg-user',
+      });
+      const lost = new StepOwnershipLostError(OPERATION_ID, 1);
+
+      await expect(
+        (t.service as any).parkForClientLlm(
+          OPERATION_ID,
+          unavailableErrorState('no_executor'),
+          { phase: 'user_input' },
+          undefined,
+          runningState(),
+          async () => {
+            throw lost;
+          },
+        ),
+      ).rejects.toBe(lost);
+      expect(t.operationModel.recordCompletion).not.toHaveBeenCalled();
+      expect(t.coordinator.saveAgentState).not.toHaveBeenCalled();
+    });
     it.each(['no_executor', 'claim_timeout', 'not_delivered'] as const)(
       'parks a step whose LLM call found no client (%s) instead of failing the run',
       async (reason) => {
@@ -245,6 +269,7 @@ describe('waiting_for_client (U4c)', () => {
           OPERATION_ID,
           expect.objectContaining({ status: 'waiting_for_client' }),
           'waiting_for_client',
+          { assertOwnership: undefined },
         );
       },
     );
@@ -406,7 +431,9 @@ describe('waiting_for_client (U4c)', () => {
 
       expect(t.getStored().status).toBe('error');
       expect(t.scheduleMessage).not.toHaveBeenCalled();
-      expect(t.dispatchHooks).toHaveBeenCalledWith(OPERATION_ID, expect.anything(), 'error');
+      expect(t.dispatchHooks).toHaveBeenCalledWith(OPERATION_ID, expect.anything(), 'error', {
+        assertOwnership: undefined,
+      });
     });
 
     it('honours AGENT_LLM_RELAY_CLIENT_WAIT_MS for the wait window', async () => {
@@ -879,6 +906,67 @@ describe('waiting_for_client (U4c)', () => {
       expect(step).not.toHaveBeenCalled();
       expect(result.state.status).toBe('waiting_for_client');
     });
+
+    // The park that lost ownership while arming its expiry has none, and this
+    // delivery is the one that comes back for it. A duplicate expiry no-ops.
+    it('re-arms the park expiry from a delivery it ignores, retrying if that fails', async () => {
+      const t = createService();
+      const parked = waitingState();
+      t.setStored(parked);
+      t.mockStep({ events: [], newState: runningState(), nextContext: undefined });
+      const delivery = {
+        context: { phase: 'user_input' } as any,
+        operationId: OPERATION_ID,
+        stepIndex: 2,
+      };
+
+      await t.service.executeStep(delivery);
+      expect(t.scheduleMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          delay: 600_000,
+          operationId: OPERATION_ID,
+          payload: { clientLlmWaitExpired: parked.clientLlmWait.parkedAt },
+        }),
+      );
+
+      // A failed re-arm must not end a park whose own expiry may be armed.
+      t.scheduleMessage.mockRejectedValueOnce(new Error('queue down'));
+      await expect(t.service.executeStep(delivery)).rejects.toThrow(/expiry/);
+      expect(t.getStored()).toBe(parked);
+    });
+
+    // A one-shot resume at step 2 (an async tool's, or a client's for an
+    // earlier park) can run inline on to step 5 and park there. Its redelivery
+    // still names step 2, so it is behind the park, with the step lock either
+    // released or still held by the lost owner.
+    for (const [lock, resume] of [
+      ['released', 'resumeAsyncTool'],
+      ['held', 'resumeAsyncTool'],
+      ['released', 'resumeClientLlm'],
+      ['held', 'resumeClientLlm'],
+    ] as const) {
+      it(`re-arms a later park from an older ${resume} delivery with the lock ${lock}`, async () => {
+        const t = createService();
+        const parked = waitingState({ stepCount: 5 });
+        t.setStored(parked);
+        if (lock === 'held') t.coordinator.tryClaimStep = vi.fn().mockResolvedValue(false);
+        const step = t.mockStep({ events: [], newState: runningState(), nextContext: undefined });
+        const delivery = { operationId: OPERATION_ID, [resume]: true, stepIndex: 2 };
+
+        await t.service.executeStep(delivery);
+        expect(step).not.toHaveBeenCalled();
+        expect(t.scheduleMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: { clientLlmWaitExpired: parked.clientLlmWait.parkedAt },
+            stepIndex: 5,
+          }),
+        );
+
+        t.scheduleMessage.mockRejectedValueOnce(new Error('queue down'));
+        await expect(t.service.executeStep(delivery)).rejects.toThrow(/expiry/);
+        expect(t.getStored()).toBe(parked);
+      });
+    }
   });
 
   describe('expiry', () => {

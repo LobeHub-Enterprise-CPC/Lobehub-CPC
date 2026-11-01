@@ -20,6 +20,7 @@ import debug from 'debug';
 import { AgentModel } from '@/database/models/agent';
 import { AgentOperationModel } from '@/database/models/agentOperation';
 import { AgentShareModel } from '@/database/models/agentShare';
+import { AgentSubAgentBridgeModel } from '@/database/models/agentSubAgentBridge';
 import { ChatGroupModel } from '@/database/models/chatGroup';
 import { ConnectorModel } from '@/database/models/connector';
 import { ConnectorToolModel } from '@/database/models/connectorTool';
@@ -58,6 +59,7 @@ import type { ApprovalClaimState } from './pipeline/approvalResume';
 import { execAgentTurn, type ExecAgentTurnDeps } from './pipeline/execTurn';
 import {
   createGroupMemberApprovalDeps,
+  linkGroupMemberContinuation,
   rearmGroupMemberDeadline,
   resolveGroupMemberApprovalContinuation,
 } from './pipeline/groupMemberApproval';
@@ -200,6 +202,9 @@ export class AiAgentService {
     return {
       agentOperationModel: this.agentOperationModel,
       agentRuntimeService: this.agentRuntimeService,
+      bridgeModel: new AgentSubAgentBridgeModel(this.db),
+      includeShareVisitor: this.proxyExecution,
+      workspaceId: this.workspaceId,
       execAgent: (p) => this.execAgent(p),
       messageModel: this.messageModel,
       threadModel: this.threadModel,
@@ -384,6 +389,10 @@ export class AiAgentService {
     return this.agentRuntimeService.releaseOperationLock(operationId, stepLockOwner);
   }
 
+  loadRunMessagesFromDB(state: AgentState) {
+    return this.agentRuntimeService.loadRunMessagesFromDB(state);
+  }
+
   /**
    * Run the sub-agent completion bridge against this service's runtime.
    *
@@ -500,6 +509,11 @@ export class AiAgentService {
         memberContinuation.parentOperationId,
       );
       const continuation = await this.execAgent(memberContinuation);
+      await linkGroupMemberContinuation(
+        { threadModel: this.threadModel },
+        memberContinuation,
+        continuation,
+      );
       await rearmGroupMemberDeadline(
         { agentRuntimeService: this.agentRuntimeService },
         memberContinuation,

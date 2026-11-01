@@ -138,6 +138,11 @@ export const getAppConfig = () => {
        * @default false
        */
       enableQueueAgentRuntime: z.boolean().optional(),
+      /**
+       * Queue-mode direct deliveries go through Hatchet instead of QStash
+       * (AGENT_RUNTIME_DELIVERY=hatchet). Only meaningful with the queue runtime.
+       */
+      enableHatchetAgentDelivery: z.boolean().optional(),
       TELEMETRY_DISABLED: z.boolean().optional(),
     },
     runtimeEnv: {
@@ -188,6 +193,7 @@ export const getAppConfig = () => {
       DESKTOP_DOWNLOAD_URL_MACOS: process.env.DESKTOP_DOWNLOAD_URL_MACOS,
       DESKTOP_DOWNLOAD_URL_WINDOWS: process.env.DESKTOP_DOWNLOAD_URL_WINDOWS,
       enableQueueAgentRuntime: process.env.AGENT_RUNTIME_MODE === 'queue',
+      enableHatchetAgentDelivery: process.env.AGENT_RUNTIME_DELIVERY === 'hatchet',
       TELEMETRY_DISABLED: process.env.TELEMETRY_DISABLED === '1',
     },
   });

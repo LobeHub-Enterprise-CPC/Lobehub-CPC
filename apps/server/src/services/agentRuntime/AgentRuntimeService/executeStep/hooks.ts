@@ -191,6 +191,7 @@ export async function dispatchAfterStepHooks(
 export async function persistStepTracking(
   deps: StepHooksDeps,
   {
+    assertOwnership,
     content,
     operationId,
     shouldContinue,
@@ -198,6 +199,7 @@ export async function persistStepTracking(
     stepResult,
     toolsCalling,
   }: {
+    assertOwnership?: () => Promise<void>;
     content: StepPresentation['content'];
     operationId: string;
     shouldContinue: boolean;
@@ -236,7 +238,8 @@ export async function persistStepTracking(
 
     // Persist tracking state for next step
     stepResult.newState.metadata._stepTracking = updatedTracking;
-    await deps.coordinator.saveAgentState(operationId, stepResult.newState);
+    await assertOwnership?.();
+    await deps.coordinator.saveAgentState(operationId, stepResult.newState, assertOwnership);
     logToolCallPc(operationId, stepIndex, 'post.step_tracking_saved', () => ({}));
   }
 }

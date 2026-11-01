@@ -13,6 +13,10 @@ vi.mock('@/libs/trusted-client', () => ({
 // Mock ThreadModel
 const mockThreadModel = {
   claimForRun: vi.fn(),
+  completeRun: vi.fn(),
+  failRun: vi.fn(),
+  linkRunOperation: vi.fn(),
+  updateProgressForRun: vi.fn(),
   create: vi.fn(),
   findById: vi.fn(),
   update: vi.fn(),
@@ -158,6 +162,9 @@ describe('AiAgentService.execSubAgent', () => {
       sourceMessageId: 'parent-msg-1',
     });
     mockThreadModel.update.mockResolvedValue({});
+    mockThreadModel.failRun.mockResolvedValue(true);
+    mockThreadModel.linkRunOperation.mockResolvedValue(true);
+    mockThreadModel.completeRun.mockResolvedValue(true);
     mockOperationFindById.mockResolvedValue({ trigger: 'cli' });
 
     service = new AiAgentService(mockDb, userId);
@@ -223,7 +230,7 @@ describe('AiAgentService.execSubAgent', () => {
       });
 
       expect(mockThreadModel.update).toHaveBeenCalledWith('thread-123', {
-        metadata: { startedAt: expect.any(String) },
+        metadata: { runToken: expect.any(String), startedAt: expect.any(String) },
         status: ThreadStatus.Processing,
       });
     });
@@ -360,10 +367,48 @@ describe('AiAgentService.execSubAgent', () => {
         topicId: 'topic-1',
       });
 
-      // Second update call should be storing operationId and startedAt in metadata
-      expect(mockThreadModel.update).toHaveBeenCalledWith('thread-123', {
-        metadata: { operationId: 'op-123', startedAt: expect.any(String) },
+      expect(mockThreadModel.linkRunOperation).toHaveBeenCalledWith(
+        'thread-123',
+        expect.any(String),
+        'op-123',
+      );
+    });
+
+    it('installs the token before a fast completion and only links the operation afterward', async () => {
+      let token: unknown;
+      vi.spyOn(service, 'execAgent').mockImplementation(async (params) => {
+        const hook = params.hooks!.find((h) => h.id === 'thread-completion')!;
+        token = hook.webhook!.body!.runToken;
+        expect(mockThreadModel.update).toHaveBeenCalledWith('thread-123', {
+          metadata: { runToken: token, startedAt: expect.any(String) },
+          status: ThreadStatus.Processing,
+        });
+        await hook.handler!({
+          operationId: 'fast-op',
+          reason: 'done',
+          finalState: {
+            operationId: 'fast-op',
+            messages: [],
+            cost: { total: 1 },
+          },
+        } as any);
+        return { success: true, operationId: 'fast-op' } as any;
       });
+      await service.execSubAgent({
+        agentId: 'agent-1',
+        instruction: 'fast',
+        parentMessageId: 'source',
+        topicId: 'topic-1',
+      });
+      expect(mockThreadModel.completeRun).toHaveBeenCalledWith(
+        'thread-123',
+        token,
+        'fast-op',
+        ThreadStatus.Completed,
+        expect.objectContaining({ totalCost: 1 }),
+      );
+      expect(mockThreadModel.linkRunOperation).toHaveBeenCalledWith('thread-123', token, 'fast-op');
+      expect(mockThreadModel.update).toHaveBeenCalledTimes(1);
     });
 
     it('should return correct result on success', async () => {
@@ -426,16 +471,17 @@ describe('AiAgentService.execSubAgent', () => {
       });
 
       // Should update Thread status to failed with metadata
-      expect(mockThreadModel.update).toHaveBeenCalledWith('thread-123', {
-        metadata: expect.objectContaining({
+      expect(mockThreadModel.failRun).toHaveBeenCalledWith(
+        'thread-123',
+        expect.any(String),
+        expect.objectContaining({
           completedAt: expect.any(String),
           duration: expect.any(Number),
           error: 'Agent execution failed',
           operationId: 'op-123',
           startedAt: expect.any(String),
         }),
-        status: ThreadStatus.Failed,
-      });
+      );
     });
 
     it('should store error info with duration in Thread metadata when execAgent fails', async () => {
@@ -463,11 +509,9 @@ describe('AiAgentService.execSubAgent', () => {
       });
 
       // Last update call should contain error info, completedAt, startedAt, and duration
-      const lastUpdateCall = mockThreadModel.update.mock.calls.find(
-        (call) => call[1].status === ThreadStatus.Failed,
-      );
+      const lastUpdateCall = mockThreadModel.failRun.mock.calls[0];
       expect(lastUpdateCall).toBeDefined();
-      expect(lastUpdateCall![1].metadata).toMatchObject({
+      expect(lastUpdateCall![2]).toMatchObject({
         completedAt: expect.any(String),
         duration: expect.any(Number),
         error: 'QStash service unavailable',
@@ -637,7 +681,7 @@ describe('AiAgentService.execSubAgent', () => {
       expect(mockThreadModel.claimForRun).toHaveBeenCalledWith(
         'thread-old',
         { operationId: 'op-old', status: ThreadStatus.Failed },
-        { startedAt: expect.any(String) },
+        { runToken: expect.any(String), startedAt: expect.any(String) },
       );
       expect(execAgentSpy).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -770,9 +814,11 @@ describe('AiAgentService.execSubAgent', () => {
         expect.anything(),
         expect.objectContaining(carried),
       );
-      expect(mockThreadModel.update).toHaveBeenCalledWith('thread-old', {
-        metadata: expect.objectContaining({ ...carried, operationId: 'op-new' }),
-      });
+      expect(mockThreadModel.linkRunOperation).toHaveBeenCalledWith(
+        'thread-old',
+        expect.any(String),
+        'op-new',
+      );
 
       const completion = execAgentSpy.mock.calls[0][0].hooks?.find(
         (h) => h.id === 'thread-completion',
@@ -788,23 +834,27 @@ describe('AiAgentService.execSubAgent', () => {
         reason: 'done',
       } as any);
 
-      expect(mockThreadModel.update).toHaveBeenLastCalledWith('thread-old', {
-        metadata: expect.objectContaining({
+      expect(mockThreadModel.completeRun).toHaveBeenLastCalledWith(
+        'thread-old',
+        expect.any(String),
+        'op-new',
+        ThreadStatus.Completed,
+        expect.objectContaining({
           totalCost: 0.75,
           totalTokens: 1400,
           totalToolCalls: 5,
         }),
-        status: ThreadStatus.Completed,
-      });
+      );
     });
 
     it('marks the claimed thread failed when the run cannot be created', async () => {
       vi.spyOn(service, 'execAgent').mockRejectedValue(new Error('db down'));
 
       await expect(service.execVirtualSubAgent(followUp)).rejects.toThrow('db down');
-      expect(mockThreadModel.update).toHaveBeenCalledWith(
+      expect(mockThreadModel.failRun).toHaveBeenCalledWith(
         'thread-old',
-        expect.objectContaining({ status: ThreadStatus.Failed }),
+        expect.any(String),
+        expect.objectContaining({ error: 'Error: db down' }),
       );
     });
   });

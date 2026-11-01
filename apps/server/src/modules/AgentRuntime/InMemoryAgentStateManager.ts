@@ -252,6 +252,12 @@ export class InMemoryAgentStateManager implements IAgentStateManager {
     this.inlineResumes.delete(operationId);
   }
 
+  /** Nothing here expires on a TTL; `cleanupExpiredOperations` ages runs by `lastActiveAt`. */
+  async touchOperation(operationId: string): Promise<void> {
+    const metadata = this.metadata.get(operationId);
+    if (metadata) metadata.lastActiveAt = new Date().toISOString();
+  }
+
   async tryClaimStep(
     operationId: string,
     _stepIndex: number,

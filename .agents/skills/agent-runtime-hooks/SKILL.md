@@ -54,7 +54,7 @@ execAgent({ hooks })
 | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
 | `packages/agent-runtime/src/types/hooks.ts`                                                      | Event types and required/optional fields                  |
 | `apps/server/src/services/agentRuntime/hooks/types.ts`                                           | Registration and webhook types                            |
-| `apps/server/src/services/agentRuntime/hooks/HookDispatcher.ts`                                  | Registration, dispatch, local mocks, HTTP/QStash delivery |
+| `apps/server/src/services/agentRuntime/hooks/HookDispatcher.ts`                                  | Registration, dispatch, local mocks, HTTP/queued delivery |
 | `apps/server/src/services/agentRuntime/hooks/webhookPayload.ts`                                  | Event projection and email enrichment                     |
 | `apps/server/src/modules/AgentRuntime/adapters/toolCallHookContext.ts`                           | Shared tool-event context builder                         |
 | `apps/server/src/modules/AgentRuntime/adapters/ServerToolTransport.ts`                           | Tool notifications and execution results                  |
@@ -177,8 +177,16 @@ Tool observation payloads use `BeforeToolCallObservationEvent`; the callback bel
 
 When email is selected, the builder resolves `userEmail` from the final effective `userId`, replacing supplied email values. Email-only projections use the event ID. An explicit invalid ID, missing email or lookup error leaves email omitted.
 
-Email queries share a per-dispatcher cache of up to 1,000 users for five minutes. Query timeouts belong to the database layer. The builder's optional fourth `{ signal }` argument lets a waiter cancel independently; cancellation returns `undefined` so the caller can stop delivery. Fetch and QStash use the enriched payload.
+Email queries share a per-dispatcher cache of up to 1,000 users for five minutes. Query timeouts belong to the database layer. The builder's optional fourth `{ signal }` argument lets a waiter cancel independently; cancellation returns `undefined` so the caller can stop delivery. Fetch and queued delivery use the enriched payload.
 
 ## Delivery Errors
 
-Dispatch awaits each handler or webhook. Ordinary errors are logged and dispatch continues. Webhooks with `fallback: 'none'` accumulate a `CriticalHookDeliveryError`, which is thrown after sibling hooks have run. QStash delivery defaults to a fetch fallback; use `fallback: 'none'` for QStash-signed endpoints.
+Dispatch awaits each handler or webhook. Ordinary errors are logged and dispatch continues. Webhooks with `fallback: 'none'` accumulate a `CriticalHookDeliveryError`, which is thrown after sibling hooks have run.
+
+`delivery: 'qstash'` is queued delivery. It publishes through QStash, or through Hatchet when Hatchet delivery is on (`AGENT_RUNTIME_MODE=queue` with `AGENT_RUNTIME_DELIVERY=hatchet`), via `getDirectDeliveryClient()` in `hooks/httpWebhook.ts`. A failed publish defaults to a fetch fallback; use `fallback: 'none'` for endpoints that require the queue's signature. Under Hatchet, only deliveries to the app's own origin are signed; external webhooks arrive unsigned.
+
+## Queued Delivery Rules
+
+- Publish one-off deliveries (webhooks, callbacks to our own routes) through `getDirectDeliveryClient()` from `apps/server/src/modules/Hatchet/directDelivery.ts`, never through `qstashClient` or a new QStash client. Only that client follows the Hatchet switch. Upstash Workflow triggers keep using QStash.
+- State that instrumentation and route handlers share (drain participants, pending publishes, after-response work, tenant leases) lives on `globalThis` under a `Symbol.for('lobehub.<name>')` key. The bundles load separate module instances, so a module-level variable is two variables.
+- A new `runStep` payload field needs a decision in `apps/server/src/modules/Hatchet/purpose.ts`, which mirrors `isPlainStepDelivery` in `apps/server/src/router-hono/agent/handlers/runStep.ts` and the watchdogs of `runLockFreeDelivery`. A field left out there is classified as a plain step, and the reaper treats its run as owning the operation's next step.

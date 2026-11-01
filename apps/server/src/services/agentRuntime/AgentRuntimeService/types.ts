@@ -309,6 +309,7 @@ export interface AgentRuntimeServiceContext {
   getPendingInterventions: Bound<typeof getPendingInterventions>;
   handleGroupMemberTimeout: Bound<typeof handleGroupMemberTimeout>;
   readonly humanIntervention: HumanInterventionHandler;
+  readonly includeShareVisitor: boolean;
   injectQueuedFollowUp: Bound<typeof injectQueuedFollowUp>;
   interruptOperation: Bound<typeof interruptOperation>;
   isCallSubAgentToolMessage: Bound<typeof isCallSubAgentToolMessage>;

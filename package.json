@@ -224,6 +224,7 @@
     "@floating-ui/react": "^0.27.20",
     "@formkit/auto-animate": "^0.9.0",
     "@google/genai": "^2.13.0",
+    "@hatchet-dev/typescript-sdk": "1.45.0",
     "@henrygd/queue": "^1.2.0",
     "@huggingface/inference": "^4.13.25",
     "@icons-pack/react-simple-icons": "^13.13.0",

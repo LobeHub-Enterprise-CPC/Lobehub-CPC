@@ -122,6 +122,31 @@ describe('AgentRuntimeService', () => {
     hookDispatcher.unregister('test-operation-1');
   });
 
+  describe('loadRunMessagesFromDB', () => {
+    it('restores the runtime flat list and the final assistant from persisted tool groups', async () => {
+      (service as any).messageModel.query.mockResolvedValue(
+        buildPersistedToolChain('database answer'),
+      );
+      const result = await service.loadRunMessagesFromDB({
+        operationId: 'child-op-1',
+        origin: { agentId: 'agent-1', threadId: 'thread-1', topicId: 'topic-1' },
+      } as any);
+      expect(result.messages.length).toBeGreaterThan(0);
+      expect(result.lastAssistantContent).toBe('database answer');
+      expect((service as any).messageModel.query).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: 'agent-1', threadId: 'thread-1', topicId: 'topic-1' }),
+        expect.objectContaining({ allowShareVisitor: true }),
+      );
+    });
+
+    it('propagates database errors so callbacks can retry', async () => {
+      (service as any).messageModel.query.mockRejectedValue(new Error('database down'));
+      await expect(
+        service.loadRunMessagesFromDB({ origin: { threadId: 'thread-1' } } as any),
+      ).rejects.toThrow('database down');
+    });
+  });
+
   describe('completeSubAgentBridge', () => {
     const bridgeParams = {
       operationId: 'child-op-1',

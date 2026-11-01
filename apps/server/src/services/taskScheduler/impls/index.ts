@@ -1,5 +1,5 @@
 import { appEnv } from '@/envs/app';
-import { qstashClient } from '@/libs/qstash';
+import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 
 import { LocalTaskScheduler, type TaskExecutionCallback } from './local';
 import { QStashTaskScheduler } from './qstash';
@@ -25,7 +25,7 @@ export const createTaskSchedulerModule = (): TaskSchedulerImpl => {
     if (!baseUrl) {
       throw new Error('APP_URL is required to schedule heartbeat ticks via QStash');
     }
-    cachedScheduler = new QStashTaskScheduler({ baseUrl, qstashClient });
+    cachedScheduler = new QStashTaskScheduler({ baseUrl, qstashClient: getDirectDeliveryClient() });
     return cachedScheduler;
   }
 

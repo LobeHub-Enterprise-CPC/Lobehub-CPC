@@ -18,6 +18,7 @@ import {
 } from '@/server/services/verify';
 import { after } from '@/server/utils/scheduleAfterResponse';
 
+import { StepOwnershipLostError } from '../AgentRuntimeService/executionErrors';
 import { CriticalHookDeliveryError, hookDispatcher } from '../hooks';
 import { recoverLastAssistantContent, resolveErrorMessageId } from './assistantMessage';
 import { registerFileWorks } from './fileWorks';
@@ -180,8 +181,18 @@ export class CompletionLifecycle {
     state: any,
     reason: string,
     settledAsAbandoned?: boolean,
+    strict?: boolean,
+    assertOwnership?: () => Promise<void>,
   ): Promise<boolean> {
-    return persistCompletion(this.deps(), operationId, state, reason, settledAsAbandoned);
+    return persistCompletion(
+      this.deps(),
+      operationId,
+      state,
+      reason,
+      settledAsAbandoned,
+      strict,
+      assertOwnership,
+    );
   }
 
   /**
@@ -225,6 +236,8 @@ export class CompletionLifecycle {
       const messageModel = new MessageModel(this.serverDB, userId, undefined, undefined, {
         includeShareVisitor: this.includeShareVisitor,
       });
+      // One card per Agent Run: a replayed completion lifecycle comes back here.
+      if (await messageModel.findVerifyMessageByOperationId(operationId)) return;
       await messageModel.create({
         agentId: op.agentId ?? undefined,
         content: '',
@@ -325,6 +338,7 @@ export class CompletionLifecycle {
     // operation the same way: it resumes under this id or expires to `error`.
     const isAsyncToolPark = reason === 'waiting_for_async_tool' || reason === 'waiting_for_client';
     let shouldRetainHooksForRetry = false;
+    let criticalAccepted = false;
 
     try {
       const {
@@ -336,12 +350,23 @@ export class CompletionLifecycle {
 
       // Finalize the agent_operations row before user hooks fire so
       // downstream consumers see the row in its terminal shape.
-      const completionAccepted = await this.persistCompletion(
-        operationId,
-        state,
-        reason,
-        options?.settledAsAbandoned,
-      );
+      const completionAccepted = options?.strict
+        ? await this.persistCompletion(
+            operationId,
+            state,
+            reason,
+            options.settledAsAbandoned,
+            true,
+            options.assertOwnership,
+          )
+        : await this.persistCompletion(
+            operationId,
+            state,
+            reason,
+            options?.settledAsAbandoned,
+            undefined,
+            options?.assertOwnership,
+          );
       if (completionAccepted === false) {
         log('[%s] Skipping hooks for an operation with a conflicting terminal owner', operationId);
         return;
@@ -351,7 +376,7 @@ export class CompletionLifecycle {
       // agent_operations. Verify the tool rows independently before creating a
       // durable Review so a partial batch can never reach notification UI.
       if (reason === 'waiting_for_human') {
-        await this.notifyPendingAgentIntervention(operationId, state);
+        await this.notifyPendingAgentIntervention(operationId, state, options?.assertOwnership);
       }
 
       if (isAsyncToolPark) return;
@@ -383,7 +408,9 @@ export class CompletionLifecycle {
         }
       }
 
+      await options?.assertOwnership?.();
       await hookDispatcher.dispatch(operationId, 'onComplete', event, state?.host?.hooks);
+      if (reason !== 'error') criticalAccepted = true;
 
       // Recall the user when a run finishes with a deliverable while they may be
       // away (push / inbox). Fires on every success-like terminal — `done` plus
@@ -492,6 +519,7 @@ export class CompletionLifecycle {
 
       if (reason === 'error') {
         await hookDispatcher.dispatch(operationId, 'onError', event, state?.host?.hooks);
+        criticalAccepted = true;
 
         const assistantMessageId =
           state?.error && !options?.skipErrorMessageWrite
@@ -525,6 +553,8 @@ export class CompletionLifecycle {
       }
     } catch (error) {
       if (
+        error instanceof StepOwnershipLostError ||
+        (options?.strict && !criticalAccepted) ||
         error instanceof CriticalHookDeliveryError ||
         error instanceof CriticalAgentInterventionPersistenceError
       ) {
@@ -549,8 +579,12 @@ export class CompletionLifecycle {
     }
   }
 
-  private async notifyPendingAgentIntervention(operationId: string, state: any): Promise<void> {
-    return notifyPendingAgentIntervention(this.deps(), operationId, state);
+  private async notifyPendingAgentIntervention(
+    operationId: string,
+    state: any,
+    assertOwnership?: () => Promise<void>,
+  ): Promise<void> {
+    return notifyPendingAgentIntervention(this.deps(), operationId, state, assertOwnership);
   }
 
   private async recallUserOnCompletion(

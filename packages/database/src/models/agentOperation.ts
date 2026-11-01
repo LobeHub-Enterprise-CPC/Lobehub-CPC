@@ -52,6 +52,19 @@ export interface RecordOperationStartParams {
   trigger?: string;
 }
 
+/** Durable handoff from an async-tool barrier to its queued continuation. */
+export interface AsyncToolResumeIntent {
+  /** Re-publishes claimed by the reconciler; the original publish is not one. */
+  attempts?: number;
+  createdAt: string;
+  deduplicationId: string;
+  execution?: { sourceAcceptedVersion: number; tenantId: string };
+  payload: { finishAfterAsyncTool: true } | { resumeAsyncTool: true };
+  state: 'pending' | 'confirmed';
+  stepIndex: number;
+  waitingToolCallIds: string[];
+}
+
 export interface AgentInterventionDispatchMarker {
   deduplicationId: string;
   messageId: string;
@@ -864,10 +877,19 @@ export class AgentOperationModel {
   }
 
   /** Resume once, while this execution and its optional child link still match. */
-  async tryResumeFromAsyncTool(operationId: string, childOperationId?: string): Promise<boolean> {
+  async tryResumeFromAsyncTool(
+    operationId: string,
+    childOperationId?: string,
+    intent?: AsyncToolResumeIntent,
+  ): Promise<boolean> {
     const rows = await this.db
       .update(agentOperations)
-      .set({ status: 'running' })
+      .set({
+        status: 'running',
+        ...(intent && {
+          metadata: sql`coalesce(${agentOperations.metadata}, '{}'::jsonb) || ${JSON.stringify({ asyncToolResumeIntent: intent })}::jsonb`,
+        }),
+      })
       .where(
         and(
           eq(agentOperations.id, operationId),
@@ -878,6 +900,142 @@ export class AgentOperationModel {
       )
       .returning({ id: agentOperations.id });
     return rows.length === 1;
+  }
+
+  /**
+   * Move examined rows behind unexamined rows, so a backlog cannot starve newer intents.
+   *
+   * This and the other intent bookkeeping below (renew, release, confirm) keep
+   * `updatedAt`: it is the run's liveness lease, and a sweep looking at a run is
+   * no sign that anything executes it. Only the claim moves it, as the reaper's
+   * redrive claim does, because a resume is published under the claim.
+   */
+  async noteAsyncToolResumeScan(
+    operationId: string,
+    deduplicationId: string,
+    at: Date,
+  ): Promise<void> {
+    const intent = sql`${agentOperations.metadata}->'asyncToolResumeIntent'`;
+    await this.db
+      .update(agentOperations)
+      .set({
+        metadata: sql`jsonb_set(${agentOperations.metadata}, '{asyncToolResumeIntent,lastScannedAt}', to_jsonb(${at.toISOString()}::text), true)`,
+        updatedAt: sql`${agentOperations.updatedAt}`,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.userId, this.userId),
+          sql`${intent}->>'state' = 'pending'`,
+          sql`${intent}->>'deduplicationId' = ${deduplicationId}`,
+        ),
+      );
+  }
+
+  /**
+   * Claim one re-publish of a pending intent under a new deduplication key.
+   * Each claim counts against `maxAttempts`, so a resume its receiver keeps
+   * refusing is not re-sent forever.
+   */
+  async claimAsyncToolResume(
+    operationId: string,
+    previousKey: string,
+    nextKey: string,
+    owner: string,
+    now: Date,
+    until: Date,
+    maxAttempts: number,
+  ): Promise<boolean> {
+    const intent = sql`${agentOperations.metadata}->'asyncToolResumeIntent'`;
+    const attempts = sql`coalesce((${intent}->>'attempts')::int, 0)`;
+    const rows = await this.db
+      .update(agentOperations)
+      .set({
+        metadata: sql`jsonb_set(${agentOperations.metadata}, '{asyncToolResumeIntent}', ${intent} || ${JSON.stringify({ deduplicationId: nextKey, leaseOwner: owner, leaseUntil: until.toISOString() })}::jsonb || jsonb_build_object('attempts', ${attempts} + 1))`,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.userId, this.userId),
+          eq(agentOperations.status, 'running'),
+          sql`${intent}->>'state' = 'pending'`,
+          sql`${intent}->>'deduplicationId' = ${previousKey}`,
+          sql`COALESCE(${intent}->>'leaseUntil', '') <= ${now.toISOString()}`,
+          sql`${attempts} < ${maxAttempts}::int`,
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return rows.length > 0;
+  }
+
+  async renewAsyncToolResume(
+    operationId: string,
+    owner: string,
+    now: Date,
+    until: Date,
+  ): Promise<boolean> {
+    const intent = sql`${agentOperations.metadata}->'asyncToolResumeIntent'`;
+    const rows = await this.db
+      .update(agentOperations)
+      .set({
+        metadata: sql`jsonb_set(${agentOperations.metadata}, '{asyncToolResumeIntent,leaseUntil}', to_jsonb(${until.toISOString()}::text))`,
+        updatedAt: sql`${agentOperations.updatedAt}`,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.userId, this.userId),
+          sql`${intent}->>'state' = 'pending'`,
+          sql`${intent}->>'leaseOwner' = ${owner}`,
+          sql`${intent}->>'leaseUntil' > ${now.toISOString()}`,
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return rows.length > 0;
+  }
+
+  async releaseAsyncToolResume(operationId: string, owner: string): Promise<boolean> {
+    const intent = sql`${agentOperations.metadata}->'asyncToolResumeIntent'`;
+    const rows = await this.db
+      .update(agentOperations)
+      .set({
+        // Parenthesized: binary `-` binds tighter than `->`.
+        metadata: sql`jsonb_set(${agentOperations.metadata}, '{asyncToolResumeIntent}', (${intent}) - 'leaseOwner' - 'leaseUntil')`,
+        updatedAt: sql`${agentOperations.updatedAt}`,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.userId, this.userId),
+          sql`${intent}->>'state' = 'pending'`,
+          sql`${intent}->>'leaseOwner' = ${owner}`,
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * Settle the current generation once its parent has moved past the handoff.
+   * A publication alone is no proof: its run can still end FAILED in Hatchet.
+   */
+  async confirmAsyncToolResume(operationId: string, deduplicationId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(agentOperations)
+      .set({
+        metadata: sql`jsonb_set(${agentOperations.metadata}, '{asyncToolResumeIntent,state}', '"confirmed"'::jsonb)`,
+        updatedAt: sql`${agentOperations.updatedAt}`,
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.userId, this.userId),
+          sql`${agentOperations.metadata}->'asyncToolResumeIntent'->>'deduplicationId' = ${deduplicationId}`,
+          sql`${agentOperations.metadata}->'asyncToolResumeIntent'->>'state' = 'pending'`,
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return rows.length > 0;
   }
 
   /**
@@ -966,3 +1124,46 @@ export class AgentOperationModel {
   // `verify_plan` / `verify_status` columns here are deprecated (see schema) and
   // no longer read or written through this model.
 }
+
+/**
+ * Pending async-tool resume intents of every user in this tenant database,
+ * least recently examined first, for the system-level reconciler. Kept out of
+ * {@link AgentOperationModel}, which is user-scoped by construction; the
+ * reconciler re-enters the model with each row's own owner to change it.
+ *
+ * Pages by `(scannedAt, id)`, where `scannedAt` is the intent's ISO text
+ * `lastScannedAt` (else `createdAt`): pass the last row's pair as `cursor`.
+ */
+export const listPendingAsyncToolResumes = (
+  db: LobeChatDatabase,
+  before: Date,
+  scanBefore: Date,
+  limit: number,
+  cursor?: { id: string; scannedAt: string },
+) => {
+  const intent = sql`${agentOperations.metadata}->'asyncToolResumeIntent'`;
+  const scannedAt = sql<string>`coalesce(${intent}->>'lastScannedAt', ${intent}->>'createdAt')`;
+  return db
+    .select({
+      createdAt: agentOperations.createdAt,
+      id: agentOperations.id,
+      intent: sql<AsyncToolResumeIntent>`${intent}`,
+      scannedAt,
+      userId: agentOperations.userId,
+      workspaceId: agentOperations.workspaceId,
+    })
+    .from(agentOperations)
+    .where(
+      and(
+        eq(agentOperations.status, 'running'),
+        sql`${intent}->>'state' = 'pending'`,
+        sql`${intent}->>'createdAt' <= ${before.toISOString()}`,
+        sql`${scannedAt} < ${scanBefore.toISOString()}`,
+        cursor
+          ? sql`(${scannedAt}, ${agentOperations.id}) > (${cursor.scannedAt}, ${cursor.id})`
+          : undefined,
+      ),
+    )
+    .orderBy(scannedAt, agentOperations.id)
+    .limit(limit);
+};

@@ -6,6 +6,7 @@ import { WorkModel } from '@/database/models/work';
 import type * as WorkRegistrationModule from '@/server/services/workRegistration';
 import { registerWorksForOperation } from '@/server/services/workRegistration';
 
+import { StepOwnershipLostError } from '../AgentRuntimeService/executionErrors';
 import { hookDispatcher } from '../hooks';
 import { CompletionLifecycle, CriticalAgentInterventionPersistenceError } from '.';
 import {
@@ -97,6 +98,30 @@ describe('CompletionLifecycle.dispatchHooks — parks do not register file works
       }),
     };
   };
+
+  it('propagates loss during pending-row reads without publishing or wrapping the Review', async () => {
+    const lifecycle = buildLifecycle();
+    vi.spyOn(lifecycle as any, 'persistCompletion').mockResolvedValue(true);
+    stubDurablePendingRows(lifecycle);
+    mockBuildRuntimeInterventionNotification.mockResolvedValue(pendingNotification);
+    let owned = true;
+    const model = (lifecycle as any).messageModel;
+    const find = model.findMessagePlugin.getMockImplementation();
+    model.findMessagePlugin.mockImplementation(async (...args: any[]) => {
+      const plugin = await find(...args);
+      owned = false;
+      return plugin;
+    });
+    const lost = new StepOwnershipLostError('op-1', 3);
+    await expect(
+      lifecycle.dispatchHooks('op-1', { status: 'waiting_for_human' }, 'waiting_for_human', {
+        assertOwnership: async () => {
+          if (!owned) throw lost;
+        },
+      }),
+    ).rejects.toBe(lost);
+    expect(mockNotifyAgentInterventionRequired).not.toHaveBeenCalled();
+  });
 
   it('publishes Review only after operation and every sealed batch row are durable', async () => {
     const lifecycle = buildLifecycle();

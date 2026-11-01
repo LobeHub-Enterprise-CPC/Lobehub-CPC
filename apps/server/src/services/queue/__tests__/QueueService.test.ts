@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock appEnv before importing QueueService
 const mockAppEnv = {
+  enableHatchetAgentDelivery: false,
   enableQueueAgentRuntime: false,
 };
 
@@ -37,6 +38,7 @@ describe('QueueService', () => {
     vi.resetModules();
     // Reset to default local mode
     mockAppEnv.enableQueueAgentRuntime = false;
+    mockAppEnv.enableHatchetAgentDelivery = false;
     qstashMocks.client.mockClear();
     qstashMocks.publishJSON.mockReset();
   });
@@ -230,6 +232,25 @@ describe('QueueService', () => {
 
       // Cleanup
       delete process.env.QSTASH_TOKEN;
+    });
+
+    it('delivers through Hatchet with AGENT_RUNTIME_DELIVERY=hatchet, without a QStash token', async () => {
+      mockAppEnv.enableQueueAgentRuntime = true;
+      mockAppEnv.enableHatchetAgentDelivery = true;
+      delete process.env.QSTASH_TOKEN;
+
+      const { createQueueServiceModule } = await import('../impls');
+      const { HatchetQueueServiceImpl } = await import('../impls/hatchet');
+
+      expect(createQueueServiceModule()).toBeInstanceOf(HatchetQueueServiceImpl);
+    });
+
+    it('ignores the Hatchet delivery flag outside queue mode', async () => {
+      mockAppEnv.enableHatchetAgentDelivery = true;
+
+      const { createQueueServiceModule, LocalQueueServiceImpl } = await import('../impls');
+
+      expect(createQueueServiceModule()).toBeInstanceOf(LocalQueueServiceImpl);
     });
 
     it('should return false for isLocalExecution when in queue mode', async () => {
