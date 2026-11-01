@@ -86,7 +86,7 @@ import { flagQueuedMessagesOnRunStart, syncQueuedMessagesFlag } from './queuedMe
 import { isCompletedRuntimeEnd } from './runtimeEndReason';
 import * as serverSteerQueue from './serverSteerQueue';
 
-const getGatewayServerConfig = () =>
+export const getGatewayServerConfig = () =>
   (typeof window !== 'undefined'
     ? window.global_serverConfigStore?.getState()?.serverConfig
     : undefined) ?? getServerConfigStoreState()?.serverConfig;

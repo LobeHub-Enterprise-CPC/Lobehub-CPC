@@ -39,7 +39,14 @@ const toolMessageId = 'pending-tool';
 const sourceMutation = () =>
   vi.mocked(lambdaClient.aiAgent.resolveAgentInterventionBySource.mutate);
 
-const seed = (serverSource = true) => {
+const setAgentGatewayUrl = (agentGatewayUrl?: string) => {
+  (window as any).global_serverConfigStore = {
+    getState: () => ({ serverConfig: { agentGatewayUrl } }),
+  };
+};
+
+const seed = (serverSource = true, { hasGateway = true } = {}) => {
+  setAgentGatewayUrl(hasGateway ? 'https://gateway.test' : undefined);
   const message = createMockMessage({
     id: toolMessageId,
     plugin: { apiName: 'askUser', arguments: '{}', identifier: 'lobe-agent', type: 'builtin' },
@@ -93,7 +100,10 @@ beforeEach(() => {
       success: true,
     } as never);
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  delete (window as any).global_serverConfigStore;
+});
 
 const actions = {
   approve: () => useChatStore.getState().approveToolCalling(toolMessageId, '', context),
@@ -185,5 +195,18 @@ describe('server-origin intervention with client-configured agent after reload',
     expect(sourceMutation()).not.toHaveBeenCalled();
     expect(store.executeClientAgent).toHaveBeenCalledOnce();
     expect(store.optimisticUpdateMessagePlugin).toHaveBeenCalled();
+  });
+});
+
+describe('server-origin intervention without an agent gateway', () => {
+  it.each([
+    ['answer', actions.answer],
+    ['approve', actions.approve],
+  ] as const)('keeps %s on the client execution path', async (_name, action) => {
+    const store = seed(true, { hasGateway: false });
+    await action();
+    expect(sourceMutation()).not.toHaveBeenCalled();
+    expect(store.executeGatewayAgent).not.toHaveBeenCalled();
+    expect(store.executeClientAgent).toHaveBeenCalledOnce();
   });
 });

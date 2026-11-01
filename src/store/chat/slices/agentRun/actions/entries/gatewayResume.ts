@@ -20,14 +20,20 @@ import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
 
 import { selectRuntimeType } from '../dispatch/agentDispatcher';
+import { getGatewayServerConfig } from '../transports/gateway/gateway';
 
-/** A persisted server source survives reloads and changes to the agent's execution target. */
+/**
+ * A persisted server source survives reloads and changes to the agent's execution target.
+ * Its resume still runs through the Agent Gateway, so a deployment without one keeps the
+ * client path that continues the conversation.
+ */
 export const shouldUseGatewayResume = async (
   context: ConversationContext,
   toolMessageIds: string[],
   get: () => ChatStore,
 ): Promise<boolean> => {
   if (
+    !!getGatewayServerConfig()?.agentGatewayUrl &&
     toolMessageIds.some((id) => {
       const message = dbMessageSelectors.getDbMessageById(id)(get());
       return !!message?.pluginIntervention?.operationId && !!message.pluginIntervention.batchId;
