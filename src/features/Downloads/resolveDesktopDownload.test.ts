@@ -48,9 +48,9 @@ describe('resolveDesktopDownload', () => {
     ).toEqual({ available: false });
   });
 
-  it('keeps the tenant prefix of the page when linking to its own page', () => {
-    // The offer opens in a new tab as a plain link: a bare `/downloads` there
-    // reaches the proxy without a tenant and answers NOT_FOUND.
+  it('links to the platform downloads page, not the tenant one', () => {
+    // `/downloads` is a public platform page; under `/orgs/{slug}` it sits
+    // behind tenant sign-in, so a signed-out visitor never sees the installers.
     expect(
       resolveDesktopDownload({
         appBaseUrl: 'https://app.example.com/orgs/acme',
@@ -58,7 +58,7 @@ describe('resolveDesktopDownload', () => {
         isCustomBranding: true,
         urls: { windows: 'https://example.com/releases/stable/Setup.exe' },
       }),
-    ).toEqual({ available: true, href: 'https://app.example.com/orgs/acme/downloads' });
+    ).toEqual({ available: true, href: 'https://app.example.com/downloads' });
   });
 
   it('tolerates a trailing slash on the app address', () => {
