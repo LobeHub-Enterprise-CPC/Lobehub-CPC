@@ -286,6 +286,11 @@ export interface AgentExecutionResult {
  */
 export interface SubAgentBridgeParams {
   /**
+   * Reconciler replay of a lost callback whose parent no longer waits on the
+   * call: backfill the card, never resume the parent.
+   */
+  backfillOnly?: boolean;
+  /**
    * Failure reason known to the caller but absent from the child's stored
    * state — set when the watchdog abandoned the child, whose coordinator state
    * was never marked errored.

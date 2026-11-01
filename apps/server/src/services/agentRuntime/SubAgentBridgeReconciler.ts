@@ -22,6 +22,9 @@ const LEASE_MS = 120_000;
 const SWEEP_TIME_BUDGET_MS = 20_000;
 const TERMINAL = new Set(['done', 'error', 'interrupted', 'abandoned']);
 
+const replayReason = (status: string) =>
+  status === 'done' ? 'done' : status === 'interrupted' ? 'interrupted' : 'error';
+
 const event = (
   name: 'processed' | 'recovered' | 'failed' | 'skipped' | 'error',
   reason: string,
@@ -182,6 +185,19 @@ export class SubAgentBridgeReconciler {
               }
             } else if (expired) failure = 'recovery_window_expired';
             else {
+              // The callback that would have filled the card can be lost
+              // entirely; fill it from the child here, leaving the parent alone.
+              // The next sweep settles the binding as already delivered.
+              if (validation.reason === 'tool_not_pending')
+                await new AiAgentService(this.db, binding.userId, {
+                  workspaceId,
+                  includeShareVisitor: binding.includeShareVisitor,
+                }).completeSubAgentBridge({
+                  ...params,
+                  backfillOnly: true,
+                  reason: replayReason(child.status),
+                  reconcileLeaseOwner: owner,
+                });
               totals.skipped++;
               event('skipped', validation.reason, binding.childOperationId);
               continue;
@@ -191,13 +207,7 @@ export class SubAgentBridgeReconciler {
               workspaceId,
               includeShareVisitor: binding.includeShareVisitor,
             });
-            const reason = expired
-              ? 'error'
-              : child.status === 'done'
-                ? 'done'
-                : child.status === 'interrupted'
-                  ? 'interrupted'
-                  : 'error';
+            const reason = expired ? 'error' : replayReason(child.status);
             await service.completeSubAgentBridge({
               ...params,
               reason,

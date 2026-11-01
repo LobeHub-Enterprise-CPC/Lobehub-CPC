@@ -257,6 +257,25 @@ describe('sub-agent bridge reconciliation', () => {
     expect(mocks.complete).not.toHaveBeenCalled();
   });
 
+  it('backfills the card of a lost callback whose parent no longer waits on it, without resuming', async () => {
+    // A parent stopped while parked keeps its waiting row; only its Redis state moved on.
+    mocks.validate.mockResolvedValue({ allowed: false, reason: 'tool_not_pending' });
+    mocks.loadState.mockResolvedValue({ status: 'interrupted' });
+    const result = await new SubAgentBridgeReconciler({} as never).sweep(now);
+    expect(mocks.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backfillOnly: true,
+        operationId: 'child',
+        reason: 'done',
+        reconcileLeaseOwner: expect.any(String),
+      }),
+    );
+    // Settled as already delivered by the next sweep, once the card holds the result.
+    expect(result).toMatchObject({ errors: 0, failed: 0, recovered: 0, skipped: 1 });
+    expect(mocks.failed).not.toHaveBeenCalled();
+    expect(mocks.recovered).not.toHaveBeenCalled();
+  });
+
   it('lets only one concurrent sweeper hold a candidate lease', async () => {
     mocks.list
       .mockReset()

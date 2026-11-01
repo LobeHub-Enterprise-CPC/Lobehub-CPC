@@ -162,13 +162,17 @@ async function completeSubAgentBridgeWithLease(
     const validation = await validateSubAgentBridge(deps, params);
     if (!validation.allowed) {
       logBridgeRejection(params, validation.reason);
-      if (validation.reason === 'parent_not_waiting' || params.reconcileLeaseOwner) {
-        throw new Error('Sub-agent bridge parent not yet waiting');
-      }
-      if (validation.reason !== 'tool_not_pending') return false;
       // Identity, generation and batch checks passed: the card still gets the
       // child's result (a parent stopped while parked never resumes). Only the
       // resume needs the parent to be waiting on this call.
+      const backfillOnly =
+        validation.reason === 'tool_not_pending' &&
+        (!params.reconcileLeaseOwner || params.backfillOnly);
+      if (!backfillOnly) {
+        if (validation.reason === 'parent_not_waiting' || params.reconcileLeaseOwner)
+          throw new Error('Sub-agent bridge parent not yet waiting');
+        return false;
+      }
       resumeParent = false;
     }
   }

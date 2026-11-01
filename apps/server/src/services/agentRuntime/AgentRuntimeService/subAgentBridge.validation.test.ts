@@ -221,6 +221,22 @@ describe('durable sub-agent bridge validation', () => {
     expect(mocks.delivered).not.toHaveBeenCalled();
   });
 
+  it('lets the reconciler backfill a lost callback without resuming the parent', async () => {
+    const x = setup();
+    x.state.status = 'interrupted';
+    const replay = { ...params, backfillOnly: true, reconcileLeaseOwner: 'sweeper' };
+    expect(await completeSubAgentBridge(x.deps as never, replay)).toBe(false);
+    expect(x.deps.messageModel.updateToolMessage).toHaveBeenCalledWith(
+      'tool',
+      expect.objectContaining({ content: 'answer', onlyIfEmpty: true }),
+    );
+    expect(x.deps.tryResumeParentFromAsyncTool).not.toHaveBeenCalled();
+    // A plain reconciler replay still refuses a parent that is not waiting on this call.
+    await expect(
+      completeSubAgentBridge(x.deps as never, { ...params, reconcileLeaseOwner: 'sweeper' }),
+    ).rejects.toThrow('not yet waiting');
+  });
+
   it('retries while an idle parent has not started', async () => {
     const x = setup();
     x.parent.status = 'idle';
