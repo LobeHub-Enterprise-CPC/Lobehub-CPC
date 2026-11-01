@@ -7,6 +7,7 @@ import {
   assertRetryPolicy,
   deliveryDedupKey,
   getAgentStepTask,
+  maxInputBytes,
   triggerDelivery,
 } from '@/server/modules/Hatchet/tasks';
 import type { DeliveryInput } from '@/server/modules/Hatchet/types';
@@ -46,21 +47,7 @@ export class HatchetQueueServiceImpl implements QueueServiceImpl {
     assertRetryPolicy(retries, retryDelay);
 
     const tenantKey = message.execution?.tenantId ?? '_';
-    const { body } = fitBodyToQuota(
-      {
-        body: {
-          execution: message.execution,
-          context,
-          operationId,
-          payload,
-          priority,
-          stepIndex,
-          timestamp: Date.now(),
-        },
-      },
-      operationId,
-    );
-    const input: DeliveryInput = {
+    const toInput = (body: unknown): DeliveryInput => ({
       body: JSON.stringify(body),
       dedupKey: deliveryDedupKey(tenantKey, deduplicationId),
       headers: {
@@ -74,7 +61,31 @@ export class HatchetQueueServiceImpl implements QueueServiceImpl {
       tenantKey,
       timeoutMs: HATCHET_TIMING.stepHttpTimeoutMs,
       url: endpoint,
-    };
+    });
+    // The gRPC message carries the whole input with the body escaped once more,
+    // so clamp against what `triggerDelivery` measures, not the QStash quota.
+    const limitBytes = maxInputBytes();
+    const { body } = fitBodyToQuota(
+      {
+        body: {
+          execution: message.execution,
+          context,
+          operationId,
+          payload,
+          priority,
+          stepIndex,
+          timestamp: Date.now(),
+        },
+      },
+      operationId,
+      {
+        budgetBytes: limitBytes,
+        limitBytes,
+        measure: (candidate) => Buffer.byteLength(JSON.stringify(toInput(candidate)), 'utf8'),
+        transport: 'Hatchet',
+      },
+    );
+    const input = toInput(body);
 
     const messageId = await triggerDelivery(getAgentStepTask(), input, {
       additionalMetadata: {

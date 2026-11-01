@@ -208,17 +208,24 @@ describe('HatchetQueueServiceImpl', () => {
     );
   });
 
-  it('refuses an input past the gRPC budget with an error naming the operation', async () => {
-    // Under the body quota, but every quote doubles again once the body is a string in the input.
-    const quotes = '"'.repeat(4 * 1024 * 1024);
+  it('clamps a body under the QStash quota until the whole input fits the gRPC budget', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // 5 MiB in the body, under the 9 MiB QStash quota but over the 4 MiB SDK default
+    // once the body is a string in the input, where every quote is escaped again.
+    const quotes = '"'.repeat(2.5 * 1024 * 1024);
 
-    const error = await impl
-      .scheduleMessage(message({ payload: { quotes } }))
-      .catch((error: Error) => error);
-    expect(error).toBeInstanceOf(Error);
-    expect(error.message).toContain('op-1');
-    expect(error.message).toMatch(/\d+ bytes/);
-    expect(step.runNoWait).not.toHaveBeenCalled();
+    await expect(impl.scheduleMessage(message({ payload: { quotes } }))).resolves.toBe('run_run-1');
+
+    const [[input]] = runs();
+    expect(Buffer.byteLength(JSON.stringify(input))).toBeLessThanOrEqual(
+      4 * 1024 * 1024 - 64 * 1024,
+    );
+    expect(JSON.parse(input.body).payload.quotes).toContain(
+      'characters omitted so the step could be scheduled',
+    );
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('agent.queue.oversized_message_clamped'),
+    );
   });
 
   it('counts each publish as pending until Hatchet answers', async () => {

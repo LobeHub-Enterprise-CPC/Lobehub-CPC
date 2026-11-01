@@ -104,15 +104,15 @@ export const assertRetryPolicy = (retries: number, retryDelay?: string): void =>
  * A run's input travels in a gRPC message twice: in the trigger, and in the
  * action a worker receives. SDK 1.45.0 caps both at 4 MiB unless
  * HATCHET_CLIENT_GRPC_MAX_SEND_MESSAGE_LENGTH and _RECV_MESSAGE_LENGTH raise
- * them (the engine has to accept as much). The body was already clamped to
- * the QStash budget, but as a string inside the input every quote and
- * backslash is escaped again, so measure the whole input against the lower
- * limit, leaving room for the rest of the message.
+ * them (the engine has to accept as much). As a string inside the input
+ * every quote and backslash of the body is escaped again, so measure the
+ * whole input against the lower limit, leaving room for the rest of the
+ * message. Agent steps clamp their body to this limit before they get here.
  */
 const SDK_DEFAULT_GRPC_MESSAGE_BYTES = 4 * 1024 * 1024;
 const GRPC_MESSAGE_HEADROOM_BYTES = 64 * 1024;
 
-const maxInputBytes = (): number => {
+export const maxInputBytes = (): number => {
   // As the SDK itself does, fall back to its default where a limit is unset.
   const { config } = getHatchetClient();
   const send = config?.grpc_max_send_message_length ?? SDK_DEFAULT_GRPC_MESSAGE_BYTES;

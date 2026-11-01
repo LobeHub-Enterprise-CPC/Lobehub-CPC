@@ -71,29 +71,48 @@ const clampOversizedStrings = (value: unknown, keep: number): unknown => {
   return value;
 };
 
+interface BodyQuota {
+  budgetBytes: number;
+  limitBytes: number;
+  /** Bytes the transport carries for a candidate body. */
+  measure: (body: unknown) => number;
+  transport: string;
+}
+
+const QSTASH_QUOTA: BodyQuota = {
+  budgetBytes: QSTASH_BODY_BUDGET_BYTES,
+  limitBytes: QSTASH_MAX_BODY_BYTES,
+  measure: byteLength,
+  transport: 'QStash',
+};
+
 /**
- * Keep a step schedulable when its body outgrew the QStash message quota:
- * clamp its strings rather than let the publish 500 and take the whole
- * operation down. The step still runs — it just sees a truncated copy of
- * whatever ran away. Clamping tightens until the body MEASURES under budget,
- * so a body that is oversized through many mid-sized strings is handled too,
- * not only one runaway blob.
+ * Keep a step schedulable when its body outgrew the transport's message quota
+ * (QStash's by default): clamp its strings rather than let the publish 500 and
+ * take the whole operation down. The step still runs — it just sees a
+ * truncated copy of whatever ran away. Clamping tightens until the body
+ * MEASURES under budget, so a body that is oversized through many mid-sized
+ * strings is handled too, not only one runaway blob.
  */
-export const fitBodyToQuota = <T extends { body: unknown }>(request: T, operationId: string): T => {
-  const size = byteLength(request.body);
-  if (size <= QSTASH_BODY_BUDGET_BYTES) return request;
+export const fitBodyToQuota = <T extends { body: unknown }>(
+  request: T,
+  operationId: string,
+  quota: BodyQuota = QSTASH_QUOTA,
+): T => {
+  const size = quota.measure(request.body);
+  if (size <= quota.budgetBytes) return request;
 
   for (const keep of OVERSIZED_STRING_KEEP_LADDER) {
     const body = clampOversizedStrings(request.body, keep);
-    const clampedBytes = byteLength(body);
-    if (clampedBytes > QSTASH_BODY_BUDGET_BYTES) continue;
+    const clampedBytes = quota.measure(body);
+    if (clampedBytes > quota.budgetBytes) continue;
 
     console.warn(
       JSON.stringify({
         bytes: size,
         clampedBytes,
         event: 'agent.queue.oversized_message_clamped',
-        limitBytes: QSTASH_MAX_BODY_BYTES,
+        limitBytes: quota.limitBytes,
         operationId,
         stringKeep: keep,
       }),
@@ -107,7 +126,7 @@ export const fitBodyToQuota = <T extends { body: unknown }>(request: T, operatio
   // which no truncation can fix; fail with something diagnosable instead of
   // an opaque `quota maxMessageSize exceeded` 500 from the provider.
   throw new Error(
-    `QStash message for operation ${operationId} is ${size} bytes and cannot be reduced under the ${QSTASH_MAX_BODY_BYTES} byte quota`,
+    `${quota.transport} message for operation ${operationId} is ${size} bytes and cannot be reduced under the ${quota.limitBytes} byte quota`,
   );
 };
 
