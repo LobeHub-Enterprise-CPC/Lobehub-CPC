@@ -30,10 +30,15 @@ const reservedHeaders = new Set([
   'upstash-retried',
 ]);
 
+/**
+ * `signingKey` is passed for our own routes only. Their verification does not
+ * bind the URL, so a token signed with that key and handed to an external
+ * receiver would pass on any of them; external webhooks go unsigned.
+ */
 const deliveryHeaders = (
   input: DeliveryInput,
   attempt: DeliveryAttempt,
-  signingKey: string,
+  signingKey: string | undefined,
   now: number,
 ): Headers => {
   const headers = new Headers();
@@ -42,16 +47,17 @@ const deliveryHeaders = (
     if (!reservedHeaders.has(forwarded.toLowerCase())) headers.set(forwarded, value);
   }
   if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  headers.set(
-    'Upstash-Signature',
-    signUpstashRequest({
-      body: input.body,
-      messageId: attempt.messageId,
-      now,
-      signingKey,
-      url: input.url,
-    }),
-  );
+  if (signingKey)
+    headers.set(
+      'Upstash-Signature',
+      signUpstashRequest({
+        body: input.body,
+        messageId: attempt.messageId,
+        now,
+        signingKey,
+        url: input.url,
+      }),
+    );
   headers.set('Upstash-Message-Id', attempt.messageId);
   headers.set('Upstash-Retried', String(attempt.attempt));
   return headers;
@@ -149,7 +155,7 @@ export const deliver = async (
         port: process.env.PORT ?? '3210',
       },
     );
-    headers = deliveryHeaders(input, attempt, signingKey, now());
+    headers = deliveryHeaders(input, attempt, target.loopback ? signingKey : undefined, now());
     if (target.loopback) headers.set('Host', target.host);
   } catch {
     return { kind: 'failed', reason: 'InvalidInput' };

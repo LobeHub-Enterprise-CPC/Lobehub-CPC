@@ -390,7 +390,7 @@ describe('deliver response mapping', () => {
     });
   });
 
-  it('validates signed external headers against actual fetch body', async () => {
+  it('never signs an external delivery with the internal signing key', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(null, { status: 204 }));
@@ -424,14 +424,9 @@ describe('deliver response mapping', () => {
     expect([...headers.keys()].some((name) => name.startsWith('upstash-forward-'))).toBe(false);
     expect(headers.get('Authorization')).toBe('Bearer token');
     expect(headers.get('Upstash-Message-Id')).toBe(attempt.messageId);
-    const receiver = new Receiver({ currentSigningKey: signingKey, nextSigningKey: signingKey });
-    await expect(
-      receiver.verify({
-        body: String(request.body),
-        signature: headers.get('Upstash-Signature')!,
-        url: externalInput.url,
-      }),
-    ).resolves.toBe(true);
+    // A token signed with the internal key would also pass our own routes'
+    // verification, which does not bind the URL.
+    expect(headers.get('Upstash-Signature')).toBeNull();
   });
 
   it('cancels large external response streams at the byte limit', async () => {
