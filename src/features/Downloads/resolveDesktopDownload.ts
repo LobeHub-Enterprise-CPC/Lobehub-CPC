@@ -9,9 +9,9 @@ export interface DesktopDownloadTarget {
 
 interface ResolveOptions {
   /**
-   * The address this app is served under (`https://host/orgs/acme`). The offer is
-   * opened as a plain link, outside the router, so the page's own tenant prefix
-   * has to be part of it. Omitted, the link stays a root-relative `/downloads`.
+   * The address this app is served under (`https://host/orgs/acme`). Only its
+   * origin is used: `/downloads` is a public platform page, while the tenant
+   * copy sits behind sign-in. Omitted, the link stays a root-relative `/downloads`.
    */
   appBaseUrl?: string;
   /** `DOWNLOAD_URL.default` — the hosted site's downloads page. */
@@ -22,12 +22,20 @@ interface ResolveOptions {
   urls?: DesktopDownloadUrls;
 }
 
+const originOf = (url: string) => {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
+};
+
 /**
  * Decide where the product's "get the desktop app" entries should lead.
  *
  * Three cases, and the third is the one worth spelling out:
  *
- * 1. The deployment publishes its own installers → its own `/downloads`.
+ * 1. The deployment publishes its own installers → its platform `/downloads`.
  * 2. Upstream, publishing none of its own → the hosted downloads page, which is
  *    that build's own site. Unchanged behaviour.
  * 3. A rebranded build publishing none → **nothing**. Falling through to the
@@ -47,8 +55,7 @@ export const resolveDesktopDownload = ({
 }: ResolveOptions): DesktopDownloadTarget => {
   const hasOwnDownloads = Boolean(urls && (urls.macOS || urls.windows));
 
-  if (hasOwnDownloads)
-    return { available: true, href: `${appBaseUrl.replace(/\/+$/, '')}/downloads` };
+  if (hasOwnDownloads) return { available: true, href: `${originOf(appBaseUrl)}/downloads` };
   if (isCustomBranding) return { available: false };
 
   return { available: true, href: fallbackUrl };

@@ -697,8 +697,9 @@ const createMainAreaChildrenDefinition = (options: MainAreaRouteOptions = {}): R
   // Installer downloads (personal-only — never mirrored under /:workspaceSlug).
   //
   // Upstream removed its own downloads hub; this distribution keeps a route
-  // here because `useDesktopDownload` resolves to it and four call sites link
-  // there. The page itself redirects away when nothing is configured.
+  // here for the published `/orgs/{slug}/downloads` address (in-app offers link
+  // to the platform's public `/downloads`). The page itself redirects away when
+  // nothing is configured.
   {
     element: dynamicElement(() => import('@/routes/(main)/downloads'), 'Desktop > Downloads'),
     errorElement: <ErrorBoundary />,
