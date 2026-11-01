@@ -54,7 +54,8 @@ const failureReason = (error: unknown): string =>
  * with its `phase`, without dropping what the tenant's other sweeps did.
  *
  * `failed` counts recoveries that threw, except in `reconciliation`, where it
- * counts bindings settled as failed and `errors` the ones that threw.
+ * counts bindings settled as failed and `errors` the ones that threw. A sweep
+ * whose every candidate threw answers 5xx too.
  */
 export const reapOperationsForAllTenants = async (c: Context): Promise<Response> => {
   const queueService = createRedriveQueue();
@@ -108,8 +109,16 @@ export const reapOperationsForAllTenants = async (c: Context): Promise<Response>
   if (failedTenants.length > 0)
     console.error('[cron:reap-operations] tenant sweeps failed: %o', failedTenants);
 
+  // As in the agent handler: a sweep where every candidate threw is an outage,
+  // not a quiet tick, so answer 5xx for the scheduler to alert on.
+  const allThrew = (examined: number, threw: number) => examined > 0 && threw === examined;
+  const outage =
+    allThrew(totals.examined, totals.failed) ||
+    allThrew(asyncToolResume.examined, asyncToolResume.failed) ||
+    allThrew(reconciliation.processed, reconciliation.errors);
+
   return c.json(
     { ...totals, asyncToolResume, failedTenants, reconciliation, skippedReasons },
-    failedTenants.length > 0 ? 500 : 200,
+    failedTenants.length > 0 || outage ? 500 : 200,
   );
 };

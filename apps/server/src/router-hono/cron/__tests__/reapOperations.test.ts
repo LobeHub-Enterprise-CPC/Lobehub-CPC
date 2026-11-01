@@ -198,6 +198,28 @@ describe('stale-operation cron sweep', () => {
     });
   });
 
+  it.each([
+    ['reaper', () => mocks.sweep.mockResolvedValue({ ...sweepResult, failed: 3, redriven: 0 })],
+    [
+      'asyncToolResume',
+      () =>
+        mocks.asyncToolSweep.mockResolvedValue({ ...idleAsyncToolResume, examined: 2, failed: 2 }),
+    ],
+    [
+      'subAgentBridge',
+      () => mocks.reconcile.mockResolvedValue({ ...idleReconciliation, errors: 2, processed: 2 }),
+    ],
+  ])('answers 5xx when every %s candidate threw in every tenant', async (_phase, allThrew) => {
+    mocks.hatchetDelivery = true;
+    allThrew();
+    mocks.forEachTenant.mockImplementation(fanOutOver(['tenant-a', 'tenant-b']));
+
+    const response = await respond();
+
+    expect(response.status).toBe(500);
+    expect(response.body).toMatchObject({ failedTenants: [] });
+  });
+
   it('keeps the reaper totals and still runs the bridge sweep when the async-tool sweep throws', async () => {
     mocks.hatchetDelivery = true;
     const order: string[] = [];
