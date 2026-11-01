@@ -57,7 +57,7 @@ export function startStepAbortPoll(
       // that large blob at a much lower cadence until all writers have
       // sentinel support.
       let interrupted = await deps.coordinator.isInterrupted(operationId);
-      if (!(await isGatewayStateExecutionCurrent(operationId, execution))) {
+      if (!interrupted && !(await isGatewayStateExecutionCurrent(operationId, execution))) {
         await deps.coordinator.markInterrupted(operationId);
         interrupted = true;
       }

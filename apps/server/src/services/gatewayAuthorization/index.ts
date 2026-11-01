@@ -24,13 +24,13 @@ import {
   MAX_GATEWAY_DEVICE_ID_BYTES,
 } from './wire';
 
-export const assertGatewayVersion = async (tenantId: string, version: number) => {
+export const assertGatewayVersion = async (tenantId: string, version: number, maxAgeMs = 0) => {
   if (!Number.isInteger(version) || version < 1)
     throw new GatewayAuthorizationError('TENANT_EXECUTION_VERSION_REQUIRED', 400);
   const scope = requireTenantScope();
   if (scope.tenantId !== tenantId || scope.acceptedVersion !== version)
     throw new GatewayAuthorizationError('TENANT_EXECUTION_VERSION_STALE', 409);
-  const admission = await getTenantRuntime().gatewayAdmission(tenantId);
+  const admission = await getTenantRuntime().gatewayAdmission(tenantId, maxAgeMs);
   if (admission.effectiveState !== 'active')
     throw new GatewayAuthorizationError(`TENANT_${admission.effectiveState.toUpperCase()}`, 403);
   if (admission.acceptedVersion !== version)
