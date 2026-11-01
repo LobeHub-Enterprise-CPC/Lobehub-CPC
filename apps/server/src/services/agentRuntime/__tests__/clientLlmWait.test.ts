@@ -906,6 +906,34 @@ describe('waiting_for_client (U4c)', () => {
       expect(step).not.toHaveBeenCalled();
       expect(result.state.status).toBe('waiting_for_client');
     });
+
+    // The park that lost ownership while arming its expiry has none, and this
+    // delivery is the one that comes back for it. A duplicate expiry no-ops.
+    it('re-arms the park expiry from a delivery it ignores, retrying if that fails', async () => {
+      const t = createService();
+      const parked = waitingState();
+      t.setStored(parked);
+      t.mockStep({ events: [], newState: runningState(), nextContext: undefined });
+      const delivery = {
+        context: { phase: 'user_input' } as any,
+        operationId: OPERATION_ID,
+        stepIndex: 2,
+      };
+
+      await t.service.executeStep(delivery);
+      expect(t.scheduleMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          delay: 600_000,
+          operationId: OPERATION_ID,
+          payload: { clientLlmWaitExpired: parked.clientLlmWait.parkedAt },
+        }),
+      );
+
+      // A failed re-arm must not end a park whose own expiry may be armed.
+      t.scheduleMessage.mockRejectedValueOnce(new Error('queue down'));
+      await expect(t.service.executeStep(delivery)).rejects.toThrow(/expiry/);
+      expect(t.getStored()).toBe(parked);
+    });
   });
 
   describe('expiry', () => {

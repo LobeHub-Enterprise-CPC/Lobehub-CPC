@@ -8,7 +8,11 @@ import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
 
 import { CriticalAgentInterventionPersistenceError } from '../../CompletionLifecycle';
 import { logToolCallPc } from '../../formalObservation';
-import { StepLockUnavailableError, StepOwnershipLostError } from '../executionErrors';
+import {
+  ClientWaitExpiryUnarmedError,
+  StepLockUnavailableError,
+  StepOwnershipLostError,
+} from '../executionErrors';
 import type { AgentRuntimeServiceContext } from '../types';
 import {
   markCompletionLifecyclePending,
@@ -107,8 +111,13 @@ export async function failStep(
 
   // Hatchet lock failures say nothing about the run, only that this attempt
   // may not run or commit the step. The delivery comes back; settling the run
-  // as an error here would end it under whoever owns it now.
-  if (error instanceof StepOwnershipLostError || error instanceof StepLockUnavailableError) {
+  // as an error here would end it under whoever owns it now. Nor does an
+  // unarmed client wait expiry: the park stays for the delivery to arm it.
+  if (
+    error instanceof StepOwnershipLostError ||
+    error instanceof StepLockUnavailableError ||
+    error instanceof ClientWaitExpiryUnarmedError
+  ) {
     log('[%s][%d] Step lock lost or unavailable; leaving the run as it is', operationId, stepIndex);
     throw error;
   }

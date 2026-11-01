@@ -4,7 +4,9 @@ import debug from 'debug';
 import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
 
 import { type AgentExecutionParams, type AgentExecutionResult } from '../../types';
+import { armClientLlmWaitExpiry } from '../clientLlmWait';
 import { STEP_LOCK_RETRY_MAX_ATTEMPTS } from '../constants';
+import { ClientWaitExpiryUnarmedError } from '../executionErrors';
 import type { AgentRuntimeServiceContext } from '../types';
 import { stepLockRetryDelayMs } from '../utils';
 import { owesCompletionLifecycle } from './completion';
@@ -464,9 +466,23 @@ export async function skipUnrunnableStep(
 
   // A run parked for a client moves only through its own resume: any other
   // delivery (a duplicate, a stale redrive) would replay the call with no
-  // client to take it.
+  // client to take it. A park that lost ownership while arming its expiry has
+  // none, and its step's redelivery is this one: arm it again (a duplicate is
+  // a no-op), and have the delivery come back if that fails too.
   if (agentState.status === 'waiting_for_client' && !resumeClientLlm) {
     log('[%s][%d] Skipping step — operation is waiting for a client', operationId, stepIndex);
+    if (agentState.clientLlmWait) {
+      try {
+        await armClientLlmWaitExpiry(
+          deps,
+          operationId,
+          agentState.clientLlmWait,
+          agentState.stepCount,
+        );
+      } catch (error) {
+        throw new ClientWaitExpiryUnarmedError(operationId, { cause: error });
+      }
+    }
     return {
       nextStepScheduled: false,
       state: agentState,

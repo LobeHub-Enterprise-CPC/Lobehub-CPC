@@ -27,3 +27,14 @@ export class StepOwnershipLostError extends Error {
     this.name = 'StepOwnershipLostError';
   }
 }
+
+/** A parked run's expiry check could not be armed: the delivery comes back to arm it. */
+export class ClientWaitExpiryUnarmedError extends Error {
+  constructor(
+    public readonly operationId: string,
+    options?: { cause?: unknown },
+  ) {
+    super(`Client wait expiry of operation ${operationId} could not be armed`, options);
+    this.name = 'ClientWaitExpiryUnarmedError';
+  }
+}

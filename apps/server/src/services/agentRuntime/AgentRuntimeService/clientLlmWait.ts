@@ -157,17 +157,7 @@ export async function parkForClientLlm(
   // Once the parked state is written, the expiry is armed even if ownership
   // goes: a redelivery ACKs a run in `waiting_for_client`, so nothing else
   // would ever end the park, and an expiry naming another park is a no-op.
-  const queueService = deps.queueService;
-  const armExpiry = () =>
-    queueService.scheduleMessage({
-      context: undefined,
-      delay: Math.max(Date.parse(wait.expiresAt) - Date.now(), 0),
-      endpoint: `${deps.baseURL}/run`,
-      operationId,
-      payload: { clientLlmWaitExpired: wait.parkedAt },
-      priority: 'normal',
-      stepIndex: parkedState.stepCount,
-    });
+  const armExpiry = () => armClientLlmWaitExpiry(deps, operationId, wait, parkedState.stepCount);
 
   await assertOwnership?.();
   try {
@@ -227,6 +217,27 @@ export async function parkForClientLlm(
     wait.expiresAt,
   );
   return parkedState;
+}
+
+/**
+ * Queue the expiry check of a park, due at its deadline (at once past it).
+ * Arming it again is safe: an expiry acts only on the park it names.
+ */
+export async function armClientLlmWaitExpiry(
+  deps: Pick<ClientLlmWaitDeps, 'baseURL' | 'queueService'>,
+  operationId: string,
+  wait: AgentRunClientLlmWait,
+  stepIndex: number,
+) {
+  await deps.queueService?.scheduleMessage({
+    context: undefined,
+    delay: Math.max(Date.parse(wait.expiresAt) - Date.now(), 0),
+    endpoint: `${deps.baseURL}/run`,
+    operationId,
+    payload: { clientLlmWaitExpired: wait.parkedAt },
+    priority: 'normal',
+    stepIndex,
+  });
 }
 
 /**
@@ -375,17 +386,9 @@ export async function restoreClientLlmWait(
       .catch((error) => log('[%s] Failed to expire the overdue wait: %O', operationId, error));
     return;
   }
-  await deps.queueService
-    ?.scheduleMessage({
-      context: undefined,
-      delay: Math.max(Date.parse(wait.expiresAt) - Date.now(), 0),
-      endpoint: `${deps.baseURL}/run`,
-      operationId,
-      payload: { clientLlmWaitExpired: wait.parkedAt },
-      priority: 'normal',
-      stepIndex: parkedState.stepCount,
-    })
-    .catch((error) => log('[%s] Failed to re-arm the wait expiry: %O', operationId, error));
+  await armClientLlmWaitExpiry(deps, operationId, wait, parkedState.stepCount).catch((error) =>
+    log('[%s] Failed to re-arm the wait expiry: %O', operationId, error),
+  );
 }
 
 /** Put the claimed row back to `waiting_for_client`, riding out a transient DB error. */
