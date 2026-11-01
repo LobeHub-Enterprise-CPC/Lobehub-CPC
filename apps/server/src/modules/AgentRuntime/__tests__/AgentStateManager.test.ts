@@ -1,3 +1,4 @@
+import type { AgentState } from '@lobechat/agent-runtime';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AgentStateManager } from '../AgentStateManager';
@@ -100,6 +101,7 @@ describe('AgentStateManager', () => {
       const state = {
         cost: { total: 1 },
         messages: [{ content: 'x'.repeat(1000), id: 'msg-1', role: 'user' }],
+        origin: { agentId: 'agent', topicId: 'topic' },
         status: 'running' as const,
         stepCount: 1,
       };
@@ -120,6 +122,7 @@ describe('AgentStateManager', () => {
           // ephemeral supervisor instruction — never written to the DB (no id)
           { content: 'respond to the group', role: 'user' },
         ],
+        origin: { agentId: 'agent', topicId: 'topic' },
         status: 'running' as const,
         stepCount: 1,
       };
@@ -184,6 +187,7 @@ describe('AgentStateManager', () => {
         newState: {
           cost: { total: 1 },
           messages: [{ content: 'x'.repeat(1000), id: 'msg-1', role: 'user' }],
+          origin: { agentId: 'agent', topicId: 'topic' },
           status: 'done' as const,
           stepCount: 1,
         },
@@ -200,6 +204,51 @@ describe('AgentStateManager', () => {
       const lpushKeys = pipelineMock.lpush.mock.calls.map((c) => c[0] as string);
       expect(lpushKeys).toEqual(['agent_runtime_steps:op-strip-step']);
     });
+  });
+
+  describe('transcripts without a chat rehydration scope', () => {
+    it.each([{ agentId: 'channel-member' }, { topicId: 'topic-without-agent' }, undefined])(
+      'preserves real message history across state and step persistence: %j',
+      async (origin) => {
+        const state = {
+          messages: [
+            { content: 'Attributed public request', id: 'chn_input_request', role: 'user' },
+            { content: 'Channel delivery context', id: 'chn_input_delivery', role: 'user' },
+          ],
+          origin,
+          status: 'running',
+          stepCount: 0,
+        } as AgentState;
+
+        await stateManager.saveAgentState('op-channel', state);
+        redisMock.get.mockResolvedValueOnce(redisMock.setex.mock.calls.at(-1)?.[2]);
+        expect((await stateManager.loadAgentState('op-channel'))?.messages).toEqual(state.messages);
+
+        const nextState = {
+          ...state,
+          messages: [
+            ...state.messages,
+            { content: 'Inspecting the proposal', id: 'chn_private_assistant', role: 'assistant' },
+            {
+              content: 'Proposal evidence',
+              id: 'chn_private_tool',
+              role: 'tool',
+              tool_call_id: 'call',
+            },
+          ],
+          stepCount: 1,
+        } as AgentState;
+        await stateManager.saveStepResult('op-channel', {
+          executionTime: 1,
+          newState: nextState,
+          stepIndex: 1,
+        });
+        redisMock.get.mockResolvedValueOnce(pipelineMock.setex.mock.calls.at(-1)?.[2]);
+        expect((await stateManager.loadAgentState('op-channel'))?.messages).toEqual(
+          nextState.messages,
+        );
+      },
+    );
   });
 
   describe('step execution lock', () => {

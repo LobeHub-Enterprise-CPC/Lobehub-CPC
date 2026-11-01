@@ -123,30 +123,19 @@ export class AgentStateManager {
   }
 
   /**
-   * Serialize an AgentState for Redis persistence, dropping the `messages`
-   * array first.
+   * Omit history only when step entry can rehydrate it from a chat topic.
+   * Long topics inline tool results and media that can exceed Redis limits.
    *
-   * `messages` is the dominant size driver of the serialized state — long
-   * topics inline tool results and base64 media, pushing the blob past
-   * Upstash's 10MB single-request limit, which throws and drops the op
-   * outright (StateStorePersistError). It is also fully reconstructible: the
-   * canonical rows live in the DB and every step rehydrates `state.messages`
-   * from there on entry (`AgentRuntimeService.rehydrateStateMessagesFromDB`),
-   * while the few out-of-band readers fall back to a DB query. So we never
-   * serialize it into the persisted blob.
-   *
-   * Keep this in sync with the stream-event strip in `StreamEventManager`
-   * (`stripStateForStream`) and the `done`-event strip in
-   * `OperationTraceRecorder` — all drop the same reconstructible payload.
-   *
-   * Exception: when the working set carries a non-persisted (ephemeral /
-   * suppressed) message — one with no DB row — the array is NOT reconstructible
-   * from a query, so persist it in full. These ops are rare and short-lived
-   * (group-member supervisor turns); the size win is forgone to avoid losing
-   * the prompt.
+   * Private transcripts (Channel) have persisted IDs but no chat topic, so
+   * queryStepEntryMessages cannot reload them. Keep their working set, just
+   * like ephemeral messages that have no database row to reload.
    */
   private serializeStateForPersist(state: AgentState): string {
-    if (hasNonPersistedMessage((state as { messages?: unknown }).messages)) {
+    if (
+      !state.origin?.agentId ||
+      !state.origin.topicId ||
+      hasNonPersistedMessage((state as { messages?: unknown }).messages)
+    ) {
       return JSON.stringify(state);
     }
     const { messages: _messages, ...rest } = state as AgentState & { messages?: unknown };
