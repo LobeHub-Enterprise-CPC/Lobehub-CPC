@@ -934,6 +934,37 @@ describe('waiting_for_client (U4c)', () => {
       await expect(t.service.executeStep(delivery)).rejects.toThrow(/expiry/);
       expect(t.getStored()).toBe(parked);
     });
+
+    // A one-shot resume at step 2 can run inline on to step 5 and park there.
+    // Its redelivery still names step 2, so it is behind the park, with the step
+    // lock either released or still held by the lost owner.
+    for (const lock of ['released', 'held'] as const) {
+      it(`re-arms a later park from an older delivery with the lock ${lock}`, async () => {
+        const t = createService();
+        const parked = waitingState({ stepCount: 5 });
+        t.setStored(parked);
+        if (lock === 'held') t.coordinator.tryClaimStep = vi.fn().mockResolvedValue(false);
+        const step = t.mockStep({ events: [], newState: runningState(), nextContext: undefined });
+        const delivery = {
+          operationId: OPERATION_ID,
+          resumeAsyncTool: true,
+          stepIndex: 2,
+        };
+
+        await t.service.executeStep(delivery);
+        expect(step).not.toHaveBeenCalled();
+        expect(t.scheduleMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            payload: { clientLlmWaitExpired: parked.clientLlmWait.parkedAt },
+            stepIndex: 5,
+          }),
+        );
+
+        t.scheduleMessage.mockRejectedValueOnce(new Error('queue down'));
+        await expect(t.service.executeStep(delivery)).rejects.toThrow(/expiry/);
+        expect(t.getStored()).toBe(parked);
+      });
+    }
   });
 
   describe('expiry', () => {

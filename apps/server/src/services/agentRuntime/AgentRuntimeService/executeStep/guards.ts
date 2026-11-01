@@ -151,6 +151,25 @@ export async function runLockFreeDelivery(
 }
 
 /**
+ * A park that lost ownership while arming its expiry has none, and any later
+ * delivery of the operation may be the one that comes back for it: one that
+ * ran inline past its own index parks a later step than it names. Arm the park
+ * again (a duplicate is a no-op), and have the delivery come back if that fails.
+ */
+async function rearmClientPark(
+  deps: StepGuardsDeps,
+  operationId: string,
+  state: AgentState,
+): Promise<void> {
+  if (!state.clientLlmWait) return;
+  try {
+    await armClientLlmWaitExpiry(deps, operationId, state.clientLlmWait, state.stepCount);
+  } catch (error) {
+    throw new ClientWaitExpiryUnarmedError(operationId, { cause: error });
+  }
+}
+
+/**
  * Another delivery holds the step lock. ACK a stale duplicate, ask for a
  * redelivery of a still-locked lifecycle replay, or re-queue this delivery on
  * the bounded lock backoff.
@@ -213,6 +232,9 @@ export async function handleStepLockConflict(
         success: false,
       };
     }
+
+    if (currentState.status === 'waiting_for_client' && !resumeClientLlm)
+      await rearmClientPark(deps, operationId, currentState);
 
     // Hatchet: a run that still owes its completion lifecycle is no stale
     // duplicate. The holder may have died mid-dispatch with its lock still
@@ -415,6 +437,21 @@ export async function skipUnrunnableStep(
     stepIndex: number;
   },
 ): Promise<AgentExecutionResult | undefined> {
+  // A run parked for a client moves only through its own resume: any other
+  // delivery (a duplicate, a stale redrive) would replay the call with no
+  // client to take it. Checked before the stale-step skip below, because the
+  // delivery that has to re-arm a park may name an earlier step.
+  if (agentState.status === 'waiting_for_client' && !resumeClientLlm) {
+    log('[%s][%d] Skipping step — operation is waiting for a client', operationId, stepIndex);
+    await rearmClientPark(deps, operationId, agentState);
+    return {
+      nextStepScheduled: false,
+      state: agentState,
+      stepResult: null,
+      success: true,
+    };
+  }
+
   // Layer 2 defense: catch extremely delayed retries that arrive after lock TTL expired
   if (agentState.stepCount > stepIndex) {
     log(
@@ -456,33 +493,6 @@ export async function skipUnrunnableStep(
       });
     }
 
-    return {
-      nextStepScheduled: false,
-      state: agentState,
-      stepResult: null,
-      success: true,
-    };
-  }
-
-  // A run parked for a client moves only through its own resume: any other
-  // delivery (a duplicate, a stale redrive) would replay the call with no
-  // client to take it. A park that lost ownership while arming its expiry has
-  // none, and its step's redelivery is this one: arm it again (a duplicate is
-  // a no-op), and have the delivery come back if that fails too.
-  if (agentState.status === 'waiting_for_client' && !resumeClientLlm) {
-    log('[%s][%d] Skipping step — operation is waiting for a client', operationId, stepIndex);
-    if (agentState.clientLlmWait) {
-      try {
-        await armClientLlmWaitExpiry(
-          deps,
-          operationId,
-          agentState.clientLlmWait,
-          agentState.stepCount,
-        );
-      } catch (error) {
-        throw new ClientWaitExpiryUnarmedError(operationId, { cause: error });
-      }
-    }
     return {
       nextStepScheduled: false,
       state: agentState,
