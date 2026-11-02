@@ -26,7 +26,7 @@ import {
   useSetMessageItemActionTypeContext,
 } from '../Contexts/message-action-context';
 import MessageWorks from '../MessageWorks';
-import DirectMentionProgress from './components/DirectMentionProgress';
+import DirectMentionProgress, { DirectMentionStatus } from './components/DirectMentionProgress';
 import InterruptedHint from './components/InterruptedHint';
 import MessageContent from './components/MessageContent';
 import ThreadExecutionSummary from './components/ThreadExecutionSummary';
@@ -149,11 +149,10 @@ const AssistantMessage = memo<AssistantMessageProps>(
         editing={editing}
         error={errorContent && error ? errorContent : undefined}
         id={id}
-        loading={generating || isCreating}
+        loading={generating || isCreating || !!runningThreadId}
         message={message}
         placement={'left'}
-        time={createdAt}
-        titleAddon={<RefreshingIndicator messageId={id} />}
+        time={runningThreadId ? undefined : createdAt}
         actionAddon={
           reactions.length > 0 || (commentCount > 0 && commentTopicId) ? (
             <>
@@ -204,16 +203,22 @@ const AssistantMessage = memo<AssistantMessageProps>(
             {footerRender}
           </>
         }
+        titleAddon={
+          runningThreadId ? (
+            <DirectMentionStatus
+              startedAt={
+                taskDetail?.startedAt ? Date.parse(taskDetail.startedAt) : Number(createdAt)
+              }
+            />
+          ) : (
+            <RefreshingIndicator messageId={id} />
+          )
+        }
         onDoubleClick={onDoubleClick}
         onMouseEnter={onMouseEnter}
       >
         {runningThreadId ? (
-          <DirectMentionProgress
-            agentId={agentId!}
-            messageId={id}
-            startedAt={taskDetail?.startedAt ? Date.parse(taskDetail.startedAt) : Number(createdAt)}
-            threadId={runningThreadId}
-          />
+          <DirectMentionProgress agentId={agentId!} messageId={id} threadId={runningThreadId} />
         ) : (
           <MessageContent {...item} />
         )}

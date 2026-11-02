@@ -23,7 +23,13 @@ const tailLine = (value?: string | null): string | undefined => {
 };
 
 /** One-glance progress of a direct @Agent child, read from its thread transcript. */
-export const summarizeThreadProgress = (messages: UIChatMessage[]): ThreadProgress => {
+export const summarizeThreadProgress = (
+  transcript: UIChatMessage[],
+  threadId: string,
+): ThreadProgress => {
+  // The transcript also carries the conversation the thread reads; progress is
+  // the thread's own.
+  const messages = transcript.filter((message) => message.threadId === threadId);
   const replies = messages.filter((message) => message.role === 'assistant');
   const current = replies.at(-1);
   if (!current) return {};

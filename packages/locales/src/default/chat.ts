@@ -1,6 +1,6 @@
 export default {
   'directMention.progress.elapsed': '{{time}}',
-  'directMention.progress.running': '{{name}} · Running',
+  'directMention.progress.running': 'Running',
   'directMention.progress.thinking': 'Thinking…',
   'directMention.progress.usingTool': 'Using {{name}}…',
   'directMention.progress.viewFullRecord': 'View full record',
