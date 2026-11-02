@@ -40,6 +40,15 @@ export const toDirectMentionMessageError = (error: unknown): ChatMessageError =>
   };
 };
 
+const MENTION_MARKUP = /<mention\s[^>]*?name="([^"]*)"[^>]*\/>\s*/g;
+
+/** Thread title for a direct @Agent run: mentions read as `@name`, not as their markup. */
+export const toDirectMentionThreadTitle = (instruction: string): string =>
+  instruction
+    .replaceAll(MENTION_MARKUP, (_, name: string) => `@${name} `)
+    .trim()
+    .slice(0, 50);
+
 /**
  * Executes a direct @Agent route as an isolated task and projects its final
  * answer onto the source assistant message in the parent conversation.
@@ -75,7 +84,7 @@ export const executeDirectMention = async (
         instruction,
         parentMessageId: sourceMessageId,
         parentOperationId: operationId,
-        title: instruction.slice(0, 50),
+        title: toDirectMentionThreadTitle(instruction),
         topicId: context.topicId,
       });
 
@@ -86,7 +95,7 @@ export const executeDirectMention = async (
         agentId: targetAgentId,
         instruction,
         parentMessageId: sourceMessageId,
-        title: instruction.slice(0, 50),
+        title: toDirectMentionThreadTitle(instruction),
         topicId: context.topicId,
       });
       clientThreadId = task.threadId;
@@ -132,6 +141,9 @@ export const executeDirectMention = async (
       operationId,
     });
     void get().refreshThreads();
+    // The thread panel keys its transcript by the mentioned agent; one fetched
+    // while the run was still going would otherwise keep an empty reply.
+    void get().refreshMessages({ agentId: targetAgentId, topicId: context.topicId });
     get().completeOperation(operationId);
   } catch (error) {
     if (clientThreadId) {
@@ -144,6 +156,7 @@ export const executeDirectMention = async (
         .catch(console.error);
       void get().refreshThreads();
     }
+    void get().refreshMessages({ agentId: targetAgentId, topicId: context.topicId });
 
     await get()
       .optimisticUpdateMessageError(sourceMessageId, toDirectMentionMessageError(error), {
