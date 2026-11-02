@@ -3810,6 +3810,109 @@ describe('GatewayActionImpl', () => {
     });
   });
 
+  describe('watchSubAgentRun', () => {
+    const threadContext = {
+      agentId: 'agt-expert',
+      scope: 'thread' as const,
+      threadId: 'thd-1',
+      topicId: 'tpc-1',
+    };
+
+    function createWatchTestAction() {
+      const connectToGateway = vi.fn();
+      const completeOperation = vi.fn();
+      const operations: Record<string, any> = {};
+      const state: Record<string, any> = { gatewayConnections: {}, operations };
+      const get = vi.fn(() => ({
+        ...state,
+        associateMessageWithOperation: vi.fn(),
+        completeOperation: (id: string) => {
+          completeOperation(id);
+          operations[id].status = 'completed';
+        },
+        connectToGateway,
+        startOperation: vi.fn(() => {
+          operations['watch-op'] = { status: 'running' };
+          return { operationId: 'watch-op' };
+        }),
+      })) as any;
+      const set = vi.fn((updater: any) => {
+        if (typeof updater === 'function') Object.assign(state, updater(state));
+        else Object.assign(state, updater);
+      });
+
+      (globalThis as any).window = {
+        global_serverConfigStore: {
+          getState: () => ({ serverConfig: { agentGatewayUrl: 'https://gateway.test.com' } }),
+        },
+      };
+
+      const action = new GatewayActionImpl(set as any, get, undefined);
+      return { action, completeOperation, connectToGateway, state };
+    }
+
+    const watch = (action: GatewayActionImpl) =>
+      action.watchSubAgentRun({
+        assistantMessageId: 'msg-child',
+        context: threadContext,
+        operationId: 'op-child',
+        token: 'child-ticket',
+      });
+
+    it('subscribes passively to the child run with its own ticket, replaying what it missed', () => {
+      const { action, connectToGateway } = createWatchTestAction();
+
+      watch(action);
+
+      expect(connectToGateway).toHaveBeenCalledWith(
+        expect.objectContaining({
+          executor: false,
+          gatewayUrl: 'https://gateway.test.com',
+          localOperationId: 'watch-op',
+          operationId: 'op-child',
+          resumeOnConnect: true,
+          token: 'child-ticket',
+          topicId: 'tpc-1',
+        }),
+      );
+    });
+
+    it('settles only its own render operation when the stream ends, never the topic', () => {
+      const { action, completeOperation, connectToGateway } = createWatchTestAction();
+
+      watch(action);
+      connectToGateway.mock.calls[0][0].onSessionComplete({
+        authFailed: false,
+        succeeded: true,
+        terminalReceived: true,
+      });
+
+      expect(completeOperation).toHaveBeenCalledWith('watch-op');
+      expect(topicService.settleRunningOperation).not.toHaveBeenCalled();
+    });
+
+    it('drops the subscription and its operation when the caller stops watching', () => {
+      const { action, completeOperation, state } = createWatchTestAction();
+      const client = createMockClient();
+      state.gatewayConnections['op-child'] = { client, status: 'connected' };
+
+      const stop = watch(action);
+      stop();
+
+      expect(client.disconnect).toHaveBeenCalled();
+      expect(completeOperation).toHaveBeenCalledWith('watch-op');
+    });
+
+    it('does nothing without a gateway', () => {
+      const { action, connectToGateway } = createWatchTestAction();
+      (globalThis as any).window = undefined;
+
+      watch(action)();
+
+      expect(connectToGateway).not.toHaveBeenCalled();
+    });
+  });
+
   describe('reconnectToGatewayOperation', () => {
     function createReconnectTestAction(assistantMessage: any) {
       const startOperation = vi.fn(() => ({ operationId: 'gw-op-reconnect' }));

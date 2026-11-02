@@ -897,6 +897,19 @@ describe('AiAgentService.execSubAgent', () => {
       expect(execAgentSpy.mock.calls[0][0].trigger).toBe('chat');
     });
 
+    it('hands the tab the child run gateway ticket so it can stream the reply', async () => {
+      vi.spyOn(service, 'execAgent').mockResolvedValue({
+        assistantMessageId: 'msg-child',
+        operationId: 'op-child',
+        success: true,
+        token: 'child-ticket',
+      } as any);
+
+      const result = await service.execSubAgent(params);
+
+      expect(result).toMatchObject({ operationId: 'op-child', token: 'child-ticket' });
+    });
+
     it('relays the child on the channel the tab stands by on', async () => {
       const execAgentSpy = vi
         .spyOn(service, 'execAgent')
