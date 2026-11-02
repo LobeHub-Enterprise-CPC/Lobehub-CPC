@@ -19,6 +19,8 @@ const SendButton = memo(() => {
     isEqual,
   );
   const [send, handleStop] = useChatInputStore((s) => [s.handleSendButton, s.handleStop]);
+  // Market agents/skills picked from the @ menu install before the send commits.
+  const installing = useChatInputStore((s) => s.installingMarketMentions);
 
   // Workspace viewer doesn't have `message:create` → backend would 403.
   // OR the permission gate into the existing disabled prop so the button
@@ -40,6 +42,7 @@ const SendButton = memo(() => {
         <Send
           data-brand-slot={'composer-send'}
           disabled={disabled || !canSend}
+          loading={installing}
           shape={shape}
           size={size}
           onClick={canSend ? () => send() : undefined}
@@ -50,6 +53,7 @@ const SendButton = memo(() => {
         data-brand-slot={generating ? undefined : 'composer-send'}
         disabled={disabled || !canSend}
         generating={generating}
+        loading={installing}
         menu={canSend ? (sendMenu as any) : undefined}
         placement={'topRight'}
         shape={shape}
