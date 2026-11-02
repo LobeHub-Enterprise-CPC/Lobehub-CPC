@@ -4,27 +4,21 @@ import type {
   PendingMarketAgent,
   PendingMarketSkill,
 } from '@/features/ChatInput/InputEditor/marketMention';
-import { lambdaClient } from '@/libs/trpc/client';
+import { agentService } from '@/services/agent';
 import { discoverService } from '@/services/discover';
 import {
   ensureAgentMarketSkills,
   ensureAgentMarketSkillsAndWarn,
 } from '@/services/ensureAgentMarketSkills';
-import {
-  buildForkedAgentConfig,
-  generateMarketIdentifier,
-} from '@/services/installMarketplaceAgents';
-import { marketApiService } from '@/services/marketApi';
+import { buildMarketAgentConfig } from '@/services/installMarketplaceAgents';
 import { useAgentStore } from '@/store/agent';
-import { useHomeStore } from '@/store/home';
 
 /**
- * Installs the Market agents and skills picked from the composer's @ menu.
+ * Readies the Market agents and skills picked from the composer's @ menu.
  *
  * Speed matters here because the send waits for it: the agent detail is
- * prefetched the moment the chip is picked, the workspace's Market account is
- * resolved once per workspace, and the agent's own Market skills are installed
- * alongside the local agent row instead of after it.
+ * prefetched the moment the chip is picked, and the agent's own Market skills
+ * are installed alongside its local row instead of after it.
  */
 
 type AgentDetail = NonNullable<Awaited<ReturnType<typeof discoverService.getAssistantDetail>>>;
@@ -41,7 +35,6 @@ const memoize = <T>(cache: Map<string, Promise<T>>, key: string, load: () => Pro
 };
 
 const detailCache = new Map<string, Promise<AgentDetail>>();
-const actAsCache = new Map<string, Promise<number | undefined>>();
 const installCache = new Map<string, Promise<string>>();
 
 const loadAgentDetail = (identifier: string) =>
@@ -51,64 +44,35 @@ const loadAgentDetail = (identifier: string) =>
     return detail as AgentDetail;
   });
 
-/**
- * Workspace forks are attributed to the workspace's Market organization; see
- * `installMarketplaceAgents` for why `autoProvision` is set.
- */
-const loadActAs = (workspaceId: string | null) =>
-  workspaceId
-    ? memoize(actAsCache, workspaceId, async () => {
-        const { marketAccountId } = await lambdaClient.workspace.ensureMarketOrganization.mutate({
-          autoProvision: true,
-        });
-        return marketAccountId;
-      })
-    : Promise.resolve(undefined);
-
 /** Warm the read-only part of an install while the user is still typing. */
 export const prefetchMarketAgent = (identifier: string) => {
   loadAgentDetail(identifier).catch(() => {});
 };
 
-const installMarketAgent = (identifier: string, visibility: MarketInstallVisibility) => {
+/**
+ * Mentioning a Market agent runs it without installing it: the run needs a
+ * local agent row (its prompt, model and tools), so the agent gets a hidden
+ * (`virtual`) copy — kept out of the agent list and not forked to the Market —
+ * that later mentions reuse. Installing it stays an explicit Market action.
+ */
+const prepareMarketAgent = (identifier: string, visibility: MarketInstallVisibility) => {
   const workspaceId = getActiveWorkspaceId();
   const key = `${workspaceId ?? ''}:${visibility}:${identifier}`;
 
   return memoize(installCache, key, async () => {
-    const [detail, actAs] = await Promise.all([
-      loadAgentDetail(identifier),
-      loadActAs(workspaceId),
-    ]);
+    const existing = await agentService.getAgentByForkedFromIdentifier(identifier, {
+      virtual: true,
+    });
+    if (existing) return existing;
 
-    const [forkOutcome] = await marketApiService.forkAgent([
-      {
-        actAs,
-        identifier: generateMarketIdentifier(),
-        name: detail.title,
-        sourceIdentifier: identifier,
-        status: 'published',
-        visibility: 'public',
-      },
-    ]);
-    if (!forkOutcome?.success) {
-      throw new Error(forkOutcome?.error?.message || `Failed to fork market agent ${identifier}`);
-    }
-    const fork = forkOutcome.data.agent;
-
+    const detail = await loadAgentDetail(identifier);
     const [result] = await Promise.all([
       useAgentStore.getState().createAgent({
-        config: buildForkedAgentConfig(detail, fork, identifier),
+        config: { ...buildMarketAgentConfig(detail, identifier), virtual: true },
         ...(workspaceId ? { visibility } : {}),
       }),
       ensureAgentMarketSkillsAndWarn(detail.config.plugins),
     ]);
-
-    void useHomeStore.getState().refreshAgentList();
-    discoverService.reportAgentEvent({
-      event: 'add',
-      identifier: fork.identifier,
-      source: typeof location === 'undefined' ? 'chat-input/mention' : location.pathname,
-    });
 
     return result.agentId;
   });
@@ -137,7 +101,7 @@ export const installMarketMentions = async ({
 }: MarketMentionInstallRequest): Promise<Map<string, string>> => {
   const [agentResults, skillResults] = await Promise.all([
     Promise.allSettled(
-      agents.map((agent) => installMarketAgent(agent.identifier, agent.visibility)),
+      agents.map((agent) => prepareMarketAgent(agent.identifier, agent.visibility)),
     ),
     skills.length > 0
       ? ensureAgentMarketSkills(skills.map((skill) => skill.identifier))

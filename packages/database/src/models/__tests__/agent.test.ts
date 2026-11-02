@@ -3130,6 +3130,23 @@ describe('AgentModel', () => {
       const result = await agentModel.getAgentByForkedFromIdentifier('other-fork-id');
       expect(result).toBeNull();
     });
+
+    it('keeps the hidden copy an @ mention runs apart from installed agents', async () => {
+      const [hidden] = await serverDB
+        .insert(agents)
+        .values({
+          userId,
+          title: 'Mentioned',
+          params: { forkedFromIdentifier: 'mentioned-id' },
+          virtual: true,
+        })
+        .returning();
+
+      expect(await agentModel.getAgentByForkedFromIdentifier('mentioned-id')).toBeNull();
+      expect(
+        await agentModel.getAgentByForkedFromIdentifier('mentioned-id', { virtual: true }),
+      ).toBe(hidden.id);
+    });
   });
 
   describe('duplicate visibility', () => {
