@@ -15,9 +15,10 @@ vi.mock('@lobechat/builtin-tools/identifiers', () => ({
 const deps = {
   marketService: {
     getSkillDetail: vi.fn(),
+    downloadSkill: vi.fn(),
     getSkillDownloadUrl: vi.fn((id: string) => `https://market.example/skills/${id}/download`),
   },
-  skillImporter: { importFromUrl: vi.fn() },
+  skillImporter: { importFromMarketZip: vi.fn() },
   skillModel: { findByIdentifier: vi.fn() },
 };
 
@@ -25,7 +26,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   deps.marketService.getSkillDetail.mockResolvedValue({ name: 'Market Skill' });
   deps.skillModel.findByIdentifier.mockResolvedValue(undefined);
-  deps.skillImporter.importFromUrl.mockResolvedValue({ status: 'created' });
+  deps.marketService.downloadSkill.mockImplementation(async (id: string) => ({
+    buffer: new TextEncoder().encode(`zip:${id}`).buffer,
+  }));
+  deps.skillImporter.importFromMarketZip.mockResolvedValue({ status: 'created' });
 });
 
 describe('ensureMarketSkills', () => {
@@ -50,7 +54,7 @@ describe('ensureMarketSkills', () => {
     ]);
     expect(deps.skillModel.findByIdentifier).not.toHaveBeenCalled();
     expect(deps.marketService.getSkillDetail).not.toHaveBeenCalled();
-    expect(deps.skillImporter.importFromUrl).not.toHaveBeenCalled();
+    expect(deps.skillImporter.importFromMarketZip).not.toHaveBeenCalled();
   });
 
   it('preserves existing market skills and rejects other sources, even with the same source URL', async () => {
@@ -64,17 +68,31 @@ describe('ensureMarketSkills', () => {
       { identifier: 'conflicting', reason: 'conflict', status: 'failed' },
     ]);
     expect(deps.marketService.getSkillDetail).not.toHaveBeenCalled();
-    expect(deps.skillImporter.importFromUrl).not.toHaveBeenCalled();
+    expect(deps.skillImporter.importFromMarketZip).not.toHaveBeenCalled();
   });
 
-  it('imports through the scoped importer without allowing overwrite', async () => {
+  it('downloads through the authenticated Market client and imports without overwrite', async () => {
+    // A tenant-scoped Market only serves the package to the request's own
+    // credentials; an anonymous fetch of the public download URL 404s.
     expect(await ensureMarketSkills(['new'], deps)).toEqual([
       { identifier: 'new', status: 'installed' },
     ]);
-    expect(deps.skillImporter.importFromUrl).toHaveBeenCalledWith(
-      { url: 'https://market.example/skills/new/download' },
-      { identifier: 'new', overwrite: false, source: 'market' },
+    expect(deps.marketService.downloadSkill).toHaveBeenCalledWith('new');
+    expect(deps.skillImporter.importFromMarketZip).toHaveBeenCalledWith(Buffer.from('zip:new'), {
+      identifier: 'new',
+      overwrite: false,
+      sourceUrl: 'https://market.example/skills/new/download',
+    });
+  });
+
+  it('reports a download failure when the authenticated download fails', async () => {
+    deps.marketService.downloadSkill.mockRejectedValue(
+      new SkillImportError('Failed to download skill from Market', 'DOWNLOAD_FAILED'),
     );
+    expect(await ensureMarketSkills(['new'], deps)).toEqual([
+      { identifier: 'new', reason: 'download', status: 'failed' },
+    ]);
+    expect(deps.skillImporter.importFromMarketZip).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -93,7 +111,7 @@ describe('ensureMarketSkills', () => {
         ...(status === 'failed' && { reason: 'unavailable' }),
       }),
     ]);
-    expect(deps.skillImporter.importFromUrl).not.toHaveBeenCalled();
+    expect(deps.skillImporter.importFromMarketZip).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -101,7 +119,7 @@ describe('ensureMarketSkills', () => {
     [new Error('Invalid manifest'), 'download'],
     [new SkillImportError('Same name exists', 'CONFLICT'), 'conflict'],
   ])('keeps download failures and source conflicts distinct (%s)', async (error, reason) => {
-    deps.skillImporter.importFromUrl.mockRejectedValue(error);
+    deps.skillImporter.importFromMarketZip.mockRejectedValue(error);
     expect(await ensureMarketSkills(['new'], deps)).toEqual([
       expect.objectContaining({ identifier: 'new', reason, status: 'failed' }),
     ]);
@@ -115,7 +133,7 @@ describe('ensureMarketSkills', () => {
       deps.skillModel.findByIdentifier
         .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce({ identifier: 'new', source: 'market' });
-      deps.skillImporter.importFromUrl.mockRejectedValue(uniqueViolation);
+      deps.skillImporter.importFromMarketZip.mockRejectedValue(uniqueViolation);
 
       expect(await ensureMarketSkills(['new'], deps)).toEqual([
         { identifier: 'new', status: 'installed' },
@@ -123,7 +141,7 @@ describe('ensureMarketSkills', () => {
     });
 
     it('keeps the download failure when nothing was installed meanwhile', async () => {
-      deps.skillImporter.importFromUrl.mockRejectedValue(uniqueViolation);
+      deps.skillImporter.importFromMarketZip.mockRejectedValue(uniqueViolation);
 
       expect(await ensureMarketSkills(['new'], deps)).toEqual([
         { identifier: 'new', reason: 'download', status: 'failed' },
@@ -134,7 +152,7 @@ describe('ensureMarketSkills', () => {
       deps.skillModel.findByIdentifier
         .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce({ identifier: 'new', source: 'user' });
-      deps.skillImporter.importFromUrl.mockRejectedValue(uniqueViolation);
+      deps.skillImporter.importFromMarketZip.mockRejectedValue(uniqueViolation);
 
       expect(await ensureMarketSkills(['new'], deps)).toEqual([
         { identifier: 'new', reason: 'conflict', status: 'failed' },
@@ -145,7 +163,7 @@ describe('ensureMarketSkills', () => {
       deps.skillModel.findByIdentifier
         .mockResolvedValueOnce(undefined)
         .mockRejectedValueOnce(new Error('DB unavailable'));
-      deps.skillImporter.importFromUrl.mockRejectedValue(new Error('Invalid manifest'));
+      deps.skillImporter.importFromMarketZip.mockRejectedValue(new Error('Invalid manifest'));
 
       expect(await ensureMarketSkills(['new'], deps)).toEqual([
         { identifier: 'new', reason: 'download', status: 'failed' },

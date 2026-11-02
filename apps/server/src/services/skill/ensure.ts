@@ -48,8 +48,8 @@ const builtinIdentifiers = new Set([
 ]);
 
 interface EnsureMarketSkillsDependencies {
-  marketService: Pick<MarketService, 'getSkillDetail' | 'getSkillDownloadUrl'>;
-  skillImporter: Pick<SkillImporter, 'importFromUrl'>;
+  marketService: Pick<MarketService, 'downloadSkill' | 'getSkillDetail' | 'getSkillDownloadUrl'>;
+  skillImporter: Pick<SkillImporter, 'importFromMarketZip'>;
   skillModel: Pick<AgentSkillModel, 'findByIdentifier'>;
 }
 
@@ -100,10 +100,14 @@ export const ensureMarketSkills = async (
       }
 
       try {
-        await skillImporter.importFromUrl(
-          { url: marketService.getSkillDownloadUrl(identifier) },
-          { identifier, overwrite: false, source: 'market' },
-        );
+        // Download with the request's own Market credentials: a tenant-scoped
+        // Market does not serve the package to an anonymous fetch of its URL.
+        const { buffer } = await marketService.downloadSkill(identifier);
+        await skillImporter.importFromMarketZip(Buffer.from(buffer), {
+          identifier,
+          overwrite: false,
+          sourceUrl: marketService.getSkillDownloadUrl(identifier),
+        });
         return { identifier, status: 'installed' };
       } catch (error) {
         logEnsureFailure(identifier, 'import', error);

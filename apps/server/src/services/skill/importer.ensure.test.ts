@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   findByIdentifier: vi.fn(),
   findByName: vi.fn(),
   parseSkillMd: vi.fn(),
+  parseZipPackage: vi.fn(),
   ssrfSafeFetch: vi.fn(),
   update: vi.fn(),
 }));
@@ -30,6 +31,7 @@ vi.mock('./resource', () => ({ SkillResourceService: class {} }));
 vi.mock('./parser', () => ({
   SkillParser: class {
     parseSkillMd = mocks.parseSkillMd;
+    parseZipPackage = mocks.parseZipPackage;
   },
 }));
 vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: mocks.ssrfSafeFetch }));
@@ -42,6 +44,10 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.ssrfSafeFetch.mockResolvedValue({ ok: true, text: async () => 'skill content' });
   mocks.parseSkillMd.mockReturnValue({ content: 'new content', manifest: { name: 'Shared Name' } });
+  mocks.parseZipPackage.mockResolvedValue({
+    content: 'new content',
+    manifest: { name: 'Shared Name' },
+  });
   mocks.findByIdentifier.mockResolvedValue(undefined);
   mocks.findByName.mockResolvedValue(undefined);
   mocks.create.mockResolvedValue({ id: 'created' });
@@ -106,5 +112,37 @@ describe('SkillImporter ensure mode', () => {
     expect(mocks.create).toHaveBeenCalledWith(
       expect.objectContaining({ identifier: 'new', source: 'market' }),
     );
+  });
+
+  describe('importFromMarketZip', () => {
+    const zip = Buffer.from('zip');
+    const input = { identifier: 'new', overwrite: false, sourceUrl: url };
+
+    it('does not update an already installed market skill', async () => {
+      const existing = {
+        content: 'old content',
+        id: 'existing',
+        identifier: 'new',
+        source: 'market',
+      };
+      mocks.findByIdentifier.mockResolvedValue(existing);
+      await expect(importer().importFromMarketZip(zip, input)).resolves.toEqual({
+        skill: existing,
+        status: 'unchanged',
+      });
+      expect(mocks.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a same-name skill instead of adopting it', async () => {
+      mocks.findByName.mockResolvedValue({
+        identifier: 'other',
+        manifest: { sourceUrl: url },
+        source: 'market',
+      });
+      await expect(importer().importFromMarketZip(zip, input)).rejects.toMatchObject({
+        code: 'CONFLICT',
+      });
+      expect(mocks.update).not.toHaveBeenCalled();
+    });
   });
 });
