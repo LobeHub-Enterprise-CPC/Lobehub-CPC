@@ -1151,7 +1151,6 @@ export default {
   'mention.category.workspaceAgents': 'Workspace',
   'mention.marketInstall.failed':
     '{{names}} isn’t available right now. The message was not sent; try again.',
-  'mention.marketInstall.installing': 'Preparing {{names}}…',
   'mention.title': 'Mention Members',
   'messageAction.codexEdit.alreadySubmitting': 'This edit is already being submitted',
   'messageAction.codexEdit.branchFailed':
