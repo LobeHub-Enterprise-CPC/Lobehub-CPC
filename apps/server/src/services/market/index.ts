@@ -202,6 +202,8 @@ export class MarketService {
       userId: userInfo.userId,
       // Replayed and re-signed later: a tenant identity never carries a workspace.
       ...(tenantMode ? {} : { workspaceId: userInfo.workspaceId }),
+      // The department chain decides which assets the replayed token may reach.
+      ...(userInfo.orgUnitIds ? { orgUnitIds: [...userInfo.orgUnitIds] } : {}),
       sandboxStorage: userInfo.sandboxStorage,
       tenantId: userInfo.tenantId ?? currentTenantScope()?.tenantId,
     };

@@ -14,6 +14,9 @@ const log = debug('lobe-server:market:asset-access');
 /** How long one member's answer is reused across turns (spec: per user, 60 seconds). */
 const CACHE_TTL_MS = 60_000;
 const CACHE_MAX_ENTRIES = 2000;
+/** Market's `access/check` contract: identifiers of 1–255 characters, at most 500 items per call. */
+const IDENTIFIER_MAX_LENGTH = 255;
+const CHECK_BATCH_SIZE = 500;
 
 interface CacheEntry {
   expiresAt: number;
@@ -58,7 +61,23 @@ const collectInstalledMarketAssets = async (
       items.push({ identifier: skill.identifier, type: 'skill' });
   }
   for (const identifier of pluginIds) items.push({ identifier, type: 'plugin' });
-  return items;
+  // An identifier Market could never hold is not a catalogue asset; sending it would make Market
+  // reject the whole check and leave every revoked asset in use.
+  return items.filter(
+    ({ identifier }) => identifier.length > 0 && identifier.length <= IDENTIFIER_MAX_LENGTH,
+  );
+};
+
+/** One check per {@link CHECK_BATCH_SIZE} items; the answers are merged. */
+const checkInBatches = async (
+  marketService: AssetAccessMarket,
+  items: AssetAccessCheckItem[],
+): Promise<AssetAccessCheckItem[]> => {
+  const batches: AssetAccessCheckItem[][] = [];
+  for (let start = 0; start < items.length; start += CHECK_BATCH_SIZE)
+    batches.push(items.slice(start, start + CHECK_BATCH_SIZE));
+  const answers = await Promise.all(batches.map((batch) => marketService.checkAssetAccess(batch)));
+  return answers.flat();
 };
 
 /**
@@ -100,7 +119,7 @@ export const resolveRevokedMarketAssets = async (
 
   let usable: AssetAccessCheckItem[];
   try {
-    usable = await marketService.checkAssetAccess(items);
+    usable = await checkInBatches(marketService, items);
   } catch (error) {
     log('asset access check failed, keeping installed tools: %O', error);
     return [];
