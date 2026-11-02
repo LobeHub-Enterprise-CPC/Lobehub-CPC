@@ -1,9 +1,12 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type * as HatchetConfig from '@/server/modules/Hatchet/config';
+
 const hatchet = vi.hoisted(() => ({ enabled: false }));
 
-vi.mock('@/server/modules/Hatchet/config', () => ({
+vi.mock('@/server/modules/Hatchet/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof HatchetConfig>()),
   isHatchetDeliveryEnabled: () => hatchet.enabled,
 }));
 
@@ -22,17 +25,15 @@ describe('step lock retry backoff', () => {
   });
 
   it('keeps the existing schedule without Hatchet delivery', async () => {
-    const { STEP_LOCK_RETRY_MAX_ATTEMPTS, stepLockRetryDelayMs } = await load();
+    const { stepLockRetryDelayMs } = await load();
 
-    expect(STEP_LOCK_RETRY_MAX_ATTEMPTS).toBe(12);
     expect(sequence(stepLockRetryDelayMs, 6)).toEqual([15, 30, 60, 120, 120, 120]);
   });
 
   it('retries after 1s first with Hatchet delivery, then follows the same schedule', async () => {
     hatchet.enabled = true;
-    const { STEP_LOCK_RETRY_MAX_ATTEMPTS, stepLockRetryDelayMs } = await load();
+    const { stepLockRetryDelayMs } = await load();
 
-    expect(STEP_LOCK_RETRY_MAX_ATTEMPTS).toBe(13);
     expect(sequence(stepLockRetryDelayMs, 7)).toEqual([1, 15, 30, 60, 120, 120, 120]);
   });
 
@@ -45,5 +46,17 @@ describe('step lock retry backoff', () => {
 
     const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
     expect(sum(withHatchet)).toBe(sum(legacy) + 1);
+  });
+
+  it('keeps waiting behind a holder for as long as Hatchet lets one step attempt run', async () => {
+    hatchet.enabled = true;
+    const { HATCHET_TIMING } = await import('@/server/modules/Hatchet/config');
+    const { STEP_LOCK_RETRY_MAX_ATTEMPTS, stepLockRetryDelayMs } = await load();
+    const totalWaitMs = sequence(stepLockRetryDelayMs, STEP_LOCK_RETRY_MAX_ATTEMPTS).reduce(
+      (total, seconds) => total + seconds * 1000,
+      0,
+    );
+
+    expect(totalWaitMs).toBeGreaterThanOrEqual(HATCHET_TIMING.stepExecutionTimeoutMs);
   });
 });

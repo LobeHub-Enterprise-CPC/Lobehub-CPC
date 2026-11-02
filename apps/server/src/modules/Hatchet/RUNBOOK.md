@@ -13,7 +13,7 @@ Confirm and record each item before enabling Hatchet delivery.
 3. **Signing keys.** `QSTASH_CURRENT_SIGNING_KEY` and `QSTASH_NEXT_SIGNING_KEY` are both set. Without `QSTASH_CURRENT_SIGNING_KEY` every Hatchet delivery fails before it is sent. Our own routes verify each delivery with both keys, so with either one missing on the app, deliveries to our own routes answer 401. Only deliveries to our own origin are signed. External webhooks are delivered unsigned, because the receiving routes do not bind the signature to the URL.
 4. **Reconciliation cron.** A scheduler calls `POST /api/cron/agent/reap-operations` with `Authorization: Bearer $CRON_SECRET`. Record the interval. This is the deployment-level entry point that runs the stale-operation reaper and the two reconcilers (async-tool resume, sub-agent bridge) across all tenants. The reaper also runs from `GET /api/agent/reap-operations` and opportunistically from step deliveries, but nothing else runs the two reconcilers. The cron answers 5xx when a tenant sweep throws, or when every candidate of a sweep threw. Alert on it.
 5. **Migrations.** Every tenant has applied tenant migration `0006_add_sub_agent_bridge` (see [Before enabling](#before-enabling)).
-6. **Shutdown signal.** SIGTERM reaches the Next process. In the Enterprise image, Next runs inside PID 1 (`start-server.cjs`). `terminationGracePeriodSeconds` must be at least preStop + the 25 s worker pause budget + the p99 single-step duration. After-response work gets another 30 s (`after_response.settle_timeout`).
+6. **Shutdown signal.** SIGTERM reaches the Next process. In the Enterprise image, Next runs inside PID 1 (`start-server.cjs`). `terminationGracePeriodSeconds` must be at least preStop + the 25 s worker pause budget + the longest single step you will not cut. Size it by the slowest model call observed, not the p99: a step the platform kills mid-call is redelivered and repeats that paid call. Production measured 2,298 s at most and runs 3600 s; the node pool's drain limit must not be shorter. After-response work gets another 30 s (`after_response.settle_timeout`).
 7. **Capacity.** With tenant quotas removed, worker slots are the only concurrency limit: `HATCHET_STEP_SLOTS` and `HATCHET_DELIVERY_SLOTS`, 50 each per process by default. A step still queued after 60 minutes fails, and a direct delivery fails after 24 hours. Configure queue-wait and backlog alerts on both tasks, plus a scale-out threshold well below those limits. When resources run short, scale out workers or nodes. Do not reintroduce tenant quotas. Keep `HATCHET_STEP_SLOTS` at 50 or below until the tenant watcher no longer treats a slow platform check as a refusal (see [Known limits](#known-limits)); add capacity with more pods instead.
 8. **Logs.** Log collection captures these structured events:
    - `hatchet.worker.started`, `hatchet.worker.restarting`, `hatchet.worker.stopped`, `hatchet.worker.not_ready`, `hatchet.worker.loopback_ready`
@@ -61,7 +61,7 @@ Skipping the drain loses whatever was still in Hatchet:
 - webhooks
 - thread and sub-agent callbacks
 
-A plain step is recoverable. The local reaper can redrive it while its Redis state lives, which is 2 hours, refreshed on every attempt.
+A plain step is recoverable. The local reaper can redrive it while its Redis state lives, which is 4 hours, refreshed on every attempt.
 
 ## Roll back to the base image
 

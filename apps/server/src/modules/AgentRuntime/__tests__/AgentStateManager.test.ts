@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type * as HatchetConfig from '@/server/modules/Hatchet/config';
 import { StepLockUnavailableError } from '@/server/services/agentRuntime/AgentRuntimeService/executionErrors';
 
-import { AgentStateManager } from '../AgentStateManager';
+import { AGENT_RUNTIME_STATE_TTL_SECONDS, AgentStateManager } from '../AgentStateManager';
 
 const hatchet = vi.hoisted(() => ({ enabled: false }));
 
@@ -415,7 +415,9 @@ describe('AgentStateManager', () => {
       await stateManager.touchOperation('op-touch');
 
       expect(redisMock.pipeline).toHaveBeenCalledTimes(1);
-      expect(pipelineMock.expire.mock.calls).toEqual(operationKeys.map((key) => [key, 2 * 3600]));
+      expect(pipelineMock.expire.mock.calls).toEqual(
+        operationKeys.map((key) => [key, AGENT_RUNTIME_STATE_TTL_SECONDS]),
+      );
       expect(pipelineMock.exec).toHaveBeenCalledTimes(1);
     });
 
@@ -441,7 +443,11 @@ describe('AgentStateManager', () => {
     it('markInterrupted writes a small sentinel key with the state TTL', async () => {
       await stateManager.markInterrupted('op-int');
 
-      expect(redisMock.setex).toHaveBeenCalledWith('agent_runtime_interrupt:op-int', 2 * 3600, '1');
+      expect(redisMock.setex).toHaveBeenCalledWith(
+        'agent_runtime_interrupt:op-int',
+        AGENT_RUNTIME_STATE_TTL_SECONDS,
+        '1',
+      );
     });
 
     it('isInterrupted checks key existence instead of loading the state blob', async () => {
@@ -475,7 +481,7 @@ describe('AgentStateManager', () => {
 
       expect(redisMock.setex).toHaveBeenCalledWith(
         'agent_runtime_queued_messages:op-q',
-        2 * 3600,
+        AGENT_RUNTIME_STATE_TTL_SECONDS,
         '1',
       );
     });
@@ -507,7 +513,7 @@ describe('AgentStateManager', () => {
 
       expect(redisMock.setex).toHaveBeenCalledWith(
         'agent_runtime_inline_resume:op-resume',
-        2 * 3600,
+        AGENT_RUNTIME_STATE_TTL_SECONDS,
         '{"stepIndex":4}',
       );
     });

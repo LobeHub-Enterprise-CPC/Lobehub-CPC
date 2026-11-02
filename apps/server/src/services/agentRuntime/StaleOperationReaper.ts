@@ -65,7 +65,7 @@ const SWEEP_TIME_BUDGET_MS = 20_000;
 /**
  * Bound the oldest-first scan so long-dead rows without coordinator state
  * cannot fill every candidate slot on every tick. Runtime state expires after
- * two hours, so a day leaves ample room to recover recent failures.
+ * four hours, so a day leaves ample room to recover recent failures.
  */
 const DEFAULT_LOOKBACK_MS = 24 * 60 * 60_000;
 
@@ -153,7 +153,7 @@ export interface StaleCursor {
  * run on schedule. B is at most MAX_SWEEP_PAGES * limit and can be smaller
  * when the time budget or recovery limit is reached; neither throughput nor
  * scheduling is guaranteed. A cycle over 30 minutes warns well before the
- * 2-hour runtime-state TTL, but cannot guarantee refresh under overload.
+ * 4-hour runtime-state TTL, but cannot guarantee refresh under overload.
  */
 export interface StaleSweepCursorStore {
   load: () => Promise<StaleSweepPosition | undefined>;
@@ -348,7 +348,7 @@ export class StaleOperationReaper {
       ?.save(!reachedEnd && nextCursor ? { cursor: nextCursor, cycleStart } : undefined)
       .catch((e) => log('sweep cursor not saved: %O', e));
 
-    // Closing a full scan: warn while the 2h state TTL still has headroom if
+    // Closing a full scan: warn while the 4h state TTL still has headroom if
     // the scan outgrew it, then open the next scan. Identifiers and timings
     // only: never message contents.
     if (reachedEnd && this.sweepCursor) {
