@@ -1707,7 +1707,7 @@
   "memory.on.desc": "允许 AI 在对话中主动搜索和管理你的记忆。",
   "memory.on.title": "启用记忆工具",
   "memory.title": "记忆",
-  "mention.category.agents": "助理",
+  "mention.category.agents": "专家",
   "mention.category.files": "文件",
   "mention.category.members": "成员",
   "mention.category.privateAgents": "私人",
