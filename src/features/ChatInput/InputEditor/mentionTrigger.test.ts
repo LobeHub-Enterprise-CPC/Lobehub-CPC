@@ -1,6 +1,5 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -10,9 +9,10 @@ import { describe, expect, it } from 'vitest';
  * exported by the package, so load the patched dist file directly.
  */
 const loadMatcher = async () => {
-  const pkg = createRequire(import.meta.url).resolve('@lobehub/editor/package.json');
-  const file = path.join(path.dirname(pkg), 'es/plugins/slash/utils/utils.js');
-  const mod = await import(/* @vite-ignore */ pathToFileURL(file).href);
+  const require = createRequire(import.meta.url);
+  const pkg = require.resolve('@lobehub/editor/package.json');
+  // Node's own loader: Vitest's runner cannot resolve this file by absolute path.
+  const mod = require(path.join(path.dirname(pkg), 'es/plugins/slash/utils/utils.js'));
   return mod.getBasicTypeaheadTriggerMatch as (
     trigger: string,
     options: Record<string, unknown>,
