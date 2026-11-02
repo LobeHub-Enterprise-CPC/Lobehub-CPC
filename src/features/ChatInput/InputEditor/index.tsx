@@ -24,6 +24,7 @@ import { useIMECompositionEvent } from '@/hooks/useIMECompositionEvent';
 import { usePermission } from '@/hooks/usePermission';
 import { useSingleton } from '@/hooks/useSingleton';
 import { aiChatService } from '@/services/aiChat';
+import { prefetchMarketAgent } from '@/services/mentionMarketInstall';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
@@ -51,6 +52,15 @@ import {
 import { createInputCompletionError, isInputCompletionAbortError } from './inputCompletionError';
 import InputHistoryPopup, { getHistoryPreviewText } from './InputHistoryPopup';
 import { INSERT_LOCAL_FILE_TAG_COMMAND } from './LocalFileTag';
+import { searchMarketForMention, toMarketAgentItem, toMarketSkillItem } from './marketMentionItems';
+import {
+  AGENT_CATEGORY_IDS,
+  DEFAULT_MENTION_GROUP_LIMIT,
+  limitMentionGroups,
+  mergeIntoCategory,
+  SEARCH_MENTION_GROUP_LIMIT,
+  SKILL_PRECEDING_IDS,
+} from './mentionMenuSections';
 import { mentionPlainClassName } from './mentionStyle';
 import Placeholder, { type PlaceholderVariant } from './Placeholder';
 import { CHAT_INPUT_EMBED_PLUGINS, createChatInputRichPlugins } from './plugins';
@@ -140,7 +150,7 @@ const InputEditor = memo<{
   });
 
   // --- Category-based mention system ---
-  const categories = useMentionCategories();
+  const { categories, market } = useMentionCategories();
 
   // Get agent's model info for vision support check and handle paste upload
   const { model, provider } = useEffectiveModel(agentId);
@@ -151,9 +161,11 @@ const InputEditor = memo<{
   const { enableLocalFileTag, searchLocalFiles } = useLocalFileTag();
 
   const allMentionItems = useMemo(() => categories.flatMap((c) => c.items), [categories]);
+  // Before the user types, agents and skills (installed first, then the
+  // Market's top entries) show only a few each; typing filters all of them.
   const mentionSections = useMemo<ISlashSectionOption[]>(
     () =>
-      categories.map((category) => ({
+      limitMentionGroups(categories, DEFAULT_MENTION_GROUP_LIMIT).map((category) => ({
         items: category.items,
         key: `mention-section-${category.id}`,
         label: category.label,
@@ -178,30 +190,58 @@ const InputEditor = memo<{
       search: { leadOffset: number; matchingString: string; replaceableString: string } | null,
     ) => {
       if (search?.matchingString) {
-        const [localFileItems, mentionItems] = await Promise.all([
+        const [localFileItems, mentionItems, marketResult] = await Promise.all([
           searchLocalFiles(search.matchingString),
           Promise.resolve(fuse.search(search.matchingString).map((r) => r.item)),
+          searchMarketForMention(search.matchingString, market),
         ]);
 
         const rankByKey = new Map(mentionItems.map((item, index) => [String(item.key), index]));
-        const matchedSections = categories
-          .map((category): ISlashSectionOption => {
-            const items = category.items
-              .filter((item) => rankByKey.has(String(item.key)))
-              .sort(
-                (a, b) =>
-                  (rankByKey.get(String(a.key)) ?? Number.MAX_SAFE_INTEGER) -
-                  (rankByKey.get(String(b.key)) ?? Number.MAX_SAFE_INTEGER),
-              );
+        let matchedCategories = categories.map((category) => ({
+          ...category,
+          items: category.items
+            .filter((item) => rankByKey.has(String(item.key)))
+            .sort(
+              (a, b) =>
+                (rankByKey.get(String(a.key)) ?? Number.MAX_SAFE_INTEGER) -
+                (rankByKey.get(String(b.key)) ?? Number.MAX_SAFE_INTEGER),
+            ),
+        }));
 
-            return {
-              items,
-              key: `mention-section-${category.id}`,
-              label: category.label,
-              type: 'section',
-            };
-          })
-          .filter((section) => section.items.length > 0);
+        // Search reaches beyond the prefetched top entries; uninstalled matches
+        // join the same sections as installed ones.
+        if (market.agentCategory) {
+          matchedCategories = mergeIntoCategory(
+            matchedCategories,
+            {
+              ...market.agentCategory,
+              items: marketResult.agents
+                .filter((agent) => !market.installedAgentSources.has(agent.identifier))
+                .map((agent) => toMarketAgentItem(agent, market.agentVisibility)),
+            },
+            AGENT_CATEGORY_IDS,
+          );
+        }
+        matchedCategories = mergeIntoCategory(
+          matchedCategories,
+          {
+            ...market.skillCategory,
+            items: marketResult.skills
+              .filter((skill) => !market.installedSkills.has(skill.identifier))
+              .map(toMarketSkillItem),
+          },
+          SKILL_PRECEDING_IDS,
+        );
+
+        const matchedSections = limitMentionGroups(
+          matchedCategories,
+          SEARCH_MENTION_GROUP_LIMIT,
+        ).map((category): ISlashSectionOption => ({
+          items: category.items,
+          key: `mention-section-${category.id}`,
+          label: category.label,
+          type: 'section',
+        }));
 
         if (localFileItems.length > 0) {
           return [
@@ -219,10 +259,12 @@ const InputEditor = memo<{
       }
       return mentionSections;
     },
-    [categories, fuse, mentionSections, searchLocalFiles, t],
+    [categories, fuse, market, mentionSections, searchLocalFiles, t],
   );
 
-  const enableMention = isMentionEnabled && (allMentionItems.length > 0 || enableLocalFileTag);
+  const enableMention =
+    isMentionEnabled &&
+    (allMentionItems.length > 0 || enableLocalFileTag || market.agents || market.skills);
   const heterogeneousName = heterogeneousType
     ? (HETEROGENEOUS_TYPE_LABELS[heterogeneousType] ?? heterogeneousType)
     : undefined;
@@ -480,6 +522,11 @@ const InputEditor = memo<{
         path: String(option.metadata.path ?? ''),
       });
     } else {
+      // A Market agent installs when the message is sent; warm its detail now
+      // so that install only has the fork and the local row left to do.
+      if (typeof option.metadata?.marketIdentifier === 'string') {
+        prefetchMarketAgent(option.metadata.marketIdentifier);
+      }
       // Agent options carry a ReactNode label; the chip needs the plain name
       // kept in `metadata.label`. Other types (member) still use `label` itself.
       editor.dispatchCommand(INSERT_MENTION_COMMAND, {
