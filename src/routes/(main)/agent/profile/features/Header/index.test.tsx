@@ -269,7 +269,7 @@ vi.mock('../store', () => ({
 }));
 
 vi.mock('./AgentForkTag', () => ({
-  default: () => null,
+  default: () => <span>Forked from Market Agent</span>,
 }));
 
 vi.mock('./AgentStatusTag', () => ({
@@ -305,16 +305,18 @@ describe('Agent profile Header', () => {
   });
 
   describe('Market review entry', () => {
-    it('replaces the unpublished status with under review after submission', () => {
+    it('keeps publication and fork labels out of the profile navigation before and after submission', () => {
       const { rerender } = render(<Header />);
-      expect(screen.getByText('Unpublished')).toBeVisible();
+      expect(screen.queryByText('Unpublished')).toBeNull();
       expect(screen.queryByText('Under Review')).toBeNull();
+      expect(screen.queryByText('Forked from Market Agent')).toBeNull();
 
       mocks.marketSubmission.isUnderReview = true;
       rerender(<Header key="submitted" />);
 
-      expect(screen.getByText('Under Review')).toBeVisible();
+      expect(screen.queryByText('Under Review')).toBeNull();
       expect(screen.queryByText('Unpublished')).toBeNull();
+      expect(screen.queryByText('Forked from Market Agent')).toBeNull();
     });
 
     it('keeps publishing inside the collapsed actions menu, not directly in the header', () => {

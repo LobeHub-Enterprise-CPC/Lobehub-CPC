@@ -46,8 +46,6 @@ import { sanitizeFileName } from '@/utils/sanitizeFileName';
 
 import { openAgentSettingsModal } from '../AgentSettings';
 import { selectors as profileSelectors, useProfileStore } from '../store';
-import AgentForkTag from './AgentForkTag';
-import AgentVersionReviewTag from './AgentVersionReviewTag';
 
 type HeaderTranslation = TFunction<
   readonly ['setting', 'chat', 'file', 'common', 'agent'],
@@ -412,11 +410,6 @@ const Header = memo(() => {
         <Flexbox horizontal align={'center'} gap={8}>
           {/* No section title — the Segmented beside it names the current tab. */}
           {activeAgentId && <AgentBreadcrumb agentId={activeAgentId} />}
-          <AgentVersionReviewTag
-            key={`review-${activeAgentId}-${marketSubmission.revision}`}
-            submitted={marketSubmission.isUnderReview}
-          />
-          <AgentForkTag />
           <AccessLevelTag
             resourceId={showPermissionsEntry ? (activeAgentId ?? undefined) : undefined}
             resourceType={'agent'}
