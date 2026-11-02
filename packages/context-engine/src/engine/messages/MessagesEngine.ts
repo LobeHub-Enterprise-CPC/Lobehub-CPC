@@ -194,6 +194,7 @@ export class MessagesEngine {
       additionalContexts,
       agentGroup,
       agentDocuments,
+      speakers,
       planTodo,
       userMemory,
       initialContext,
@@ -572,7 +573,9 @@ export class MessagesEngine {
               currentAgentId: agentGroup.currentAgentId,
             }),
           ]
-        : []),
+        : speakers
+          ? [new GroupRoleTransformProcessor(speakers)]
+          : []),
       // Dynamic-activation result trimming — replaces activateTools /
       // activateSkill tool-result documents that are ALSO injected into the
       // system prompt (by ToolSystemRoleProvider / SkillContextProvider above)

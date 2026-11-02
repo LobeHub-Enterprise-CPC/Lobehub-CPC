@@ -404,6 +404,8 @@ export const ExecSubAgentTaskSchema = z.object({
   agentId: z.string(),
   /** The Group ID (optional, only for Group mode) */
   groupId: z.string().optional(),
+  /** A direct @Agent reply: the agent reads the topic's earlier messages */
+  inheritTopicHistory: z.boolean().optional(),
   /** Task instruction/prompt for the SubAgent */
   instruction: z.string(),
   /**

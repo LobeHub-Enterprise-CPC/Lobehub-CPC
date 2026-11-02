@@ -71,10 +71,15 @@ const ThreadChatContent = memo<ThreadChatContentProps>(
     const visibleIds = useMemo(() => {
       if (!sourceMessageId) return;
       const forkIndex = displayMessages.findIndex((msg) => msg.id === sourceMessageId);
-      // Anchor not in this list (a bucket swap mid-flight): show everything
-      // rather than blanking the panel.
-      if (forkIndex < 0) return;
-      return new Set(displayMessages.slice(forkIndex).map((msg) => msg.id));
+      if (forkIndex >= 0) return new Set(displayMessages.slice(forkIndex).map((msg) => msg.id));
+
+      // No anchor in this list: an Isolation thread that reads the conversation
+      // it answers (direct @Agent) carries that conversation but not the fork,
+      // so show the thread's own messages. With none yet (a bucket swap
+      // mid-flight), show everything rather than blanking the panel.
+      const own = displayMessages.filter((msg) => msg.threadId);
+      if (own.length === 0) return;
+      return new Set(own.map((msg) => msg.id));
     }, [displayMessages, sourceMessageId]);
 
     const filterItem = useCallback(

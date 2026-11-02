@@ -46,6 +46,54 @@ describe('gatherContextFacts', () => {
     expect(facts.variables.username).toBe('arvin');
   });
 
+  describe('speakers', () => {
+    const turn = (agentId: string, role: string) =>
+      ({
+        agentId,
+        content: 'x',
+        createdAt: 0,
+        id: `${agentId}-${role}`,
+        role,
+        updatedAt: 0,
+      }) as never;
+
+    it('names the other agents whose turns the conversation carries', async () => {
+      const getAgentDefinition = vi.fn(async (id: string) =>
+        id === 'agt_titu' ? { title: 'TITU AI' } : null,
+      );
+
+      const facts = await gatherContextFacts(
+        request({
+          messages: [
+            turn('agt_1', 'user'),
+            turn('agt_titu', 'assistantGroup'),
+            turn('agt_gone', 'assistant'),
+            turn('agt_1', 'assistant'),
+          ],
+        }),
+        { getAgentDefinition },
+      );
+
+      expect(facts.step.speakers).toEqual({
+        agentMap: { agt_titu: { name: 'TITU AI', role: 'participant' } },
+        currentAgentId: 'agt_1',
+      });
+      expect(getAgentDefinition).toHaveBeenCalledTimes(2);
+    });
+
+    it('looks nothing up when only the current agent speaks', async () => {
+      const getAgentDefinition = vi.fn();
+
+      const facts = await gatherContextFacts(
+        request({ messages: [turn('agt_titu', 'user'), turn('agt_1', 'assistant')] }),
+        { getAgentDefinition },
+      );
+
+      expect(facts.step.speakers).toBeUndefined();
+      expect(getAgentDefinition).not.toHaveBeenCalled();
+    });
+  });
+
   describe('plan / todo', () => {
     const providers: ContextFactProviders = {
       getPlanDocument: async () => ({

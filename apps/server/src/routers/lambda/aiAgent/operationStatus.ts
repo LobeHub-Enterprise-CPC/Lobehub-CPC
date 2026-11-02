@@ -363,9 +363,11 @@ export const operationStatusRouter = router({
           postProcessUrl: createUiMessageFileUrlResolver(),
         },
       );
-      const sortedMessages = threadMessages.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
+      // The thread query also carries the conversation the thread inherits; the
+      // run's result and activity come from the thread's own messages only.
+      const sortedMessages = threadMessages
+        .filter((m) => m.threadId === threadId)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       // 6.1 Parse messages using conversation-flow for UI display
       const { flatList: parsedMessages } = parse(threadMessages, undefined, { threadId });

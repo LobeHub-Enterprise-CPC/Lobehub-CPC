@@ -5,6 +5,7 @@ import type {
   AgentGroupConfig,
   AgentManagementContext,
   BotPlatformContext,
+  ConversationSpeakers,
   DiscordContext,
   EvalContext,
   FileContent,
@@ -107,6 +108,8 @@ export interface ServerMessagesEngineParams {
   agentManagementContext?: AgentManagementContext;
   /** Group Agent Builder context (optional, for editing the current group) */
   groupAgentBuilderContext?: GroupAgentBuilderContext;
+  /** Other agents whose turns the conversation carries, outside a group chat */
+  speakers?: ConversationSpeakers;
   // ========== Capability injection ==========
   /** Model capability checkers */
   capabilities?: ServerModelCapabilities;

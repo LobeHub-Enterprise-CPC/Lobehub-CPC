@@ -195,6 +195,8 @@ export const execAgentThreadRun = async (
 ): Promise<ExecSubAgentResult> => {
   const { groupId, topicId, parentMessageId, agentId, instruction, title, parentOperationId } =
     params;
+  // Only a direct @Agent reply (execSubAgent) joins its topic's conversation.
+  const inheritTopicHistory = 'inheritTopicHistory' in params && params.inheritTopicHistory;
 
   log(
     '%s: agentId=%s, groupId=%s, topicId=%s, instruction=%s',
@@ -281,7 +283,7 @@ export const execAgentThreadRun = async (
 
     // 2. Update Thread status to processing with startedAt timestamp
     await deps.threadModel.update(thread.id, {
-      metadata: { runToken, startedAt },
+      metadata: { ...(inheritTopicHistory && { inheritTopicHistory: true }), runToken, startedAt },
       status: ThreadStatus.Processing,
     });
   }

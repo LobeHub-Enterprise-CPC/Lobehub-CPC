@@ -4,6 +4,7 @@ import type {
   AgentGroupConfig,
   AgentManagementContext,
   BotPlatformContext,
+  ConversationSpeakers,
   DiscordContext,
   EvalContext,
   FileContextConfig,
@@ -134,6 +135,8 @@ export interface ContextStepSnapshot {
   onboardingContext?: OnboardingContext;
   pageContentContext?: PageContentContext;
   planTodo?: PlanTodoConfig;
+  /** Other agents whose turns the conversation carries, outside a group chat. */
+  speakers?: ConversationSpeakers;
   topicReferences?: TopicReferenceItem[];
   workspaceContext?: WorkspaceContext;
 }

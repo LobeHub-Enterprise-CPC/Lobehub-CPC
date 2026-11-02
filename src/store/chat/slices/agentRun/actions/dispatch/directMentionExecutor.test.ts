@@ -72,6 +72,38 @@ describe('executeDirectMention', () => {
     expect(store.refreshMessages).toHaveBeenCalledWith({ agentId: 'agt_xw', topicId: 'tpc_1' });
   });
 
+  it('lets the mentioned agent read the conversation it is answering in', async () => {
+    const { ClientSubAgentTransport } =
+      await import('@/store/chat/agents/transports/ClientSubAgentTransport');
+    const execSubAgent = vi
+      .spyOn(ClientSubAgentTransport.prototype, 'execSubAgent')
+      .mockResolvedValue({ result: 'reply', success: true, threadId: 'thd_1' } as any);
+    const store = {
+      associateMessageWithOperation: vi.fn(),
+      completeOperation: vi.fn(),
+      optimisticUpdateMessageContent: vi.fn().mockResolvedValue(undefined),
+      refreshMessages: vi.fn().mockResolvedValue(undefined),
+      refreshThreads: vi.fn().mockResolvedValue(undefined),
+      startOperation: vi.fn(() => ({ operationId: 'op_client' })),
+    };
+
+    await executeDirectMention(
+      {
+        context: { agentId: 'agt_lobe', topicId: 'tpc_1' },
+        instruction: '<mention name="小雯" id="agt_xw" />你能读到前面聊了什么吗',
+        parentOperationId: 'op_send',
+        runtimeType: 'gateway',
+        sourceMessageId: 'msg_src',
+        targetAgentId: 'agt_xw',
+      },
+      () => store as any,
+    );
+
+    expect(execSubAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ inheritTopicHistory: true, parentMessageId: 'msg_src' }),
+    );
+  });
+
   it('shows the running thread at once and streams the child while it runs', async () => {
     const { ClientSubAgentTransport } =
       await import('@/store/chat/agents/transports/ClientSubAgentTransport');

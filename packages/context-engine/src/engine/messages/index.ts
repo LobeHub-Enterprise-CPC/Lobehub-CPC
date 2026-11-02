@@ -3,6 +3,7 @@ export type {
   AgentBuilderContext,
   AgentGroupConfig,
   AgentInfo,
+  ConversationSpeakers,
   FileContent,
   FileContextConfig,
   KnowledgeBaseInfo,

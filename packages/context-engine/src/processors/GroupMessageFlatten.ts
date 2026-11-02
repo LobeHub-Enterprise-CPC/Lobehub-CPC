@@ -131,7 +131,9 @@ export class GroupMessageFlattenProcessor extends BaseProcessor {
                   updatedAt: message.updatedAt,
                 };
 
-                // Preserve parent message references
+                // Preserve parent message references, and the agent that
+                // called the tool so its result is attributed with its call
+                if (message.agentId) toolMsg.agentId = message.agentId;
                 if (message.parentId) toolMsg.parentId = message.parentId;
                 if (message.threadId) toolMsg.threadId = message.threadId;
                 if (message.groupId) toolMsg.groupId = message.groupId;

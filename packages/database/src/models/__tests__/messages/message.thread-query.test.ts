@@ -485,6 +485,83 @@ describe('MessageModel thread query', () => {
       expect(result.map((m) => m.id)).toEqual(['thread-msg1', 'thread-msg2']);
     });
 
+    it('reads the conversation before a direct @Agent reply for an Isolation thread that joins it', async () => {
+      await serverDB.transaction(async (trx) => {
+        await trx.insert(agents).values([
+          { id: 'agent1', userId },
+          { id: 'expert', userId },
+        ]);
+        await trx.insert(topics).values([{ id: 'topic1', userId }]);
+        await trx.insert(threads).values([
+          {
+            agentId: 'expert',
+            id: 'thread1',
+            metadata: { inheritTopicHistory: true },
+            sourceMessageId: 'reply',
+            topicId: 'topic1',
+            type: 'isolation',
+            userId,
+          },
+        ]);
+        await trx.insert(messages).values([
+          {
+            agentId: 'agent1',
+            content: 'we are hiring a backend lead',
+            createdAt: new Date('2023-01-01'),
+            id: 'msg1',
+            role: 'user',
+            topicId: 'topic1',
+            userId,
+          },
+          {
+            agentId: 'agent1',
+            content: 'noted',
+            createdAt: new Date('2023-01-02'),
+            id: 'msg2',
+            role: 'assistant',
+            topicId: 'topic1',
+            userId,
+          },
+          {
+            agentId: 'agent1',
+            content: '@expert what did we talk about?',
+            createdAt: new Date('2023-01-03'),
+            id: 'mention',
+            role: 'user',
+            topicId: 'topic1',
+            userId,
+          },
+          {
+            agentId: 'expert',
+            content: '',
+            // Written in the same instant as the mention it answers.
+            createdAt: new Date('2023-01-03'),
+            id: 'reply',
+            parentId: 'mention',
+            role: 'assistant',
+            topicId: 'topic1',
+            userId,
+          },
+          {
+            agentId: 'expert',
+            content: 'what did we talk about?',
+            createdAt: new Date('2023-01-03T00:00:02'),
+            id: 'thread-instruction',
+            role: 'user',
+            threadId: 'thread1',
+            topicId: 'topic1',
+            userId,
+          },
+        ]);
+      });
+
+      const result = await messageModel.query({ topicId: 'topic1', threadId: 'thread1' });
+
+      // The mention is the thread's instruction and the reply is still being
+      // written, so neither is repeated.
+      expect(result.map((m) => m.id)).toEqual(['msg1', 'msg2', 'thread-instruction']);
+    });
+
     it('should return only thread messages when thread has no sourceMessageId', async () => {
       await serverDB.transaction(async (trx) => {
         await trx.insert(sessions).values([{ id: 'session1', userId }]);
