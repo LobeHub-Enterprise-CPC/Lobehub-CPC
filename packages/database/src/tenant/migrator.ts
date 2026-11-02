@@ -44,8 +44,8 @@ END $$;`;
  *   database baseline installs extensions once in their shared schemas
  *   (`TENANT_EXTENSION_SCHEMAS`) and the schema owner may not create them;
  * - `BEGIN` / `COMMIT` are dropped: the whole chain runs in one transaction.
- * The reviewed optional pg_search wrapper checks installation only when the
- * extension is available; unknown wrappers are rejected before execution.
+ * The reviewed optional pg_search wrapper is skipped (the journal still records
+ * it); unknown wrappers are rejected before execution.
  * Everything else is unqualified and lands in the tenant through the
  * `search_path` the migrator pins.
  * `sourceSchema` is the schema the chain was authored against: `public`, or the
@@ -60,12 +60,17 @@ export const materializeTenantStatement = (
   const body = withoutMigrationHeader(statement).trim();
   if (!body || TRANSACTION_CONTROL.test(body)) return null;
   if (matchesReviewedTenantMigration(statement, OPTIONAL_PG_SEARCH)) {
-    return `DO $ext$ BEGIN
-      IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search')
-        AND NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN
-        RAISE EXCEPTION 'extension pg_search is not installed';
-      END IF;
-    END $ext$`;
+    // CPC does not use pg_search: search runs on Elasticsearch and the Ops baseline never
+    // installs the extension. The check below required it wherever the server offered it, so
+    // no tenant could be provisioned on ParadeDB. 0093 still builds BM25 indexes only where
+    // pg_search is installed.
+    // return `DO $ext$ BEGIN
+    //   IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search')
+    //     AND NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN
+    //     RAISE EXCEPTION 'extension pg_search is not installed';
+    //   END IF;
+    // END $ext$`;
+    return null;
   }
   const extension = CREATE_EXTENSION.exec(body)?.[1];
   if (extension)

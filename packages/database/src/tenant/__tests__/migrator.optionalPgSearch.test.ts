@@ -28,29 +28,13 @@ beforeAll(async () => {
 });
 
 describe('optional pg_search tenant migration', () => {
-  it('adapts the current complete wrapper without changing migration identity', () => {
+  it('skips the reviewed wrapper without changing migration identity', () => {
     const files = readMigrationFiles({ migrationsFolder });
     const adapted = materializeTenantMigrations(files, SCHEMA);
     expect(adapted.map(({ hash, folderMillis }) => [hash, folderMillis])).toEqual(
       files.map(({ hash, folderMillis }) => [hash, folderMillis]),
     );
-    const statement = materializeTenantStatement(source, SCHEMA)!;
-    expect(statement).not.toMatch(/create\s+extension/i);
-    expect(statement).toContain('pg_available_extensions');
-    expect(statement).toContain('pg_extension');
-  });
-
-  it('skips an unavailable extension without creating anything outside the tenant', async () => {
-    const db = new PGlite();
-    try {
-      await db.exec(`CREATE SCHEMA "${SCHEMA}"; SET search_path TO "${SCHEMA}"`);
-      await db.exec(materializeTenantStatement(source, SCHEMA)!);
-      expect(
-        (await db.query("SELECT 1 FROM pg_extension WHERE extname = 'pg_search'")).rows,
-      ).toHaveLength(0);
-    } finally {
-      await db.close();
-    }
+    expect(materializeTenantStatement(source, SCHEMA)).toBeNull();
   });
 
   it.each([

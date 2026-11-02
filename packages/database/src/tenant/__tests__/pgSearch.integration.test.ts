@@ -17,7 +17,8 @@ const adminUrl = process.env.TEST_SERVER_DB === '1' ? process.env.DATABASE_TEST_
 
 describe.skipIf(!adminUrl)('tenant pg_search on isolated PostgreSQL', () => {
   const database = `lh_pgsearch_${process.pid}_${Date.now()}`;
-  const tenants = ['a', 'b'].map((suffix) => {
+  // a/b build BM25 indexes once pg_search is installed; c migrates while it is only available.
+  const tenants = ['a', 'b', 'c'].map((suffix) => {
     const tenantId = `${database}-${suffix}`;
     return { tenantId, ...tenantDbNames(tenantId) };
   });
@@ -57,32 +58,44 @@ describe.skipIf(!adminUrl)('tenant pg_search on isolated PostgreSQL', () => {
     await root.end();
   });
 
-  it('requires baseline installation when available, then builds two independently owned tenant chains', async () => {
+  it('migrates without pg_search while it is only available, then builds two independently owned tenant chains', async () => {
     const source = await readFile(
       path.join(__dirname, '../../../migrations/0090_enable_pg_search.sql'),
       'utf8',
     );
-    const statement = materializeTenantStatement(source, tenants[0].schemaName)!;
-    expect(statement).not.toMatch(/create\s+extension/i);
+    expect(materializeTenantStatement(source, tenants[0].schemaName)).toBeNull();
     expect(
       (await admin.query("SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search'"))
         .rowCount,
     ).toBe(1);
-    await expect(owners[0].query(statement)).rejects.toThrow(
-      'extension pg_search is not installed',
-    );
+
+    // Current Ops baseline: vector in its shared schema, pg_search never installed.
+    await admin.query('CREATE EXTENSION vector');
+    await admin.query('CREATE SCHEMA extensions; ALTER EXTENSION vector SET SCHEMA extensions');
+    const [, , withoutPgSearch] = tenants;
+    await admin.query(`GRANT USAGE ON SCHEMA extensions TO "${withoutPgSearch.ownerUsername}"`);
+    await getTenantMigrators()[0].run(owners[2], withoutPgSearch);
+    await getTenantMigrators()[0].verify(owners[2], withoutPgSearch);
     expect(
       (await admin.query("SELECT 1 FROM pg_extension WHERE extname = 'pg_search'")).rowCount,
     ).toBe(0);
+    expect(
+      (
+        await admin.query(
+          `SELECT 1 FROM pg_class i JOIN pg_namespace n ON n.oid = i.relnamespace
+           JOIN pg_am am ON am.oid = i.relam WHERE n.nspname = $1 AND am.amname = 'bm25'`,
+          [withoutPgSearch.schemaName],
+        )
+      ).rowCount,
+    ).toBe(0);
 
-    // pg_search 0.25's install SQL references public.vector; relocate vector
-    // only after both baseline extensions are installed, as provisioning does.
-    await admin.query('CREATE EXTENSION vector');
-    await admin.query('CREATE EXTENSION pg_search');
-    await admin.query('CREATE SCHEMA extensions; ALTER EXTENSION vector SET SCHEMA extensions');
-    for (const [index, tenant] of tenants.entries()) {
+    // A database that does install pg_search: 0.25's install SQL references public.vector,
+    // so vector is moved back only for that statement, as the old baseline did.
+    await admin.query(`ALTER EXTENSION vector SET SCHEMA public; CREATE EXTENSION pg_search;
+      ALTER EXTENSION vector SET SCHEMA extensions`);
+    const indexed = tenants.slice(0, 2);
+    for (const [index, tenant] of indexed.entries()) {
       await admin.query(`GRANT USAGE ON SCHEMA extensions, paradedb TO "${tenant.ownerUsername}"`);
-      await expect(owners[index].query(statement)).resolves.toBeDefined();
       await getTenantMigrators()[0].run(owners[index], tenant);
       await getTenantMigrators()[0].verify(owners[index], tenant);
       await owners[index].query('BEGIN READ ONLY');
@@ -117,10 +130,10 @@ describe.skipIf(!adminUrl)('tenant pg_search on isolated PostgreSQL', () => {
       JOIN pg_am am ON am.oid = i.relam
       WHERE ni.nspname = ANY($1) AND am.amname = 'bm25'
       ORDER BY ni.nspname, i.relname`,
-      [tenants.map((tenant) => tenant.schemaName)],
+      [indexed.map((tenant) => tenant.schemaName)],
     );
     expect(rows).toHaveLength(2 * PG_SEARCH_BM25_INDEX_NAMES.length);
-    for (const tenant of tenants) {
+    for (const tenant of indexed) {
       const indexes = rows.filter((row) => row.index_schema === tenant.schemaName);
       expect(indexes.map((row) => row.index_name).sort()).toEqual(
         [...PG_SEARCH_BM25_INDEX_NAMES].sort(),
