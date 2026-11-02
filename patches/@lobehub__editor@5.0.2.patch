@@ -1,8 +1,20 @@
 diff --git a/es/plugins/slash/plugin/index.js b/es/plugins/slash/plugin/index.js
-index 2cc5dc5..ef13d4f 100644
+index 2cc5dc5..5f88ec6 100644
 --- a/es/plugins/slash/plugin/index.js
 +++ b/es/plugins/slash/plugin/index.js
-@@ -127,7 +127,7 @@ const SlashPlugin = class extends KernelPlugin {
+@@ -90,7 +90,10 @@ const SlashPlugin = class extends KernelPlugin {
+ 		this.register(editor.registerCommand(KEY_DOWN_COMMAND, (event) => {
+ 			if (event.isComposing) return false;
+ 			const key = event.key;
+-			if (key.length === 1 || key === "Backspace" || key === "Delete") {
++			// With an IME on (e.g. Chinese), every keystroke arrives as "Process" /
++			// keyCode 229, and Lexical skips keydown while composing. Count those as
++			// typing too, otherwise the menu stays suppressed after the first commit.
++			if (key.length === 1 || key === "Process" || event.keyCode === 229 || key === "Backspace" || key === "Delete") {
+ 				this.suppressOpen = false;
+ 				this.manualOpen = false;
+ 			}
+@@ -127,7 +130,7 @@ const SlashPlugin = class extends KernelPlugin {
  					triggerText = resolution.trigger;
  					this.currentSlashTriggerIndex = resolution.leadOffset;
  				}
