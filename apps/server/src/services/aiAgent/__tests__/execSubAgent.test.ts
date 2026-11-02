@@ -881,6 +881,20 @@ describe('AiAgentService.execSubAgent', () => {
       mockStreamManager.closeLlmRelayChannel.mockResolvedValue(undefined);
     });
 
+    it('does not link the child to a parent operation the server has no run for', async () => {
+      // The gateway only authorizes a child whose recorded parent is a live
+      // server run, so linking the tab's local id makes the child UNAUTHORIZED.
+      mockOperationFindById.mockResolvedValue(null);
+      const execAgentSpy = vi
+        .spyOn(service, 'execAgent')
+        .mockResolvedValue({ operationId: 'op-child', success: true } as any);
+
+      await service.execSubAgent(params);
+
+      expect(mockOperationFindById).toHaveBeenCalledWith('client-local-op');
+      expect(execAgentSpy.mock.calls[0][0].parentOperationId).toBeUndefined();
+    });
+
     it('relays the child on the channel the tab stands by on', async () => {
       const execAgentSpy = vi
         .spyOn(service, 'execAgent')

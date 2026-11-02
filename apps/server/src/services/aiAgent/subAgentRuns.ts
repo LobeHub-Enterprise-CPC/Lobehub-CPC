@@ -317,10 +317,16 @@ export const execAgentThreadRun = async (
   // original entry point (chat / bot / cli / eval / …). Lookup is best-effort
   // — a missing parent row falls back to undefined and the column stays null.
   let inheritedTrigger: string | undefined;
+  // A tab that dispatches a direct @mention passes its own client-local
+  // operation id, which has no server row. The child must not record it as its
+  // parent: gateway authorization only admits a child whose recorded parent is
+  // a live server run, so the child would fail with UNAUTHORIZED.
+  let recordedParentOperationId = parentOperationId;
   if (parentOperationId) {
     try {
       const parentOp = await deps.agentOperationModel.findById(parentOperationId);
       inheritedTrigger = parentOp?.trigger ?? undefined;
+      if (!parentOp) recordedParentOperationId = undefined;
     } catch (error) {
       log('%s: failed to read parent operation trigger: %O', options.logScope, error);
     }
@@ -396,7 +402,7 @@ export const execAgentThreadRun = async (
             },
           }
         : {}),
-      parentOperationId,
+      parentOperationId: recordedParentOperationId,
       prompt: instruction,
       provider: options.provider,
       trigger: inheritedTrigger,
