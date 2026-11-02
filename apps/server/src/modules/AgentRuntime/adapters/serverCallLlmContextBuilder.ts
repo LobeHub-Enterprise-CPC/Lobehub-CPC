@@ -178,6 +178,7 @@ export const buildServerCallLlmContext = async ({
     ...(facts.step.groupAgentBuilderContext && {
       groupAgentBuilderContext: facts.step.groupAgentBuilderContext,
     }),
+    ...(facts.step.speakers && { speakers: facts.step.speakers }),
     historyCount,
     initialContext: (state as any).initialContext?.initialContext,
     knowledge: {

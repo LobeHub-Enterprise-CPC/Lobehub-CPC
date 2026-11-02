@@ -1,4 +1,4 @@
-import type { DBMessageItem, IThreadType } from '@lobechat/types';
+import type { DBMessageItem, IThreadType, ThreadMetadata } from '@lobechat/types';
 import { ThreadType } from '@lobechat/types';
 import type { SQL } from 'drizzle-orm';
 import { and, asc, desc, eq, inArray, isNull, lte, not, or, sql } from 'drizzle-orm';
@@ -40,6 +40,7 @@ export class MessageLookupQueries extends MessageScope {
 
     // Get parent messages based on thread type
     const parentMessages = await this.getThreadParentMessages({
+      inheritTopicHistory: !!(thread.metadata as ThreadMetadata | null)?.inheritTopicHistory,
       sourceMessageId: thread.sourceMessageId,
       threadType: thread.type as IThreadType,
       topicId: thread.topicId,
@@ -208,18 +209,43 @@ export class MessageLookupQueries extends MessageScope {
    * @returns Parent messages based on thread type:
    *   - Continuation: All messages from the topic up to and including the source message
    *   - Standalone: Only the source message itself
-   *   - Isolation: No parent messages (completely isolated thread)
+   *   - Isolation: No parent messages (completely isolated thread), unless it
+   *     inherits the topic history (a direct @Agent reply): then every main
+   *     message before the mention that its instruction repeats
    */
   getThreadParentMessages = async (params: {
+    inheritTopicHistory?: boolean;
     sourceMessageId: string;
     threadType: IThreadType;
     topicId: string;
   }): Promise<DBMessageItem[]> => {
-    const { sourceMessageId, topicId, threadType } = params;
+    const { inheritTopicHistory, sourceMessageId, topicId, threadType } = params;
 
-    // For Isolation type, return empty array (no parent messages)
     if (threadType === ThreadType.Isolation) {
-      return [];
+      if (!inheritTopicHistory) return [];
+
+      // The source is the reply this run is still writing, and the message it
+      // answers is the mention — already the thread's instruction.
+      const sourceMessage = await this.db.query.messages.findFirst({
+        where: and(eq(messages.id, sourceMessageId), this.ownership()),
+      });
+      if (!sourceMessage) return [];
+
+      const skipped = [sourceMessage.id, sourceMessage.parentId].filter(Boolean) as string[];
+
+      return (await this.db
+        .select()
+        .from(messages)
+        .where(
+          and(
+            this.ownership(),
+            eq(messages.topicId, topicId),
+            isNull(messages.threadId),
+            lte(messages.createdAt, sourceMessage.createdAt),
+            not(inArray(messages.id, skipped)),
+          ),
+        )
+        .orderBy(asc(messages.createdAt))) as DBMessageItem[];
     }
 
     // For Standalone type, only return the source message

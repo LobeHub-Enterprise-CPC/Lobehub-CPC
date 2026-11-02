@@ -1605,4 +1605,139 @@ Document content here.
       expect(withoutGraph.messages).toEqual(baseline.messages);
     });
   });
+
+  describe('speakers outside a group chat', () => {
+    const conversation = (): UIChatMessage[] =>
+      [
+        {
+          agentId: 'titu',
+          content: 'Remember: Go, Beijing',
+          createdAt: 1,
+          id: 'u1',
+          role: 'user',
+          updatedAt: 1,
+        },
+        {
+          agentId: 'titu',
+          content: 'Noted.',
+          createdAt: 2,
+          id: 'a1',
+          role: 'assistant',
+          updatedAt: 2,
+        },
+        {
+          agentId: 'titu',
+          content: '@Everett what did we say?',
+          createdAt: 3,
+          id: 'u2',
+          role: 'user',
+          updatedAt: 3,
+        },
+        {
+          agentId: 'everett',
+          content: 'Go, Beijing.',
+          createdAt: 4,
+          id: 'a2',
+          role: 'assistant',
+          updatedAt: 4,
+        },
+      ] as UIChatMessage[];
+
+    it("attributes another agent's turn instead of passing it off as the current agent's", async () => {
+      const result = await new MessagesEngine(
+        createBasicParams({
+          messages: conversation(),
+          speakers: {
+            agentMap: { everett: { name: 'Everett', role: 'participant' } },
+            currentAgentId: 'titu',
+          },
+        }),
+      ).process();
+
+      expect(result.messages).toEqual([
+        { content: 'Remember: Go, Beijing', role: 'user' },
+        { content: 'Noted.', role: 'assistant' },
+        { content: '@Everett what did we say?', role: 'user' },
+        { content: '<speaker name="Everett" />\nGo, Beijing.', role: 'user' },
+      ]);
+    });
+
+    it("folds another agent's tool calls and their results into its attributed turns", async () => {
+      const messages = [
+        {
+          agentId: 'titu',
+          content: 'Remember: Go',
+          createdAt: 1,
+          id: 'u1',
+          role: 'user',
+          updatedAt: 1,
+        },
+        {
+          agentId: 'titu',
+          children: [
+            {
+              content: '',
+              id: 'a1',
+              tools: [
+                {
+                  apiName: 'searchUserMemory',
+                  arguments: '{}',
+                  id: 'call_1',
+                  identifier: 'lobe-user-memory',
+                  result: { content: 'no memory', id: 't1' },
+                  type: 'builtin',
+                },
+              ],
+            },
+            { content: 'Noted.', id: 'a2' },
+          ],
+          content: '',
+          createdAt: 2,
+          id: 'g1',
+          role: 'assistantGroup',
+          updatedAt: 2,
+        },
+        {
+          agentId: 'everett',
+          content: '@Everett recap',
+          createdAt: 3,
+          id: 'u2',
+          role: 'user',
+          updatedAt: 3,
+        },
+      ] as unknown as UIChatMessage[];
+
+      const result = await new MessagesEngine(
+        createBasicParams({
+          messages,
+          speakers: {
+            agentMap: { titu: { name: 'TITU AI', role: 'participant' } },
+            currentAgentId: 'everett',
+          },
+        }),
+      ).process();
+
+      expect(result.messages.map((message) => message.role)).toEqual([
+        'user',
+        'user',
+        'user',
+        'user',
+        'user',
+      ]);
+      expect(
+        result.messages
+          .slice(1, 4)
+          .every((message) => String(message.content).startsWith('<speaker name="TITU AI" />')),
+      ).toBe(true);
+      expect(String(result.messages[2].content)).toContain('<tool_result id="call_1"');
+    });
+
+    it('leaves the conversation as it is without speakers', async () => {
+      const result = await new MessagesEngine(
+        createBasicParams({ messages: conversation() }),
+      ).process();
+
+      expect(result.messages.at(-1)).toEqual({ content: 'Go, Beijing.', role: 'assistant' });
+    });
+  });
 });

@@ -94,6 +94,7 @@ export const buildMessagesEngineParams = (snapshot: ContextSnapshot): MessagesEn
       onboardingContext: step?.onboardingContext,
       pageContentContext: step?.pageContentContext,
       planTodo: step?.planTodo,
+      speakers: step?.speakers,
       workspaceContext: step?.workspaceContext,
     }),
     ...(step?.topicReferences?.length && { topicReferences: step.topicReferences }),

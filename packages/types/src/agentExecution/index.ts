@@ -609,6 +609,11 @@ export interface ExecSubAgentParams {
   agentId: string;
   /** The Group ID (optional, only for Group mode) */
   groupId?: string;
+  /**
+   * The agent answers in the conversation (a direct @Agent reply) rather than
+   * taking an isolated task, so it reads the topic's earlier messages.
+   */
+  inheritTopicHistory?: boolean;
   /** Instruction/prompt for the agent */
   instruction: string;
   /** The parent message ID that anchors the isolated thread */

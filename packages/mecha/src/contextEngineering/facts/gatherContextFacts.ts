@@ -22,6 +22,7 @@ import { COMPOSIO_APP_TYPES } from '@lobechat/const';
 import {
   type AgentBuilderContext,
   type AgentManagementContext,
+  type ConversationSpeakers,
   type GroupAgentBuilderContext,
   type PlanTodoConfig,
   resolveTopicReferences,
@@ -171,6 +172,40 @@ const gatherWorkspaceContext = async (
     if (!resolved.slug) return undefined;
     return { appUrl: resolved.appUrl, workspace: { slug: resolved.slug } };
   });
+};
+
+/**
+ * Other agents whose turns sit in this conversation: a direct @Agent reply
+ * lands in the caller's topic, and the mentioned agent reads that topic. Each
+ * must see the other's turns as someone else's, not its own.
+ */
+const gatherSpeakers = async (
+  { agentId, messages }: ContextFactRequest,
+  { getAgentDefinition }: ContextFactProviders,
+): Promise<ConversationSpeakers | undefined> => {
+  if (!agentId || !getAgentDefinition) return;
+
+  const otherIds = new Set(
+    messages
+      // Any agent turn: assistant / tool rows, and the `assistantGroup` that
+      // folds an assistant's tool-calling steps together.
+      .filter((message) => message.role !== 'user' && message.role !== 'system')
+      .map((message) => message.agentId)
+      .filter((id): id is string => !!id && id !== agentId),
+  );
+  if (otherIds.size === 0) return;
+
+  const named = await Promise.all(
+    [...otherIds].map(async (id) => {
+      const agent = await attempt('speaker', () => getAgentDefinition(id));
+      const name = agent?.title || agent?.name;
+      return name ? ([id, { name, role: 'participant' as const }] as const) : undefined;
+    }),
+  );
+  const agentMap = Object.fromEntries(named.filter((entry) => !!entry));
+  if (Object.keys(agentMap).length === 0) return;
+
+  return { agentMap, currentAgentId: agentId };
 };
 
 const gatherPlanTodo = async (
@@ -470,6 +505,7 @@ export const gatherContextFacts = async (
     () => gatherGroupAgentBuilderContext(request, providers),
     () => gatherOnboardingContext(request, providers),
     () => gatherPlanTodo(request, providers),
+    () => attempt('speakers', () => gatherSpeakers(request, providers)),
     () =>
       attempt('sandboxFiles', () =>
         sandboxEnabled && request.topicId
@@ -498,6 +534,7 @@ export const gatherContextFacts = async (
     groupAgentBuilderContext,
     onboardingContext,
     planTodo,
+    speakers,
     sandboxFiles,
     sandboxPersistence,
     topic,
@@ -514,6 +551,7 @@ export const gatherContextFacts = async (
       groupAgentBuilderContext,
       onboardingContext,
       planTodo,
+      speakers,
       topicReferences,
       workspaceContext,
     },

@@ -122,6 +122,8 @@ export const executeDirectMention = async (
       });
       const result = await transport.execSubAgent({
         agentId: targetAgentId,
+        // The agent is answering in this conversation, not taking a blind task.
+        inheritTopicHistory: true,
         instruction,
         parentMessageId: sourceMessageId,
         parentOperationId: operationId,

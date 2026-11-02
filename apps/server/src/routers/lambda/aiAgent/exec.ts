@@ -536,6 +536,7 @@ export const execRouter = router({
       const {
         agentId,
         groupId,
+        inheritTopicHistory,
         instruction,
         llmExecutor,
         llmRelayChannel,
@@ -569,6 +570,7 @@ export const execRouter = router({
           {
             agentId,
             groupId,
+            ...(inheritTopicHistory && { inheritTopicHistory }),
             instruction,
             parentMessageId,
             ...(parentOperationId && { parentOperationId }),

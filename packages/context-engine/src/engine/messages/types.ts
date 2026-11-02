@@ -208,6 +208,19 @@ export interface AgentGroupConfig {
 }
 
 /**
+ * Other agents whose turns sit in a conversation that is not a group chat.
+ * A direct @Agent reply lands in the caller's topic, and the mentioned agent
+ * reads that topic; without attribution each would take the other's turns for
+ * its own.
+ */
+export interface ConversationSpeakers {
+  /** Agents other than the current one, by id. */
+  agentMap: Record<string, AgentInfo>;
+  /** The agent that is replying; its own turns stay as they are. */
+  currentAgentId: string;
+}
+
+/**
  * Plan + Todo configuration
  * Used to inject plan and todo context for task management
  */
@@ -344,6 +357,11 @@ export interface MessagesEngineParams {
   groupAgentBuilderContext?: GroupAgentBuilderContext;
   /** Plan + Todo configuration */
   planTodo?: PlanTodoConfig;
+  /**
+   * Other agents' turns in a conversation that is not a group chat, attributed
+   * to them. Ignored when `agentGroup` carries a roster.
+   */
+  speakers?: ConversationSpeakers;
   /** Reaction feedback configuration */
   reactionFeedback?: {
     enabled?: boolean;

@@ -46,6 +46,12 @@ export interface ThreadMetadata {
   /** Error details when task failed */
   error?: any;
   /**
+   * An isolation thread that answers in its topic's conversation (a direct
+   * @Agent reply): every read of it for the model also carries the topic's
+   * main messages before the reply, so the agent sees what was said.
+   */
+  inheritTopicHistory?: boolean;
+  /**
    * Model the subagent ran on (e.g. CC's per-turn `message.model`). Pinned
    * once for the run and rolled up here on finalize so historical / cold-load
    * viewers can surface it (e.g. the subagent inspector chip tooltip) without
