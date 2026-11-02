@@ -158,9 +158,9 @@ export const store: CreateStore = (publicState) => (set, get) => ({
     }
 
     // Install what the message picked from the Market, then send. The composer
-    // keeps its content until the install succeeds, so a failure loses nothing.
+    // keeps its content until the install succeeds, so a failure loses nothing;
+    // the send button's spinner is the only progress cue while it waits.
     const names = [...pending.agents, ...pending.skills].map((item) => item.label).join('、');
-    const loading = toast.loading(t('mention.marketInstall.installing', { names, ns: 'chat' }));
     set({ installingMarketMentions: true });
     installMarketMentions(pending)
       .then((installedAgentIds) => {
@@ -172,8 +172,7 @@ export const store: CreateStore = (publicState) => (set, get) => ({
         const failed =
           error instanceof MarketMentionInstallError ? error.failedNames.join('、') : names;
         toast.error(t('mention.marketInstall.failed', { names: failed, ns: 'chat' }));
-      })
-      .finally(() => loading.close());
+      });
   },
 
   handleStop: () => {

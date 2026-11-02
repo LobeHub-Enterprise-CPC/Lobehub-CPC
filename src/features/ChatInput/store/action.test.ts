@@ -1,4 +1,5 @@
 import type { IEditor } from '@lobehub/editor';
+import { toast } from '@lobehub/ui';
 import { KEY_ESCAPE_COMMAND } from 'lexical';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -331,6 +332,7 @@ describe('ChatInput store actions', () => {
 
     it('installs them first and sends the installed agent id', async () => {
       vi.mocked(installMarketMentions).mockResolvedValue(new Map([['writer', 'agt_writer']]));
+      const loadingToast = vi.spyOn(toast, 'loading');
       const onSend = vi.fn();
       const store = createStore({ editor: marketEditor() as unknown as IEditor, onSend });
 
@@ -341,7 +343,9 @@ describe('ChatInput store actions', () => {
         skills: [],
       });
       expect(onSend).not.toHaveBeenCalled();
+      // The send button's spinner is the only progress cue; no toast.
       expect(store.getState().installingMarketMentions).toBe(true);
+      expect(loadingToast).not.toHaveBeenCalled();
 
       await vi.waitFor(() => expect(onSend).toHaveBeenCalledOnce());
       const { getEditorData, getMarkdownContent } = onSend.mock.calls[0][0];
