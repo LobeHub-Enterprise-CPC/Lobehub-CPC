@@ -7,11 +7,13 @@ import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPer
 import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
 import { AgentSkillModel } from '@/database/models/agentSkill';
 import { FileModel } from '@/database/models/file';
+import { PluginModel } from '@/database/models/plugin';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { FileService } from '@/server/services/file';
 import { MarketService } from '@/server/services/market';
+import { resolveRevokedMarketAssets } from '@/server/services/market/installedAssetAccess';
 import {
   ensureMarketSkills,
   ensureMarketSkillsInputSchema,
@@ -268,6 +270,20 @@ export const agentSkillsRouter = router({
 
       return ctx.skillModel.findAll();
     }),
+
+  /**
+   * Identifiers of installed Market skills and plugins the enterprise no longer makes available to
+   * this member. The client shows them as disabled by the enterprise; runs already leave them out.
+   */
+  listRevokedMarketAssets: skillProcedure.query(async ({ ctx }) =>
+    resolveRevokedMarketAssets({
+      db: ctx.serverDB,
+      getMarketService: async () => ctx.marketService,
+      pluginModel: new PluginModel(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined),
+      userId: ctx.userId,
+      workspaceId: ctx.workspaceId ?? undefined,
+    }),
+  ),
 
   listResources: skillResourceProcedure
     .input(z.object({ id: z.string(), includeContent: z.boolean().optional() }))

@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
     prepareSkillDirectory: vi.fn(),
     preprocessLhCommand: vi.fn(),
     readResource: vi.fn(),
+    resolveRevokedMarketAssets: vi.fn(async (): Promise<string[]> => []),
     resolveContentWorkspaceId: vi.fn(),
     resolveRunWorkspaceId: vi.fn(),
     sandboxService,
@@ -71,6 +72,16 @@ vi.mock('@/database/models/file', () => ({
       checkHash: mocks.checkHash,
     };
   }),
+}));
+
+vi.mock('@/database/models/plugin', () => ({
+  PluginModel: vi.fn(function () {
+    return {};
+  }),
+}));
+
+vi.mock('@/server/services/market/installedAssetAccess', () => ({
+  resolveRevokedMarketAssets: mocks.resolveRevokedMarketAssets,
 }));
 
 vi.mock('@/database/models/user', () => ({
@@ -618,6 +629,47 @@ describe('skillsRuntime', () => {
       const result = await runtime.activateSkill({ name: 'user-skill' });
 
       expect(result.success).toBe(false);
+    });
+
+    it('refuses to activate an installed Market skill the enterprise no longer makes available', async () => {
+      mocks.getAgentConfigById.mockResolvedValue({ plugins: [] });
+      mocks.resolveRevokedMarketAssets.mockResolvedValueOnce(['user-skill-identifier']);
+      mocks.findAll.mockResolvedValue({
+        data: [
+          { description: 'Revoked', identifier: 'user-skill-identifier', name: 'user-skill' },
+          { description: 'Still available', identifier: 'other-identifier', name: 'other-skill' },
+        ],
+        total: 2,
+      });
+      mocks.findByName.mockImplementation(async (name: string) =>
+        name === 'user-skill'
+          ? {
+              content: '# User skill',
+              id: 'user-skill-id',
+              identifier: 'user-skill-identifier',
+              name: 'user-skill',
+            }
+          : undefined,
+      );
+
+      const { skillsRuntime } = await import('../skills');
+      const runtime = await skillsRuntime.factory({
+        serverDB: {} as never,
+        toolManifestMap: {},
+        topicId: 'topic-1',
+        userId: 'user-1',
+      });
+
+      const result = await runtime.activateSkill({ name: 'user-skill' });
+
+      expect(result.success).toBe(false);
+      // The not-found reply lists what the model may try instead; the revoked skill is not offered.
+      expect(result.content).toContain('other-skill');
+      expect(result.content).not.toContain('"user-skill"}');
+      expect(result.content).not.toContain('Revoked');
+      expect(mocks.resolveRevokedMarketAssets).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1' }),
+      );
     });
 
     it('still activates the skill when it is not disabled', async () => {

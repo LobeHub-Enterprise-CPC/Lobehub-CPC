@@ -7,6 +7,7 @@ import { lazy, memo, Suspense, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { startSkillDrag } from '@/features/ChatInput/InputEditor/ActionTag/skillDragData';
+import RevokedTag from '@/features/MarketAssetAccess/RevokedTag';
 import {
   openRenameSkillModal,
   type SkillListItem,
@@ -15,6 +16,7 @@ import {
   SkillsList,
 } from '@/features/SkillsList';
 import { usePermission } from '@/hooks/usePermission';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import { useToolStore } from '@/store/tool';
 import { agentSkillsSelectors } from '@/store/tool/selectors';
 
@@ -56,6 +58,7 @@ const openSkillDetailModal = (skillId: string) =>
 export const useUserSkills = (enabled = true): SkillListItem[] => {
   useToolStore((s) => s.useFetchAgentSkills)(enabled);
   const agentSkills = useToolStore(agentSkillsSelectors.getAgentSkills, isEqual);
+  const revoked = useRevokedMarketAssets();
 
   return useMemo(
     () =>
@@ -68,8 +71,9 @@ export const useUserSkills = (enabled = true): SkillListItem[] => {
             // drag payload's `type`.
             id: skill.identifier,
             name: skill.name,
+            tag: revoked.has(skill.identifier) ? <RevokedTag /> : undefined,
           })),
-    [agentSkills, enabled],
+    [agentSkills, enabled, revoked],
   );
 };
 

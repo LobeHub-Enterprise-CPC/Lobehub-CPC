@@ -12,8 +12,10 @@ import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspace
 import { useIsWorkspaceOwner } from '@/business/client/hooks/useIsWorkspaceOwner';
 import { brandIcon } from '@/components/BrandIcon';
 import { createAgentSkillStoreModal } from '@/features/AgentSkillStore';
+import RevokedTag from '@/features/MarketAssetAccess/RevokedTag';
 import PluginTag from '@/features/ProfileEditor/PluginTag';
 import { usePermission } from '@/hooks/usePermission';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useToolStore } from '@/store/tool';
@@ -41,6 +43,7 @@ const AgentToolsSection = memo<{ agentId: string; onStartCopy: () => void }>(
     const currentUserId = useUserStore((s) => s.user?.id);
 
     const agentConnectors = useToolStore(connectorSelectors.agentConnectors(agentId), isEqual);
+    const revokedMarketAssets = useRevokedMarketAssets();
     const detachConnectorFromAgent = useToolStore((s) => s.detachConnectorFromAgent);
     const updateAgentConfigById = useAgentStore((s) => s.updateAgentConfigById);
 
@@ -120,7 +123,7 @@ const AgentToolsSection = memo<{ agentId: string; onStartCopy: () => void }>(
               !connector.userId ||
               connector.userId === currentUserId ||
               isWorkspaceOwner;
-            return (
+            const tag = (
               <PluginTag
                 agentId={agentId}
                 disabled={!canEdit}
@@ -132,6 +135,19 @@ const AgentToolsSection = memo<{ agentId: string; onStartCopy: () => void }>(
                   handleRemove(connector);
                 }}
               />
+            );
+            // The agent's copy of a Market connector the enterprise no longer makes available
+            // does not run either; it stays removable.
+            if (
+              connector.sourceType !== 'marketplace' ||
+              !revokedMarketAssets.has(connector.identifier)
+            )
+              return tag;
+            return (
+              <Flexbox horizontal align={'center'} gap={4} key={connector.id}>
+                {tag}
+                <RevokedTag />
+              </Flexbox>
             );
           })}
         </Flexbox>

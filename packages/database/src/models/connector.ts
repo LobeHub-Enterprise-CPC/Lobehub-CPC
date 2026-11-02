@@ -379,6 +379,18 @@ export class ConnectorModel {
     return decryptRow(row, gateKeeper);
   };
 
+  /**
+   * Identifiers of every connector installed from the Market catalogue in this scope, including the
+   * agent-owned copies ("Copy user tool") that keep working after the base install is removed.
+   */
+  listMarketplaceIdentifiers = async (): Promise<string[]> => {
+    const rows = await this.db
+      .selectDistinct({ identifier: userConnectors.identifier })
+      .from(userConnectors)
+      .where(and(this.ownership(), eq(userConnectors.sourceType, 'marketplace')));
+    return rows.map((row) => row.identifier);
+  };
+
   queryReferencesByIdentifiers = async (identifiers: string[]): Promise<ConnectorReference[]> => {
     if (identifiers.length === 0) return [];
 

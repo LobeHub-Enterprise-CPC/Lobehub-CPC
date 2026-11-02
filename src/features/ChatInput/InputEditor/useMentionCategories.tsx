@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { SidebarAgentItem } from '@/database/repositories/home';
 import { usePermission } from '@/hooks/usePermission';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 import { useDiscoverStore } from '@/store/discover';
@@ -82,7 +83,14 @@ export const useMentionCategories = (): MentionSource => {
   // else) would keep being offered as not installed after a reload.
   const useFetchAgentSkills = useToolStore((s) => s.useFetchAgentSkills);
   useFetchAgentSkills(true);
-  const enabledSkills = useInstalledSkillsAndTools();
+  const installedSkillsAndTools = useInstalledSkillsAndTools();
+  // Installed Market skills and connectors the enterprise no longer makes available to this member
+  // are not injected into a run, so they are not offered for mentioning either.
+  const revokedMarketAssets = useRevokedMarketAssets();
+  const enabledSkills = useMemo(
+    () => installedSkillsAndTools.filter((item) => !revokedMarketAssets.has(item.type)),
+    [installedSkillsAndTools, revokedMarketAssets],
+  );
 
   // Market entries install on send, which creates content in the active scope.
   const { allowed: canInstall } = usePermission('create_content');

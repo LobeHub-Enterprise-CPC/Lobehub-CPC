@@ -1626,6 +1626,9 @@ export default {
   'skillGroup.communityTools': 'Community Tools',
   'skillGroup.customConnectors': 'Custom Connectors',
   'skillGroup.customSkills': 'Custom Skills',
+  'marketAssetAccess.revoked': 'Disabled by your organization',
+  'marketAssetAccess.revokedHint':
+    'Your organization no longer makes this available to you. Contact your administrator to restore access.',
   'skillStore.button': 'Skill Store',
   'skillStore.empty': 'Browse the Skill Store. Install one to get started, add more later.',
   'skillStore.emptySearch': 'No matching Skills',

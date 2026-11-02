@@ -1,5 +1,6 @@
 import { type LobeChatDatabase } from '@lobechat/database';
 import { currentTenantScope } from '@lobechat/database/tenant';
+import { MARKET_TRUSTED_CLIENT_ORG_UNIT_LIMIT } from '@lobehub/market-types';
 
 import { UserModel } from '@/database/models/user';
 
@@ -19,6 +20,54 @@ export interface ResolveTrustedClientIdentityParams extends Pick<
   serverDB?: LobeChatDatabase;
   userId: string;
 }
+
+const getDB = async (serverDB?: LobeChatDatabase) =>
+  serverDB ?? (await (await import('@/database/server')).getServerDB());
+
+/** One lookup per member per tenant scope (a request), however many Market clients it builds. */
+const orgUnitCache = new WeakMap<object, Map<string, Promise<string[]>>>();
+
+/**
+ * The tenant member's department chain for the trust token. A chain Market would refuse (over the
+ * claim limit) is reported, never cut: a shorter chain would silently lose ancestor grants.
+ */
+const resolveOrgUnitIds = (userId: string, serverDB?: LobeChatDatabase): Promise<string[]> => {
+  const scope = currentTenantScope();
+  const cached = scope ? orgUnitCache.get(scope)?.get(userId) : undefined;
+  if (cached) return cached;
+  const lookup = (async () => {
+    let chain: string[];
+    try {
+      // Loaded on first use: a distribution's auth package carries its whole session stack, which
+      // identity assembly does not otherwise need.
+      const { resolveBusinessOrgUnitIds } = await import('@lobechat/business-auth');
+      chain = await resolveBusinessOrgUnitIds(
+        await getDB(serverDB),
+        userId,
+        MARKET_TRUSTED_CLIENT_ORG_UNIT_LIMIT,
+      );
+    } catch (error) {
+      throw new TrustedClientIdentityError('ORG_UNITS_UNAVAILABLE', { cause: error });
+    }
+    if (chain.length > MARKET_TRUSTED_CLIENT_ORG_UNIT_LIMIT) {
+      console.error(
+        '[trusted-client] department chain of %s exceeds %d levels; refusing to sign',
+        userId,
+        MARKET_TRUSTED_CLIENT_ORG_UNIT_LIMIT,
+      );
+      throw new TrustedClientIdentityError('ORG_UNITS_UNAVAILABLE');
+    }
+    return chain;
+  })();
+  if (scope) {
+    const perScope = orgUnitCache.get(scope) ?? new Map<string, Promise<string[]>>();
+    perScope.set(userId, lookup);
+    orgUnitCache.set(scope, perScope);
+    // A failed lookup is not remembered: the next client in the request retries it.
+    lookup.catch(() => perScope.delete(userId));
+  }
+  return lookup;
+};
 
 /**
  * The one place a Market identity is assembled: `{ userId, email, name, tenantId }`
@@ -65,8 +114,7 @@ export const resolveTrustedClientIdentity = async ({
 
   if (!resolvedEmail) {
     try {
-      const db = serverDB ?? (await (await import('@/database/server')).getServerDB());
-      const user = await UserModel.findById(db, userId);
+      const user = await UserModel.findById(await getDB(serverDB), userId);
       resolvedEmail = user?.email ?? undefined;
       resolvedName = resolvedName ?? user?.fullName ?? user?.username ?? undefined;
     } catch (error) {
@@ -80,10 +128,14 @@ export const resolveTrustedClientIdentity = async ({
     }
   }
 
+  // Only tenant tokens may carry a chain (Market refuses one elsewhere).
+  const orgUnitIds = tenantId ? await resolveOrgUnitIds(userId, serverDB) : undefined;
+
   return {
     email: resolvedEmail,
     name: resolvedName,
     userId,
+    ...(orgUnitIds ? { orgUnitIds } : {}),
     ...(tenantId ? { tenantId } : {}),
     ...(proxyExecution ? { proxyExecution } : {}),
     ...(sandboxStorage ? { sandboxStorage } : {}),

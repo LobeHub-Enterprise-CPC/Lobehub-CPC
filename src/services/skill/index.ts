@@ -35,6 +35,36 @@ class AgentSkillService {
     return lambdaClient.agentSkills.importFromZip.mutate(params);
   }
 
+  /** Installed Market skills/plugins the enterprise no longer makes available to this member. */
+  async listRevokedMarketAssets(): Promise<string[]> {
+    return lambdaClient.agentSkills.listRevokedMarketAssets.query();
+  }
+
+  /**
+   * Skill lookups for the agent's skill tools: installed Market skills the enterprise no longer
+   * makes available are treated as absent, so a model-supplied name cannot activate them.
+   */
+  async listUsable(): Promise<{ data: SkillListItem[]; total: number }> {
+    const [skills, revoked] = await Promise.all([this.list(), this.listRevokedMarketAssets()]);
+    if (revoked.length === 0) return skills;
+    const data = skills.data.filter((skill) => !revoked.includes(skill.identifier));
+    return { data, total: data.length };
+  }
+
+  async getUsableById(id: string): Promise<SkillItem | undefined> {
+    return this.withoutRevoked(await this.getById(id));
+  }
+
+  async getUsableByName(name: string): Promise<SkillItem | undefined> {
+    return this.withoutRevoked(await this.getByName(name));
+  }
+
+  private async withoutRevoked(skill: SkillItem | undefined) {
+    if (!skill) return skill;
+    const revoked = await this.listRevokedMarketAssets();
+    return revoked.includes(skill.identifier) ? undefined : skill;
+  }
+
   async importFromMarket(identifier: string): Promise<SkillImportResult | undefined> {
     return lambdaClient.agentSkills.importFromMarket.mutate({ identifier });
   }

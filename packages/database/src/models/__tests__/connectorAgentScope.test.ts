@@ -21,6 +21,7 @@ const insertConnector = async (row: {
   identifier: string;
   metadata?: Record<string, unknown> | null;
   name: string;
+  sourceType?: 'builtin' | 'custom' | 'marketplace';
   userId?: string;
   workspaceId?: string | null;
 }) => {
@@ -32,7 +33,7 @@ const insertConnector = async (row: {
       identifier: row.identifier,
       metadata: row.metadata ?? null,
       name: row.name,
-      sourceType: 'custom',
+      sourceType: row.sourceType ?? 'custom',
       status: 'connected',
       userId: row.userId ?? userId,
       workspaceId: row.workspaceId ?? null,
@@ -223,6 +224,40 @@ describe('ConnectorModel agent-scoped resolution', () => {
       const byId = await model.queryByIdentifiers(['gmail']);
       expect(byId).toHaveLength(1);
       expect(byId[0].agentId).toBeNull();
+    });
+  });
+
+  describe('listMarketplaceIdentifiers', () => {
+    it('lists Market connectors once each, agent copies included, within the caller scope', async () => {
+      await insertConnector({
+        identifier: 'deepwiki',
+        name: 'DeepWiki',
+        sourceType: 'marketplace',
+      });
+      await insertConnector({
+        agentId: agentA,
+        identifier: 'deepwiki',
+        name: 'DeepWiki copy',
+        sourceType: 'marketplace',
+      });
+      // Only an agent's copy is left of this one.
+      await insertConnector({
+        agentId: agentB,
+        identifier: 'linear',
+        name: 'Linear copy',
+        sourceType: 'marketplace',
+      });
+      await insertConnector({ identifier: 'my-mcp', name: 'Custom' });
+      await insertConnector({
+        identifier: 'other-market',
+        name: 'Someone else',
+        sourceType: 'marketplace',
+        userId: otherUserId,
+      });
+
+      const identifiers = await new ConnectorModel(serverDB, userId).listMarketplaceIdentifiers();
+
+      expect(identifiers.sort()).toEqual(['deepwiki', 'linear']);
     });
   });
 

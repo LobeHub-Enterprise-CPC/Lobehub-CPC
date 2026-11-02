@@ -11,6 +11,9 @@ const { appEnv, getSession } = vi.hoisted(() => ({
 
 vi.mock('@/envs/app', () => ({ appEnv }));
 vi.mock('@/database/models/user', () => ({ UserModel: { findById: vi.fn() } }));
+vi.mock('@lobechat/business-auth', () => ({
+  resolveBusinessOrgUnitIds: vi.fn(async () => ['unit-rd', 'unit-root']),
+}));
 vi.mock('@lobehub/market-sdk', () => ({
   buildTrustedClientPayload: vi.fn(),
   createTrustedClientToken: vi.fn(),
@@ -36,6 +39,7 @@ describe('getSessionUser', () => {
     await expect(inTenant('tenant-a', getSessionUser)).resolves.toEqual({
       email: 'a@b.com',
       name: 'Ada',
+      orgUnitIds: ['unit-rd', 'unit-root'],
       tenantId: 'tenant-a',
       userId: 'user_1',
     });

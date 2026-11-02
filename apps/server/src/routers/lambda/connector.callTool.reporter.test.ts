@@ -15,6 +15,12 @@ const { appEnv, callConnectorToolById } = vi.hoisted(() => ({
   callConnectorToolById: vi.fn(),
 }));
 
+// The enterprise override reads the department chain from the tenant database; these fixtures
+// have none, so members sign without department grants.
+vi.mock('@lobechat/business-auth', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  resolveBusinessOrgUnitIds: vi.fn(async () => []),
+}));
 vi.mock('@/envs/app', () => ({ appEnv }));
 vi.mock('@/database/models/user', () => ({
   UserModel: Object.assign(

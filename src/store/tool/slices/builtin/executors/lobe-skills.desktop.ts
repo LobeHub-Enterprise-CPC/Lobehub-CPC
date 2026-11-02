@@ -37,9 +37,9 @@ const runtime = new SkillsExecutionRuntime({
         success: result.success,
       };
     },
-    findAll: () => agentSkillService.list(),
-    findById: (id) => agentSkillService.getById(id),
-    findByName: (name) => agentSkillService.getByName(name),
+    findAll: () => agentSkillService.listUsable(),
+    findById: (id) => agentSkillService.getUsableById(id),
+    findByName: (name) => agentSkillService.getUsableByName(name),
     readResource: async (id, path) => {
       const resource = await agentSkillService.readResource(id, path);
       const fullPath = await desktopSkillRuntimeService.resolveReferenceFullPath({

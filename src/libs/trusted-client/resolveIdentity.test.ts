@@ -1,16 +1,18 @@
 import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { appEnv, findById } = vi.hoisted(() => ({
+const { appEnv, findById, resolveBusinessOrgUnitIds } = vi.hoisted(() => ({
   appEnv: {
     MARKET_TRUSTED_CLIENT_ID: 'client-id' as string | undefined,
     MARKET_TRUSTED_CLIENT_SECRET: 'client-secret' as string | undefined,
   },
   findById: vi.fn(),
+  resolveBusinessOrgUnitIds: vi.fn(),
 }));
 
 vi.mock('@/envs/app', () => ({ appEnv }));
 vi.mock('@/database/models/user', () => ({ UserModel: { findById } }));
+vi.mock('@lobechat/business-auth', () => ({ resolveBusinessOrgUnitIds }));
 vi.mock('@lobehub/market-sdk', () => ({
   buildTrustedClientPayload: vi.fn(),
   createTrustedClientToken: vi.fn(),
@@ -28,6 +30,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   appEnv.MARKET_TRUSTED_CLIENT_ID = 'client-id';
   appEnv.MARKET_TRUSTED_CLIENT_SECRET = 'client-secret';
+  resolveBusinessOrgUnitIds.mockResolvedValue([]);
   findById.mockResolvedValue({
     email: 'ada@example.com',
     fullName: 'Ada Lovelace',
@@ -43,6 +46,7 @@ describe('resolveTrustedClientIdentity', () => {
     ).resolves.toEqual({
       email: 'ada@example.com',
       name: 'Ada Lovelace',
+      orgUnitIds: [],
       tenantId: 'tenant-a',
       userId: 'user_1',
     });
@@ -94,6 +98,55 @@ describe('resolveTrustedClientIdentity', () => {
 
     expect(identity).toBeDefined();
     expect(identity).not.toHaveProperty('workspaceId');
+  });
+
+  describe('department chain', () => {
+    it('carries the chain of the principal being signed for, nearest department first', async () => {
+      resolveBusinessOrgUnitIds.mockResolvedValue(['unit-web', 'unit-rd', 'unit-root']);
+      const identity = await inTenant('tenant-a', () =>
+        resolveTrustedClientIdentity({ serverDB: db, userId: 'user_1' }),
+      );
+
+      expect(identity?.orgUnitIds).toEqual(['unit-web', 'unit-rd', 'unit-root']);
+      expect(resolveBusinessOrgUnitIds).toHaveBeenCalledWith(db, 'user_1', 32);
+    });
+
+    it('reads the chain once per member and request scope', async () => {
+      await inTenant('tenant-a', async () => {
+        await resolveTrustedClientIdentity({ serverDB: db, userId: 'user_1' });
+        await resolveTrustedClientIdentity({ serverDB: db, userId: 'user_1' });
+      });
+      await inTenant('tenant-a', () =>
+        resolveTrustedClientIdentity({ serverDB: db, userId: 'user_1' }),
+      );
+
+      expect(resolveBusinessOrgUnitIds).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses to sign rather than cut a chain longer than Market accepts', async () => {
+      resolveBusinessOrgUnitIds.mockResolvedValue(
+        Array.from({ length: 33 }, (_, index) => `unit-${index}`),
+      );
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(
+        inTenant('tenant-a', () =>
+          resolveTrustedClientIdentity({ serverDB: db, userId: 'user_1' }),
+        ),
+      ).rejects.toMatchObject({ code: 'ORG_UNITS_UNAVAILABLE' });
+      expect(error).toHaveBeenCalled();
+      error.mockRestore();
+    });
+
+    it('fails closed when the chain cannot be read', async () => {
+      resolveBusinessOrgUnitIds.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        inTenant('tenant-a', () =>
+          resolveTrustedClientIdentity({ serverDB: db, userId: 'user_1' }),
+        ),
+      ).rejects.toMatchObject({ code: 'ORG_UNITS_UNAVAILABLE' });
+    });
   });
 
   // The two outcomes a caller must be able to tell apart.

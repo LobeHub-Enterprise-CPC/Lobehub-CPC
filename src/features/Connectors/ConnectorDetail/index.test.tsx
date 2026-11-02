@@ -9,6 +9,7 @@ import { ConnectorSourceType } from '@/database/schemas';
 import ConnectorDetail from './index';
 
 const mocks = vi.hoisted(() => ({
+  revoked: new Set<string>(),
   toolState: {
     connectorTools: {
       createTools: [],
@@ -56,6 +57,14 @@ vi.mock('@/hooks/useResourceManageable', () => ({
   useResourceManageable: () => true,
 }));
 
+vi.mock('@/hooks/useRevokedMarketAssets', () => ({
+  useRevokedMarketAssets: () => mocks.revoked,
+}));
+
+vi.mock('@/features/MarketAssetAccess/RevokedTag', () => ({
+  default: () => <span>Disabled by your organization</span>,
+}));
+
 vi.mock('@/store/tool', () => ({
   useToolStore<T>(selector: (state: typeof mocks.toolState) => T): T {
     return selector(mocks.toolState);
@@ -78,7 +87,11 @@ vi.mock('../CustomConnectorModal', () => ({
 }));
 
 vi.mock('./ToolPermissionGroup', () => ({
-  default: ({ label }: { label: string }) => <div data-testid="permission-group">{label}</div>,
+  default: ({ disabled, label }: { disabled?: boolean; label: string }) => (
+    <div data-disabled={String(!!disabled)} data-testid="permission-group">
+      {label}
+    </div>
+  ),
 }));
 
 describe('ConnectorDetail', () => {
@@ -100,6 +113,7 @@ describe('ConnectorDetail', () => {
       },
     ];
     mocks.toolState.syncing = false;
+    mocks.revoked = new Set();
   });
 
   it('uses lifecycle actions instead of the generic marketplace uninstall action', () => {
@@ -120,5 +134,30 @@ describe('ConnectorDetail', () => {
     render(<ConnectorDetail connectorId="connector-1" />);
 
     expect(screen.getByRole('button', { name: 'Uninstall' })).toBeInTheDocument();
+  });
+
+  it('freezes a Market connector the enterprise no longer makes available, keeping uninstall', () => {
+    mocks.revoked = new Set(['notion']);
+    mocks.toolState.connectorTools.readTools = [{ id: 'tool-1' }] as never;
+
+    render(<ConnectorDetail connectorId="connector-1" />);
+
+    expect(screen.getByText('Disabled by your organization')).toBeInTheDocument();
+    expect(screen.getByText('marketAssetAccess.revokedHint')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset permissions' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+    for (const group of screen.getAllByTestId('permission-group'))
+      expect(group).toHaveAttribute('data-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Uninstall' })).toBeEnabled();
+  });
+
+  it('leaves a custom connector with the same identifier alone', () => {
+    mocks.revoked = new Set(['notion']);
+    mocks.toolState.connectors[0].sourceType = ConnectorSourceType.custom;
+
+    render(<ConnectorDetail connectorId="connector-1" />);
+
+    expect(screen.queryByText('Disabled by your organization')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset permissions' })).toBeEnabled();
   });
 });

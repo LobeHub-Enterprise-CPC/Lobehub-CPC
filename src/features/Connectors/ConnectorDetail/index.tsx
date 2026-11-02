@@ -1,5 +1,5 @@
 import { getComposioAppByIdentifier, getLobehubSkillProviderById } from '@lobechat/const';
-import { Button, confirmModal, toast, Tooltip } from '@lobehub/ui';
+import { Alert, Button, confirmModal, toast, Tooltip } from '@lobehub/ui';
 import { PencilIcon, RefreshCwIcon, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { memo, useCallback, useState } from 'react';
@@ -7,7 +7,9 @@ import { useTranslation } from 'react-i18next';
 
 import type { ConnectorToolPermission } from '@/database/schemas';
 import { ConnectorSourceType } from '@/database/schemas';
+import RevokedTag from '@/features/MarketAssetAccess/RevokedTag';
 import { useResourceManageable } from '@/hooks/useResourceManageable';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import { useToolStore } from '@/store/tool';
 import { connectorSelectors } from '@/store/tool/slices/connector';
 
@@ -74,6 +76,10 @@ const ConnectorDetail = memo<ConnectorDetailProps>(
     const isMcpConnector = connector?.sourceType === ConnectorSourceType.custom;
     const isBuiltin = connector?.sourceType === ConnectorSourceType.builtin;
     const isMarketplace = connector?.sourceType === ConnectorSourceType.marketplace;
+    // A Market connector the enterprise no longer makes available to this member is left out of
+    // runs; its settings are frozen until access returns, but it can still be uninstalled.
+    const revokedMarketAssets = useRevokedMarketAssets();
+    const revoked = !!connector && isMarketplace && revokedMarketAssets.has(connector.identifier);
 
     // Only the creator or a workspace owner may manage this connector — the
     // server enforces the same rule, this keeps the UI honest about it.
@@ -224,12 +230,17 @@ const ConnectorDetail = memo<ConnectorDetailProps>(
             paddingInline: 16,
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 500 }}>{connectorName}</div>
+          <div
+            style={{ alignItems: 'center', display: 'flex', fontSize: 14, fontWeight: 500, gap: 8 }}
+          >
+            {connectorName}
+            {revoked && <RevokedTag />}
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             {/* Reset permissions: restore all tools to auto (fully open) */}
             <ManageTooltip title={manageTooltip}>
               <Button
-                disabled={!canManage}
+                disabled={!canManage || revoked}
                 size="small"
                 onClick={async () => {
                   try {
@@ -245,7 +256,7 @@ const ConnectorDetail = memo<ConnectorDetailProps>(
             {/* Sync/Refresh: re-sync tool list from manifest */}
             <ManageTooltip title={canSync ? undefined : manageTooltip}>
               <Button
-                disabled={!canSync}
+                disabled={!canSync || revoked}
                 icon={<RefreshCwIcon size={14} />}
                 loading={syncing}
                 size="small"
@@ -360,33 +371,42 @@ const ConnectorDetail = memo<ConnectorDetailProps>(
             </div>
           )}
 
+          {revoked && (
+            <Alert
+              showIcon
+              description={ts('marketAssetAccess.revokedHint')}
+              style={{ marginBottom: 16 }}
+              type={'warning'}
+            />
+          )}
+
           {middleSlot}
 
           {hasTools ? (
             <div style={{ flex: 1, overflowY: 'auto' }}>
               <ToolPermissionGroup
-                disabled={!canManage}
+                disabled={!canManage || revoked}
                 label={t('connector.readOnlyTools', 'Read-only tools')}
                 tools={readTools}
                 onBatchPermission={handleBatchPermission}
                 onPermissionChange={handlePermissionChange}
               />
               <ToolPermissionGroup
-                disabled={!canManage}
+                disabled={!canManage || revoked}
                 label={t('connector.createTools', 'Create tools')}
                 tools={createTools}
                 onBatchPermission={handleBatchPermission}
                 onPermissionChange={handlePermissionChange}
               />
               <ToolPermissionGroup
-                disabled={!canManage}
+                disabled={!canManage || revoked}
                 label={t('connector.updateTools', 'Update tools')}
                 tools={updateTools}
                 onBatchPermission={handleBatchPermission}
                 onPermissionChange={handlePermissionChange}
               />
               <ToolPermissionGroup
-                disabled={!canManage}
+                disabled={!canManage || revoked}
                 label={t('connector.deleteTools', 'Delete tools')}
                 tools={deleteTools}
                 onBatchPermission={handleBatchPermission}

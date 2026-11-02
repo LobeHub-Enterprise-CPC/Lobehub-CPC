@@ -112,6 +112,20 @@ describe('generateTrustedClientToken', () => {
     );
   });
 
+  // Department grants are evaluated from this claim, so it must be covered by the signature.
+  it('signs the department chain into the payload', () => {
+    generateTrustedClientToken({
+      email: 'a@b.com',
+      orgUnitIds: ['unit-rd', 'unit-root'],
+      userId: 'user_real',
+    });
+
+    expect(createTrustedClientToken).toHaveBeenCalledWith(
+      expect.objectContaining({ orgUnitIds: ['unit-rd', 'unit-root'], tenantId: TENANT_A }),
+      'client-secret',
+    );
+  });
+
   // The published SDK builder has no parameter for it, so the field is attached
   // afterwards; passing it in would be silently dropped.
   it('does not route the claim through the SDK payload builder', () => {

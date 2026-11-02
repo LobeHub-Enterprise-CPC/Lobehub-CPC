@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, createStaticStyles, Flexbox, Icon } from '@lobehub/ui';
+import { Button, createStaticStyles, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import { Trash2Icon } from 'lucide-react';
 import { memo, type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import MCPInstallProgress from '@/features/MCP/MCPInstallProgress';
 import { useDetailContext } from '@/features/MCPPluginDetail/DetailProvider';
 import { usePermission } from '@/hooks/usePermission';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import { useMarketAuth } from '@/layout/AuthProvider/MarketAuth';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/slices/plugin/selectors';
@@ -31,7 +32,7 @@ interface ActionButtonProps {
 }
 
 const ActionButton = memo<ActionButtonProps>(({ label, showProgress = true }) => {
-  const { t } = useTranslation(['discover', 'plugin']);
+  const { t } = useTranslation(['discover', 'plugin', 'setting']);
   const detailContext = useDetailContext();
   const { identifier, haveCloudEndpoint } = detailContext;
   const [isLoading, setIsLoading] = useState(false);
@@ -44,6 +45,10 @@ const ActionButton = memo<ActionButtonProps>(({ label, showProgress = true }) =>
     s.installMCPPlugin,
     s.uninstallMCPPlugin,
   ]);
+
+  // Installed, but the enterprise no longer makes it available to this member (spec §8): it is
+  // left out of runs, so say so instead of "Installed"; uninstalling stays possible.
+  const revoked = useRevokedMarketAssets().has(identifier!);
 
   // Check if this is a cloud MCP plugin
   const isCloudMcp = haveCloudEndpoint;
@@ -74,15 +79,26 @@ const ActionButton = memo<ActionButtonProps>(({ label, showProgress = true }) =>
 
   return installed ? (
     <Flexbox horizontal gap={8}>
-      <Button
-        block
-        className={styles.button}
-        disabled={buttonLoading}
-        size={'large'}
-        type={'default'}
-      >
-        {t('plugins.installed')}
-      </Button>
+      {revoked ? (
+        <Tooltip title={t('setting:marketAssetAccess.revokedHint')}>
+          {/* A disabled button swallows hover events; the wrapper anchors the tooltip. */}
+          <span style={{ display: 'flex', flex: 1 }}>
+            <Button block disabled className={styles.button} size={'large'} type={'default'}>
+              {t('setting:marketAssetAccess.revoked')}
+            </Button>
+          </span>
+        </Tooltip>
+      ) : (
+        <Button
+          block
+          className={styles.button}
+          disabled={buttonLoading}
+          size={'large'}
+          type={'default'}
+        >
+          {t('plugins.installed')}
+        </Button>
+      )}
 
       <Button
         disabled={!canEdit}

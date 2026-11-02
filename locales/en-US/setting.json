@@ -920,6 +920,8 @@
   "llm.proxyUrl.title": "API proxy URL",
   "llm.waitingForMore": "More models are <1>planned to be added</1>, stay tuned",
   "llm.waitingForMoreLinkAriaLabel": "Open the Provider request form",
+  "marketAssetAccess.revoked": "Disabled by your organization",
+  "marketAssetAccess.revokedHint": "Your organization no longer makes this available to you. Contact your administrator to restore access.",
   "marketPublish.status.archived": "Archived",
   "marketPublish.status.deprecated": "Deprecated",
   "marketPublish.status.published": "Published",
