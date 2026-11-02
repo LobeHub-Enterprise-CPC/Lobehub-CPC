@@ -920,6 +920,8 @@
   "llm.proxyUrl.title": "API 代理地址",
   "llm.waitingForMore": "更多模型正在 <1>计划接入</1> 中，敬请期待",
   "llm.waitingForMoreLinkAriaLabel": "打开模型服务商接入需求表单",
+  "marketAssetAccess.revoked": "已被企业停用",
+  "marketAssetAccess.revokedHint": "企业已不再向你开放此项，如需继续使用请联系管理员。",
   "marketPublish.status.archived": "已归档",
   "marketPublish.status.deprecated": "已弃用",
   "marketPublish.status.published": "已发布",

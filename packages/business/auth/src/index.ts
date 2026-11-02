@@ -50,3 +50,15 @@ export const withBusinessIdentityUpdate = async <T, D>(
   _userId: string,
   update: (tx: D) => Promise<T>,
 ): Promise<T> => update(db);
+
+/**
+ * Distribution seam: the member's department chain (own department first, then every ancestor up
+ * to the root) signed into Market trust tokens so availability grants on a department cover its
+ * descendants. Distributions without departments sign no chain. Implementations return at most
+ * `limit + 1` ids so the caller can refuse an over-long chain instead of truncating it.
+ */
+export const resolveBusinessOrgUnitIds = async (
+  _db: unknown,
+  _userId: string,
+  _limit: number,
+): Promise<string[]> => [];

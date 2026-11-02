@@ -917,6 +917,8 @@
   "llm.proxyUrl.title": "API 代理位址",
   "llm.waitingForMore": "更多模型正在 <1>計劃接入</1> 中，敬請期待",
   "llm.waitingForMoreLinkAriaLabel": "開啟模型服務商接入需求表單",
+  "marketAssetAccess.revoked": "已被企業停用",
+  "marketAssetAccess.revokedHint": "企業已不再向你開放此項，如需繼續使用請聯絡管理員。",
   "marketPublish.status.archived": "已封存",
   "marketPublish.status.deprecated": "已棄用",
   "marketPublish.status.published": "已發佈",

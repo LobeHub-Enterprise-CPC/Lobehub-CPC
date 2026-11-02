@@ -98,9 +98,9 @@ const runtime = new SkillsExecutionRuntime({
         };
       }
     },
-    findAll: () => agentSkillService.list(),
-    findById: (id) => agentSkillService.getById(id),
-    findByName: (name) => agentSkillService.getByName(name),
+    findAll: () => agentSkillService.listUsable(),
+    findById: (id) => agentSkillService.getUsableById(id),
+    findByName: (name) => agentSkillService.getUsableByName(name),
     readResource: (id, path) => agentSkillService.readResource(id, path),
     runCommand: async ({ command, timeout }) => {
       // Cloud: execute via Cloud Sandbox

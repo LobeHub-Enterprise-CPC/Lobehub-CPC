@@ -1,6 +1,7 @@
 import type { SandboxStorageClaim } from '@lobechat/builtin-tool-cloud-sandbox';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { AgentSenderMetadata, ExecAgentResult, UserInterventionConfig } from '@lobechat/types';
+import { parsePluginEntry } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
 import debug from 'debug';
 
@@ -23,6 +24,7 @@ import type { AgentRuntimeService } from '@/server/services/agentRuntime';
 import { getAbortError, throwIfAborted } from '@/server/services/agentRuntime/abort';
 import type { ComposioService } from '@/server/services/composio';
 import type { MarketService } from '@/server/services/market';
+import { resolveRevokedMarketAssets } from '@/server/services/market/installedAssetAccess';
 
 import { createRunFacts, type RunFacts } from '../runFacts';
 import type { ExecRunContext, InternalExecAgentParams } from '../types';
@@ -583,6 +585,26 @@ export const execAgentTurn = async (
   // injected separately via `initialContext.mentionedAgents` below.
   const hasMentionedAgents = !appContext?.groupId && !!mentionedAgents?.length;
 
+  // Installed Market tools whose enterprise availability scope no longer admits this member are
+  // neither pinned nor discoverable for the run (they show as disabled by the enterprise).
+  const revokedAssetIds = new Set(
+    await traceSendStage('asset_access', () =>
+      resolveRevokedMarketAssets({
+        db: deps.db,
+        getMarketService: () => deps.getMarketService(runFacts),
+        pluginModel: deps.pluginModel,
+        userId: deps.userId,
+        workspaceId: deps.workspaceId,
+      }),
+    ),
+  );
+  if (revokedAssetIds.size > 0) {
+    agentConfig.plugins = agentConfig.plugins?.filter(
+      (entry) => !revokedAssetIds.has(parsePluginEntry(entry).identifier),
+    );
+  }
+  const notRevoked = (ids?: string[]) => ids?.filter((id) => !revokedAssetIds.has(id));
+
   // 15. Generate operation ID: op_{timestamp}_{agentId}_{topicId}_{random}
   const operationId =
     continuationOperationId ??
@@ -604,7 +626,7 @@ export const execAgentTurn = async (
     disableLocalSystem,
     disableSelfFeedbackIntentTool: params.disableSelfFeedbackIntentTool,
     disableTools: params.disableTools,
-    disabledPluginIds,
+    disabledPluginIds: [...disabledPluginIds, ...revokedAssetIds],
     discordContext,
     ephemeralUserMessage,
     exclusivePluginIds,
@@ -625,8 +647,8 @@ export const execAgentTurn = async (
     resumeFromHistory: runFromHistory,
     resumeToolResult: resolvedToolResult,
     runAttachments,
-    selectedSkillIds,
-    selectedToolIds,
+    selectedSkillIds: notRevoked(selectedSkillIds),
+    selectedToolIds: notRevoked(selectedToolIds),
     serverToolManifests,
     topicBoundDeviceId: turn.topicBoundDeviceId,
   });

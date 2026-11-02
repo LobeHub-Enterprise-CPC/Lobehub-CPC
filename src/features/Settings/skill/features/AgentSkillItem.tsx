@@ -17,9 +17,11 @@ import { DownloadIcon, MoreHorizontalIcon, Plus, Trash2 } from 'lucide-react';
 import { lazy, memo, Suspense, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import RevokedTag from '@/features/MarketAssetAccess/RevokedTag';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import { createBuiltinAgentSkillDetailModal } from '@/features/SkillStore/SkillDetail';
 import { usePermission } from '@/hooks/usePermission';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import { agentSkillService } from '@/services/skill';
 import { useToolStore } from '@/store/tool';
 import { builtinToolSelectors } from '@/store/tool/selectors';
@@ -50,6 +52,7 @@ const AgentSkillItem = memo<AgentSkillItemProps>(({ skill, isSelected, onSelect 
   const { allowed: canEdit } = usePermission('edit_own_content');
 
   const isBuiltin = isBuiltinSkill(skill);
+  const revoked = useRevokedMarketAssets().has(skill.identifier) && !isBuiltin;
 
   const deleteAgentSkill = useToolStore((s) => s.deleteAgentSkill);
   const [installBuiltinTool, uninstallBuiltinTool, isBuiltinInstalled] = useToolStore((s) => [
@@ -216,8 +219,9 @@ const AgentSkillItem = memo<AgentSkillItemProps>(({ skill, isSelected, onSelect 
     return (
       <NavItem
         active={isSelected}
+        extra={revoked ? <RevokedTag /> : undefined}
         title={title}
-        titleColor={showDisconnected ? cssVar.colorTextDescription : undefined}
+        titleColor={showDisconnected || revoked ? cssVar.colorTextDescription : undefined}
         icon={() =>
           avatar ? <Avatar avatar={avatar} size={18} /> : <Icon icon={SkillsIcon} size={18} />
         }
@@ -256,6 +260,7 @@ const AgentSkillItem = memo<AgentSkillItemProps>(({ skill, isSelected, onSelect 
             </span>
           </Flexbox>
           {showDisconnected && renderStatus()}
+          {revoked && <RevokedTag />}
         </Flexbox>
         {!onSelect && (
           <Flexbox horizontal align="center" gap={8} onClick={stopPropagation}>

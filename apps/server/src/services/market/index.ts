@@ -3,6 +3,7 @@ import { type LobeToolManifest } from '@lobechat/context-engine';
 import { currentTenantScope } from '@lobechat/database/tenant';
 import { CacheRevalidate, CacheTag } from '@lobechat/types';
 import { MarketSDK, type OrgRef, orgRefToPathSegment } from '@lobehub/market-sdk';
+import { type AssetAccessCheckItem } from '@lobehub/market-types';
 import debug from 'debug';
 import { type NextRequest } from 'next/server';
 import pMap from 'p-map';
@@ -201,6 +202,8 @@ export class MarketService {
       userId: userInfo.userId,
       // Replayed and re-signed later: a tenant identity never carries a workspace.
       ...(tenantMode ? {} : { workspaceId: userInfo.workspaceId }),
+      // The department chain decides which assets the replayed token may reach.
+      ...(userInfo.orgUnitIds ? { orgUnitIds: [...userInfo.orgUnitIds] } : {}),
       sandboxStorage: userInfo.sandboxStorage,
       tenantId: userInfo.tenantId ?? currentTenantScope()?.tenantId,
     };
@@ -701,6 +704,16 @@ export class MarketService {
     log('getSkillRatingDistribution: %s', identifier);
 
     return this.market.marketSkills.getRatingDistribution(identifier);
+  }
+
+  /**
+   * The subset of `items` the member may use under the tenant's asset availability scopes.
+   * Unknown, hidden and out-of-scope assets are all absent from the answer.
+   */
+  async checkAssetAccess(items: AssetAccessCheckItem[]): Promise<AssetAccessCheckItem[]> {
+    if (items.length === 0) return [];
+    const result = await this.market.access.check(items, marketFetchCache({ revalidate: 0 }));
+    return result.items;
   }
 
   getSkillDownloadUrl(identifier: string, version?: string): string {

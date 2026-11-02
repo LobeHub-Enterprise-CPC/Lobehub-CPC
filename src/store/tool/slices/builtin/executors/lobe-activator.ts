@@ -29,9 +29,9 @@ import { LobehubSkillStatus } from '@/store/tool/slices/lobehubSkillStore';
 const skillsRuntime = new SkillsExecutionRuntime({
   builtinSkills: filterBuiltinSkills(builtinSkills),
   service: {
-    findAll: () => agentSkillService.list(),
-    findById: (id) => agentSkillService.getById(id),
-    findByName: (name) => agentSkillService.getByName(name),
+    findAll: () => agentSkillService.listUsable(),
+    findById: (id) => agentSkillService.getUsableById(id),
+    findByName: (name) => agentSkillService.getUsableByName(name),
     readResource: (id, path) => agentSkillService.readResource(id, path),
   },
 });

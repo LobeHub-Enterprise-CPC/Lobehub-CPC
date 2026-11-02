@@ -23,6 +23,8 @@ export interface SkillListItem {
   name: string;
   /** Filesystem skill scope when the row comes from a device scan. */
   scope?: 'device' | 'project';
+  /** Status tag shown after the name, e.g. a skill the enterprise no longer makes available. */
+  tag?: React.ReactNode;
 }
 
 /**
@@ -411,6 +413,7 @@ const SkillRow = memo<SkillRowProps>(
         ) : (
           nameNode
         )}
+        {item.tag}
         {typeof item.fileCount === 'number' && item.fileCount > 0 && (
           <span className={cx('skill-row-count', styles.itemCount)}>{item.fileCount}</span>
         )}

@@ -39,12 +39,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { openConnectorEditDrawer } from '@/features/Connectors/CustomConnectorModal/imperative';
+import RevokedTag from '@/features/MarketAssetAccess/RevokedTag';
 import { openPluginEditDrawer } from '@/features/PluginDevModal/imperative';
 import { createSkillStoreModal } from '@/features/SkillStore';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useCheckPluginsIsInstalled } from '@/hooks/useCheckPluginsIsInstalled';
 import { useFetchInstalledPlugins } from '@/hooks/useFetchInstalledPlugins';
 import { usePermission } from '@/hooks/usePermission';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors, chatConfigByIdSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -525,6 +527,9 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
   const [searchKeyword, setSearchKeyword] = useState('');
   const [autoModeLoading, setAutoModeLoading] = useState(false);
   const { allowed: canEdit } = usePermission('edit_own_content');
+  // Installed Market skills and tools the enterprise no longer makes available never run; the
+  // list keeps them visible so the member can see why and uninstall.
+  const revokedMarketAssets = useRevokedMarketAssets();
   const list = useToolStore(pluginSelectors.installedPluginMetaList, isEqual);
   const [
     uninstallPlugin,
@@ -842,6 +847,7 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
             <span className={cx(styles.toolLabelBody)}>
               <span className={cx(styles.toolLabelText)}>{label}</span>
               {extraTag}
+              {revokedMarketAssets.has(id) && <RevokedTag />}
             </span>
           </>
         }
@@ -858,7 +864,7 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
         onContextMenu={() => openSkillPolicyMenu(id)}
       />
     ),
-    [openSkillPolicyMenu, policyOpenId],
+    [openSkillPolicyMenu, policyOpenId, revokedMarketAssets],
   );
 
   const createManagedSkillItem = useCallback(

@@ -7,10 +7,12 @@ import { useTranslation } from 'react-i18next';
 
 import MCPTag from '@/components/Plugins/MCPTag';
 import PluginTag from '@/components/Plugins/PluginTag';
+import RevokedTag from '@/features/MarketAssetAccess/RevokedTag';
 import McpDetail from '@/features/MCP/MCPDetail';
 import McpDetailLoading from '@/features/MCP/MCPDetail/Loading';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import { createPluginDetailModal } from '@/features/PluginDetailModal';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 import { type LobeToolType } from '@/types/tool/tool';
@@ -37,6 +39,7 @@ const McpSkillItem = memo<McpSkillItemProps>(
     const isCommunityMCP = isMCP && !isCustomPlugin;
 
     const plugin = useToolStore(pluginSelectors.getToolManifestById(identifier));
+    const revoked = useRevokedMarketAssets().has(identifier) && !isCustomPlugin;
 
     const openDetail = () => {
       if (isCommunityMCP) {
@@ -66,6 +69,7 @@ const McpSkillItem = memo<McpSkillItemProps>(
       return (
         <NavItem
           active={isSelected}
+          extra={revoked ? <RevokedTag /> : undefined}
           title={title}
           icon={() =>
             avatar && avatar !== 'MCP_AVATAR' ? (
@@ -104,6 +108,7 @@ const McpSkillItem = memo<McpSkillItemProps>(
             <span className={styles.title} onClick={onSelect ? undefined : openDetail}>
               {title}
             </span>
+            {revoked && <RevokedTag />}
           </Flexbox>
           {!onSelect && (
             <Flexbox horizontal align="center" gap={4}>

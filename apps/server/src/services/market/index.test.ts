@@ -1196,6 +1196,16 @@ describe('MarketService', () => {
       });
     });
 
+    it("keeps the member's department chain so a replayed token reaches the same assets", () => {
+      const service = new MarketService({
+        userInfo: { orgUnitIds: ['dept-rd', 'dept-root'], tenantId: 'tenant-a', userId: 'user-1' },
+      });
+
+      expect(service.getSandboxReceiptIdentity()).toMatchObject({
+        orgUnitIds: ['dept-rd', 'dept-root'],
+      });
+    });
+
     it('keeps the workspace outside a tenant, as before', () => {
       const service = new MarketService({ userInfo: { userId: 'user-1', workspaceId: 'wsp-1' } });
 

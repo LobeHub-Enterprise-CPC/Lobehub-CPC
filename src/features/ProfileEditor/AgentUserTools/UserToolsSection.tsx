@@ -2,16 +2,18 @@
 
 import { AGENT_PROFILE_SHOWCASE_LAYOUT } from '@lobechat/business-const';
 import { getActivePluginIds } from '@lobechat/types';
-import { Button, Flexbox, Text } from '@lobehub/ui';
+import { Button, Flexbox, Text, Tooltip } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
+import RevokedTag from '@/features/MarketAssetAccess/RevokedTag';
 import type { AgentToolProps } from '@/features/ProfileEditor/AgentTool';
 import SharedAgentTool from '@/features/ProfileEditor/AgentTool';
 import PluginTag from '@/features/ProfileEditor/PluginTag';
 import { getVisibleProfileToolIds } from '@/features/ProfileEditor/profileToolVisibility';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useToolStore } from '@/store/tool';
@@ -46,6 +48,7 @@ const UserToolsSection = memo<Props>(
   }) => {
     const { t } = useTranslation('setting');
     const userConnectors = useToolStore(connectorSelectors.connectorList, isEqual);
+    const revokedMarketAssets = useRevokedMarketAssets();
     const config = useAgentStore(agentSelectors.getAgentConfigById(agentId), isEqual);
     const isManualSkillMode = config?.chatConfig?.skillActivateMode === 'manual';
     // Agent-owned/linked connector identifiers are shown in the Agent Tools
@@ -125,15 +128,32 @@ const UserToolsSection = memo<Props>(
                 {t('settingAgent.agentTools.pickerEmpty')}
               </Text>
             )}
-            {copyable.map((c) => (
-              <PluginTag
-                selectable
-                key={c.id}
-                pluginId={c.identifier}
-                selected={selected.has(c.id)}
-                onSelect={() => toggleSelected(c.id)}
-              />
-            ))}
+            {copyable.map((c) =>
+              // A Market connector the enterprise no longer makes available would not run on
+              // the agent either, so it cannot be picked.
+              c.sourceType === 'marketplace' && revokedMarketAssets.has(c.identifier) ? (
+                <Tooltip key={c.id} title={t('marketAssetAccess.revokedHint')}>
+                  <Flexbox
+                    aria-disabled
+                    horizontal
+                    align={'center'}
+                    gap={4}
+                    style={{ cursor: 'not-allowed', opacity: 0.6 }}
+                  >
+                    <PluginTag disabled selectable pluginId={c.identifier} selected={false} />
+                    <RevokedTag />
+                  </Flexbox>
+                </Tooltip>
+              ) : (
+                <PluginTag
+                  selectable
+                  key={c.id}
+                  pluginId={c.identifier}
+                  selected={selected.has(c.id)}
+                  onSelect={() => toggleSelected(c.id)}
+                />
+              ),
+            )}
           </Flexbox>
           {AGENT_PROFILE_SHOWCASE_LAYOUT && copyActions}
         </Flexbox>

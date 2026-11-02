@@ -1,11 +1,13 @@
 'use client';
 
 import { getComposioAppByIdentifier, getLobehubSkillProviderById } from '@lobechat/const';
-import { Avatar, cssVar, Icon, Tag } from '@lobehub/ui';
+import { Avatar, cssVar, Flexbox, Icon, Tag } from '@lobehub/ui';
 import { McpIcon } from '@lobehub/ui/icons';
 import { memo } from 'react';
 
+import RevokedTag from '@/features/MarketAssetAccess/RevokedTag';
 import NavItem from '@/features/NavPanel/components/NavItem';
+import { useRevokedMarketAssets } from '@/hooks/useRevokedMarketAssets';
 import type { AgentBoundConnector } from '@/store/tool/slices/connector/types';
 
 /**
@@ -22,6 +24,11 @@ const AgentConnectorItem = memo<{
   isSelected?: boolean;
   onSelect?: () => void;
 }>(({ connector, isSelected, onSelect }) => {
+  // An agent's copy of a Market connector stops working with the base install when the
+  // enterprise no longer makes it available, so it carries the same mark.
+  const revokedMarketAssets = useRevokedMarketAssets();
+  const revoked =
+    connector.sourceType === 'marketplace' && revokedMarketAssets.has(connector.identifier);
   // Resolve the same brand icon a base connector of this identifier would use;
   // fall back to the generic MCP icon for custom/unknown connectors.
   const brand =
@@ -40,9 +47,16 @@ const AgentConnectorItem = memo<{
   return (
     <NavItem
       active={isSelected}
-      extra={connector.agentTitle ? <Tag size="small">{connector.agentTitle}</Tag> : undefined}
       icon={renderIcon}
       title={brand?.label || connector.name || connector.identifier}
+      extra={
+        connector.agentTitle || revoked ? (
+          <Flexbox horizontal gap={4}>
+            {connector.agentTitle && <Tag size="small">{connector.agentTitle}</Tag>}
+            {revoked && <RevokedTag />}
+          </Flexbox>
+        ) : undefined
+      }
       onClick={onSelect}
     />
   );

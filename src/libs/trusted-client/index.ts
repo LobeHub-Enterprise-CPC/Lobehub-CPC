@@ -15,6 +15,13 @@ export interface TrustedClientUserInfo {
   email?: string;
   name?: string;
   /**
+   * Tenant members only: the member's department followed by its ancestors up to the root, signed
+   * so Market can apply department availability grants (a grant covers descendant departments).
+   * Resolved with the identity, so it follows the principal the token is signed for (an Agent
+   * Share run signs the creator's chain).
+   */
+  orgUnitIds?: string[];
+  /**
    * Set on an identity that is used while another principal's work runs under
    * it (an Agent Share visitor's run executes as the CREATOR). Never signed
    * into the token: it only lets {@link MarketService} refuse to publish
@@ -73,7 +80,10 @@ export {
  * verifier reads the field off the decrypted payload. Local extension only; the
  * SDK package is not touched.
  */
-export type TenantTrustedClientPayload = TrustedClientPayload & { tenantId?: string };
+export type TenantTrustedClientPayload = TrustedClientPayload & {
+  orgUnitIds?: string[];
+  tenantId?: string;
+};
 
 /**
  * The kid in front of the ciphertext is the client id in plaintext, so Market opens the token with
@@ -174,6 +184,7 @@ export const generateTrustedClientToken = (userInfo: TrustedClientUserInfo): str
       ...payload,
       ...(userInfo.sandboxStorage ? { sandboxStorage: userInfo.sandboxStorage } : {}),
       ...(userInfo.sandboxOperation && { sandboxOperation: userInfo.sandboxOperation }),
+      ...(userInfo.orgUnitIds && { orgUnitIds: userInfo.orgUnitIds }),
       tenantId,
     };
 

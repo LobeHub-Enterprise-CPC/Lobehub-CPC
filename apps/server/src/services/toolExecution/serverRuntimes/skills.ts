@@ -30,6 +30,7 @@ import debug from 'debug';
 import { AgentModel } from '@/database/models/agent';
 import { AgentSkillModel } from '@/database/models/agentSkill';
 import { FileModel } from '@/database/models/file';
+import { PluginModel } from '@/database/models/plugin';
 import { TaskModel } from '@/database/models/task';
 import { UserModel } from '@/database/models/user';
 import type { LobeChatDatabase } from '@/database/type';
@@ -39,6 +40,7 @@ import { deviceGateway } from '@/server/services/deviceGateway';
 import { executeAuthorizedDeviceToolCall } from '@/server/services/deviceGateway/authorizedToolCall';
 import { FileService } from '@/server/services/file';
 import type { MarketService } from '@/server/services/market';
+import { resolveRevokedMarketAssets } from '@/server/services/market/installedAssetAccess';
 import {
   createSandboxService,
   normalizeSandboxCommandResult,
@@ -249,14 +251,14 @@ class SkillServerRuntimeService implements SkillRuntimeService {
 
   findAll = async (): Promise<{ data: SkillListItem[]; total: number }> => {
     const result = await this.skillModel.findAll();
-    if (!this.isSkillGranted) return result;
 
-    // A share visitor must not learn the creator's catalog. This list is not
-    // just an internal lookup: `activateSkill` echoes it back in its
-    // not-found message ("Available skills: ..."), so an unfiltered read here
-    // hands every skill name and description to anyone with the link.
+    // This list is not just an internal lookup: `activateSkill` echoes it back
+    // in its not-found message ("Available skills: ..."). A share visitor must
+    // not learn the creator's catalog, and a skill that cannot be opened
+    // (opted out, or no longer made available by the enterprise) must not be
+    // offered to the model to retry by its listed name.
     const data = result.data.filter((skill) => this.isSkillReachable(skill.identifier));
-    return { data, total: data.length };
+    return data.length === result.data.length ? result : { data, total: data.length };
   };
 
   findById = async (id: string): Promise<SkillItem | undefined> => {
@@ -891,6 +893,17 @@ export const skillsRuntime: ServerRuntimeRegistration = {
       workspaceId,
       sandbox.claim,
     );
+    // Installed Market skills the enterprise no longer makes available to this member: like the
+    // agent's own opt-outs, activation by a model-supplied name must not reach them either.
+    for (const identifier of await resolveRevokedMarketAssets({
+      db: context.serverDB,
+      getMarketService: async () => marketService,
+      pluginModel: new PluginModel(context.serverDB, context.userId, workspaceId),
+      userId: context.userId,
+      workspaceId,
+    }))
+      disabledSkillIds.add(identifier);
+
     const fileService = new FileService(context.serverDB, context.userId, workspaceId);
     const fileModel = new FileModel(context.serverDB, context.userId, workspaceId);
 

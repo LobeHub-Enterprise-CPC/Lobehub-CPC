@@ -7,6 +7,11 @@ export type TrustedClientIdentityErrorCode =
   | 'SESSION_UNAVAILABLE'
   /** The user row is gone, or has no email: nobody to sign for. */
   | 'USER_UNAVAILABLE'
+  /**
+   * The member's department chain could not be read, or is longer than Market accepts. Signing
+   * without it (or with a cut chain) would silently drop department availability grants.
+   */
+  | 'ORG_UNITS_UNAVAILABLE'
   /** Tenant mode, but the trusted client id or secret is not configured: nothing to sign with. */
   | 'TRUST_NOT_CONFIGURED'
   /** The signer rejected the configured secret or payload. */
