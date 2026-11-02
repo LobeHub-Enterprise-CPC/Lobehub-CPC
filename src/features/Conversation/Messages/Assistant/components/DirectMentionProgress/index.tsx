@@ -1,8 +1,7 @@
 'use client';
 
-import { agentDisplayName } from '@lobechat/types';
 import { formatDuration } from '@lobechat/utils';
-import { Block, Button, Flexbox, Spin, Tag, Text } from '@lobehub/ui';
+import { Block, Button, Flexbox, Tag, Text } from '@lobehub/ui';
 import { cssVar } from '@lobehub/ui/stylex/cssVar.stylex';
 import * as stylex from '@stylexjs/stylex';
 import { SquareArrowOutUpRightIcon } from 'lucide-react';
@@ -12,7 +11,6 @@ import { useTranslation } from 'react-i18next';
 import { useChatStore } from '@/store/chat';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
-import { useAgentMeta } from '../../../../hooks';
 import { contextSelectors, useConversationStore } from '../../../../store';
 import { summarizeThreadProgress } from './summarize';
 
@@ -37,30 +35,49 @@ const useElapsed = (startedAt: number) => {
   return Math.max(0, now - startedAt);
 };
 
+/** Header addon next to the agent's name: it is running, and for how long. */
+export const DirectMentionStatus = memo<{ startedAt: number }>(({ startedAt }) => {
+  const { t } = useTranslation('chat');
+  const elapsed = useElapsed(startedAt);
+
+  return (
+    <Flexbox horizontal align={'center'} gap={6} style={{ whiteSpace: 'nowrap' }}>
+      <Text type={'secondary'}>· {t('directMention.progress.running')}</Text>
+      <Tag size={'small'}>
+        {t('directMention.progress.elapsed', {
+          time: formatDuration(Math.floor(elapsed / 1000) * 1000),
+        })}
+      </Tag>
+    </Flexbox>
+  );
+});
+
+DirectMentionStatus.displayName = 'DirectMentionStatus';
+
 interface DirectMentionProgressProps {
   /** The mentioned agent, which runs the thread. */
   agentId: string;
   messageId: string;
-  startedAt: number;
   threadId: string;
 }
 
 /**
- * Live card for a direct @Agent reply still being written in its thread:
- * who is working, for how long, what it is doing and the newest line of its
- * answer, with the way into the full record.
+ * Live body for a direct @Agent reply still being written in its thread: what
+ * the agent is doing and the newest line of its answer, with the way into the
+ * full record.
  */
 const DirectMentionProgress = memo<DirectMentionProgressProps>(
-  ({ agentId, messageId, startedAt, threadId }) => {
+  ({ agentId, messageId, threadId }) => {
     const { t } = useTranslation('chat');
-    const meta = useAgentMeta(agentId);
     const topicId = useConversationStore(contextSelectors.topicId);
     const openThreadInPortal = useChatStore((s) => s.openThreadInPortal);
-    const elapsed = useElapsed(startedAt);
 
     const threadKey = messageMapKey({ agentId, scope: 'thread', threadId, topicId });
     const messages = useChatStore((s) => s.dbMessagesMap[threadKey]);
-    const { activity, text } = useMemo(() => summarizeThreadProgress(messages ?? []), [messages]);
+    const { activity, text } = useMemo(
+      () => summarizeThreadProgress(messages ?? [], threadId),
+      [messages, threadId],
+    );
 
     const activityLine =
       activity?.type === 'tool'
@@ -69,17 +86,6 @@ const DirectMentionProgress = memo<DirectMentionProgressProps>(
 
     return (
       <Flexbox gap={8}>
-        <Flexbox horizontal align={'center'} gap={8}>
-          <Spin size={'small'} />
-          <Text weight={500}>
-            {t('directMention.progress.running', { name: agentDisplayName(meta) })}
-          </Text>
-          <Tag size={'small'}>
-            {t('directMention.progress.elapsed', {
-              time: formatDuration(Math.floor(elapsed / 1000) * 1000),
-            })}
-          </Tag>
-        </Flexbox>
         <Block gap={8} paddingBlock={12} paddingInline={16} variant={'filled'}>
           <Text ellipsis {...stylex.props(styles.activity)}>
             {activityLine}

@@ -391,7 +391,7 @@
   "devinInstallGuide.reason": "LobeHub could not start Devin: {{message}}",
   "devinInstallGuide.title": "Install Devin CLI",
   "directMention.progress.elapsed": "{{time}}",
-  "directMention.progress.running": "{{name}} · Running",
+  "directMention.progress.running": "Running",
   "directMention.progress.thinking": "Thinking…",
   "directMention.progress.usingTool": "Using {{name}}…",
   "directMention.progress.viewFullRecord": "View full record",
