@@ -1636,6 +1636,60 @@ export class GatewayActionImpl {
   };
 
   /**
+   * Stream a sub-agent run this tab dispatched but does not drive (a direct
+   * @Agent mention), so its thread fills in live instead of all at once.
+   *
+   * Render-only: the run's events land in `context`'s transcript, and nothing
+   * on the topic is settled — the child owns no topic marker, and the
+   * dispatcher's task poll owns the outcome. Joins late, so it replays what the
+   * run already produced. Returns a stop that drops the subscription.
+   */
+  watchSubAgentRun = (params: {
+    assistantMessageId: string;
+    context: ConversationContext;
+    operationId: string;
+    token: string;
+  }): (() => void) => {
+    const { assistantMessageId, context, operationId, token } = params;
+    const agentGatewayUrl = getGatewayServerConfig()?.agentGatewayUrl;
+    if (!agentGatewayUrl || !context.topicId) return () => {};
+
+    const { operationId: localOperationId } = this.#get().startOperation({
+      context,
+      metadata: { serverOperationId: operationId },
+      type: 'execServerAgentRuntime',
+    });
+    this.#get().associateMessageWithOperation(assistantMessageId, localOperationId);
+
+    const settle = () => {
+      if (this.#get().operations[localOperationId]?.status === 'running')
+        this.#get().completeOperation(localOperationId);
+    };
+
+    this.#get().connectToGateway({
+      executor: false,
+      gatewayUrl: agentGatewayUrl,
+      localOperationId,
+      onEvent: createGatewayEventHandler(this.#get, {
+        assistantMessageId,
+        context,
+        gatewayOperationId: operationId,
+        operationId: localOperationId,
+      }),
+      onSessionComplete: settle,
+      operationId,
+      resumeOnConnect: true,
+      token,
+      topicId: context.topicId,
+    });
+
+    return () => {
+      this.disconnectFromGateway(operationId);
+      settle();
+    };
+  };
+
+  /**
    * Reconnect to an existing Gateway operation after page reload.
    * Reads runningOperation from topic metadata, refreshes the JWT token,
    * and establishes a new WebSocket connection with event replay.

@@ -71,4 +71,65 @@ describe('executeDirectMention', () => {
 
     expect(store.refreshMessages).toHaveBeenCalledWith({ agentId: 'agt_xw', topicId: 'tpc_1' });
   });
+
+  it('shows the running thread at once and streams the child while it runs', async () => {
+    const { ClientSubAgentTransport } =
+      await import('@/store/chat/agents/transports/ClientSubAgentTransport');
+    const stopWatching = vi.fn();
+    const store = {
+      associateMessageWithOperation: vi.fn(),
+      completeOperation: vi.fn(),
+      internal_dispatchMessage: vi.fn(),
+      optimisticUpdateMessageContent: vi.fn().mockResolvedValue(undefined),
+      refreshMessages: vi.fn().mockResolvedValue(undefined),
+      refreshThreads: vi.fn().mockResolvedValue(undefined),
+      startOperation: vi.fn(() => ({ operationId: 'op_client' })),
+      watchSubAgentRun: vi.fn(() => stopWatching),
+    };
+    vi.spyOn(ClientSubAgentTransport.prototype, 'execSubAgent').mockImplementation(async function (
+      this: any,
+    ) {
+      this.options.onDispatched({
+        assistantMessageId: 'msg_child',
+        operationId: 'op_child',
+        success: true,
+        threadId: 'thd_1',
+        token: 'child-ticket',
+      });
+      expect(stopWatching).not.toHaveBeenCalled();
+      // The panel needs the thread (and its agent) while the child still runs.
+      expect(store.refreshThreads).toHaveBeenCalled();
+      return { result: 'reply', success: true, threadId: 'thd_1' } as any;
+    });
+
+    await executeDirectMention(
+      {
+        context: { agentId: 'agt_lobe', topicId: 'tpc_1' },
+        instruction: '<mention name="小雯" id="agt_xw" />你能干什么',
+        parentOperationId: 'op_send',
+        runtimeType: 'gateway',
+        sourceMessageId: 'msg_src',
+        targetAgentId: 'agt_xw',
+      },
+      () => store as any,
+    );
+
+    expect(store.internal_dispatchMessage).toHaveBeenCalledWith(
+      {
+        id: 'msg_src',
+        type: 'updateMessage',
+        value: {
+          taskDetail: expect.objectContaining({ status: 'processing', threadId: 'thd_1' }),
+        },
+      },
+      { operationId: 'op_client' },
+    );
+    expect(store.watchSubAgentRun).toHaveBeenCalledWith({
+      assistantMessageId: 'msg_child',
+      context: { agentId: 'agt_xw', scope: 'thread', threadId: 'thd_1', topicId: 'tpc_1' },
+      operationId: 'op_child',
+      token: 'child-ticket',
+    });
+    expect(stopWatching).toHaveBeenCalled();
+  });
 });

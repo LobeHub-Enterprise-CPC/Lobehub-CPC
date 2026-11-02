@@ -503,6 +503,9 @@ export const execAgentThreadRun = async (
     operationId: result.operationId,
     success: result.success ?? false,
     threadId: thread.id,
+    // The child's own gateway ticket: a tab that dispatched it has no server
+    // run whose channel would carry the child's progress, so it subscribes here.
+    ...(result.token && { token: result.token }),
   };
 };
 
