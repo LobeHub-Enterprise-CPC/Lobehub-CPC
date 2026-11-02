@@ -3464,9 +3464,7 @@ describe('RuntimeExecutors', { timeout: 60_000 }, () => {
 
       expect(mockMessageModel.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          metadata: {
-            toolExecutionTimeMs: 100,
-          },
+          metadata: { toolExecutionTimeMs: 100, toolResultStop: false, toolResultSuccess: true },
         }),
       );
     });
@@ -3798,7 +3796,12 @@ describe('RuntimeExecutors', { timeout: 60_000 }, () => {
     });
 
     describe('skipCreateToolMessage (resumption after human approval)', () => {
+      const approvalPlaceholderRow = (id: string, toolCallId: string) => {
+        mockMessageModel.findById.mockResolvedValue({ content: '', id, role: 'tool' });
+        mockMessageModel.findMessagePlugin.mockResolvedValue({ toolCallId });
+      };
       it('should update existing tool message instead of creating a new one', async () => {
+        approvalPlaceholderRow('pending-tool-msg-1', 'tool-call-1');
         const executors = createRuntimeExecutors(ctx);
         const state = createMockState();
 
@@ -3824,12 +3827,13 @@ describe('RuntimeExecutors', { timeout: 60_000 }, () => {
           'pending-tool-msg-1',
           expect.objectContaining({
             content: 'Tool result',
-            metadata: { toolExecutionTimeMs: 100 },
+            metadata: { toolExecutionTimeMs: 100, toolResultStop: false, toolResultSuccess: true },
           }),
         );
       });
 
       it('should return the existing toolMessageId as parentMessageId for the next LLM step', async () => {
+        approvalPlaceholderRow('pending-tool-msg-42', 'tool-call-42');
         const executors = createRuntimeExecutors(ctx);
         const state = createMockState();
 
@@ -5001,17 +5005,13 @@ describe('RuntimeExecutors', { timeout: 60_000 }, () => {
       expect(mockMessageModel.create).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({
-          metadata: {
-            toolExecutionTimeMs: 150,
-          },
+          metadata: { toolExecutionTimeMs: 150, toolResultStop: false, toolResultSuccess: true },
         }),
       );
       expect(mockMessageModel.create).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({
-          metadata: {
-            toolExecutionTimeMs: 250,
-          },
+          metadata: { toolExecutionTimeMs: 250, toolResultStop: false, toolResultSuccess: true },
         }),
       );
     });

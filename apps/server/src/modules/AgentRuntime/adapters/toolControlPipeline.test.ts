@@ -56,6 +56,23 @@ const control = (id = 'control', onError: 'continue' | 'block' = 'continue'): Ag
 const response = (decision: 'allow' | 'deny', reason?: string) =>
   new Response(JSON.stringify(decision === 'deny' ? { decision, reason } : { decision }));
 
+// Approval resumes onto the placeholder row the pause created; replay reads it before running.
+const approvedPlaceholder = (fixture: ReturnType<typeof setup>, id: string) =>
+  vi
+    .mocked(fixture.host.transports.messages.getToolMessage)
+    .mockImplementation(async (messageId) =>
+      messageId === id
+        ? {
+            content: '...',
+            id,
+            parentId: 'assistant',
+            pluginIntervention: { status: 'approved' },
+            role: 'tool',
+            tool_call_id: 'native-1',
+          }
+        : undefined,
+    );
+
 function setup(hooks: AgentHook[], signal?: AbortSignal, restore = false) {
   const registered = new HookDispatcher();
   registered.register('op', hooks);
@@ -112,6 +129,9 @@ function setup(hooks: AgentHook[], signal?: AbortSignal, restore = false) {
           return { ...row, id: `row-${rows.length}` };
         }),
         query: vi.fn(async () => rows),
+        getToolMessage: vi.fn(async (id: string) =>
+          rows.find((_, index) => `row-${index + 1}` === id),
+        ),
         updateToolMessage: vi.fn(),
         updateToolIntervention: vi.fn(),
         update: vi.fn(),
@@ -307,6 +327,7 @@ describe('beforeToolCall control pipeline', () => {
       const reason = 'Approval does not override this policy.';
       fetchHook.mockImplementation(async () => response('deny', reason));
       const fixture = setup([control()]);
+      approvedPlaceholder(fixture, 'pending-row');
       await fixture.runtime.step(fixture.state, {
         phase: 'human_approved_tool',
         payload:
@@ -909,6 +930,7 @@ describe('beforeToolCall control pipeline', () => {
   it('settles an already-approved row when the refreshed control denies it', async () => {
     const fixture = setup([control()]);
     fetchHook.mockImplementation(async () => response('deny'));
+    approvedPlaceholder(fixture, 'pending-tool-row');
     const result = await fixture.runtime.step(fixture.state, {
       phase: 'human_approved_tool',
       payload: {
