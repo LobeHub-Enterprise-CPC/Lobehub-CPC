@@ -11,7 +11,12 @@ import type {
   ThreadMetadata,
   UserInterventionConfig,
 } from '@lobechat/types';
-import { isAgentOperationInFlight, ThreadStatus, ThreadType } from '@lobechat/types';
+import {
+  isAgentOperationInFlight,
+  RequestTrigger,
+  ThreadStatus,
+  ThreadType,
+} from '@lobechat/types';
 import debug from 'debug';
 
 import type { AgentOperationModel } from '@/database/models/agentOperation';
@@ -326,7 +331,11 @@ export const execAgentThreadRun = async (
     try {
       const parentOp = await deps.agentOperationModel.findById(parentOperationId);
       inheritedTrigger = parentOp?.trigger ?? undefined;
-      if (!parentOp) recordedParentOperationId = undefined;
+      if (!parentOp) {
+        recordedParentOperationId = undefined;
+        // Only the chat UI dispatches from a tab-local operation.
+        inheritedTrigger = RequestTrigger.Chat;
+      }
     } catch (error) {
       log('%s: failed to read parent operation trigger: %O', options.logScope, error);
     }

@@ -893,6 +893,8 @@ describe('AiAgentService.execSubAgent', () => {
 
       expect(mockOperationFindById).toHaveBeenCalledWith('client-local-op');
       expect(execAgentSpy.mock.calls[0][0].parentOperationId).toBeUndefined();
+      // Only the chat UI dispatches a sub-agent from a tab-local operation.
+      expect(execAgentSpy.mock.calls[0][0].trigger).toBe('chat');
     });
 
     it('relays the child on the channel the tab stands by on', async () => {
