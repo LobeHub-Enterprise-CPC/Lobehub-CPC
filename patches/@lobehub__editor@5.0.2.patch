@@ -1,0 +1,35 @@
+diff --git a/es/plugins/slash/plugin/index.js b/es/plugins/slash/plugin/index.js
+index 2cc5dc5..ef13d4f 100644
+--- a/es/plugins/slash/plugin/index.js
++++ b/es/plugins/slash/plugin/index.js
+@@ -127,7 +127,7 @@ const SlashPlugin = class extends KernelPlugin {
+ 					triggerText = resolution.trigger;
+ 					this.currentSlashTriggerIndex = resolution.leadOffset;
+ 				}
+-				const lastIndex = text.lastIndexOf(triggerText);
++				const lastIndex = triggerText === "@" ? Math.max(text.lastIndexOf("@"), text.lastIndexOf("\uFF20")) : text.lastIndexOf(triggerText);
+ 				if (lastIndex < this.currentSlashTriggerIndex) {
+ 					this.triggerClose();
+ 					return;
+diff --git a/es/plugins/slash/utils/utils.js b/es/plugins/slash/utils/utils.js
+index fa12f91..6c22381 100644
+--- a/es/plugins/slash/utils/utils.js
++++ b/es/plugins/slash/utils/utils.js
+@@ -46,10 +46,15 @@ function tryToPositionRange(leadOffset, range, editorWindow) {
+ }
+ const PUNCTUATION = "\\.,\\+\\*\\?\\$\\@\\|#{}\\(\\)\\^\\[\\]\\\\!%'\"~=<>_:;";
+ function getBasicTypeaheadTriggerMatch(trigger, { minLength = 0, maxLength = 75, punctuation = PUNCTUATION, allowWhitespace = false }) {
++	// CJK text has no spaces between words, so `@` may follow a CJK character or
++	// CJK/fullwidth punctuation directly; Chinese IMEs may also emit fullwidth `＠`.
++	const isMention = trigger === "@";
++	const triggerChars = isMention ? "@\\uFF20" : trigger;
++	const lead = isMention ? "(^|\\s|\\(|[\\u3000-\\u303F\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\uFF00-\\uFFEF])" : "(^|\\s|\\()";
+ 	return (text) => {
+ 		const validCharsSuffix = allowWhitespace ? "" : "\\s";
+-		const validChars = "[^" + trigger + punctuation + validCharsSuffix + "]";
+-		const regexPattern = allowWhitespace ? "(^|\\s|\\()([" + trigger + "]((?:" + validChars + "){0," + maxLength + "}))$" : "(^|\\s|\\()([" + trigger + "]((?:" + validChars + ")*?))(?=\\s|$)";
++		const validChars = "[^" + triggerChars + punctuation + validCharsSuffix + "]";
++		const regexPattern = allowWhitespace ? lead + "([" + triggerChars + "]((?:" + validChars + "){0," + maxLength + "}))$" : lead + "([" + triggerChars + "]((?:" + validChars + ")*?))(?=\\s|$)";
+ 		const match = new RegExp(regexPattern).exec(text);
+ 		if (match !== null) {
+ 			const maybeLeadingWhitespace = match[1];
