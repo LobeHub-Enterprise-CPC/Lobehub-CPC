@@ -421,7 +421,7 @@ export class SkillImporter {
   /** Import bytes already downloaded by the request's authenticated Market client. */
   async importFromMarketZip(
     buffer: Buffer,
-    input: { identifier: string; sourceUrl: string },
+    input: { identifier: string; overwrite?: boolean; sourceUrl: string },
   ): Promise<SkillImportResult> {
     let parsed;
     try {
@@ -433,7 +433,7 @@ export class SkillImporter {
     return this.saveUrlImport(
       { url: input.sourceUrl },
       parsed,
-      { identifier: input.identifier, source: 'market' },
+      { identifier: input.identifier, overwrite: input.overwrite, source: 'market' },
       buffer,
     );
   }
