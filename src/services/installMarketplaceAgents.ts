@@ -22,23 +22,29 @@ type MarketAgentDetail = NonNullable<
   Awaited<ReturnType<typeof discoverService.getAssistantDetail>>
 >;
 
+/** Local agent config for the Market agent `sourceId`. */
+export const buildMarketAgentConfig = (detail: MarketAgentDetail, sourceId: string) => ({
+  ...detail.config,
+  avatar: detail.avatar,
+  backgroundColor: detail.backgroundColor,
+  description: detail.description,
+  editorData: detail.editorData,
+  params: {
+    ...detail.config.params,
+    forkedFromIdentifier: sourceId,
+  },
+  tags: detail.tags,
+  title: detail.title,
+});
+
 /** Local agent config for a Market fork of `sourceId`, as every install entry builds it. */
 export const buildForkedAgentConfig = (
   detail: MarketAgentDetail,
   fork: { identifier: string; name: string },
   sourceId: string,
 ) => ({
-  ...detail.config,
-  avatar: detail.avatar,
-  backgroundColor: detail.backgroundColor,
-  description: detail.description,
-  editorData: detail.editorData,
+  ...buildMarketAgentConfig(detail, sourceId),
   marketIdentifier: fork.identifier,
-  params: {
-    ...detail.config.params,
-    forkedFromIdentifier: sourceId,
-  },
-  tags: detail.tags,
   title: fork.name,
 });
 
