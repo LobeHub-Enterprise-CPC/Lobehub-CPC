@@ -57,15 +57,17 @@ export const INTERVENTION_LIFECYCLE_CHECKPOINT_KEY = '_agentInterventionLifecycl
  * before giving up and falling back to a retryable response. Hatchet delivery
  * adds a 1s first retry ahead of the same backoff, so it gets one more.
  */
-export const STEP_LOCK_RETRY_MAX_ATTEMPTS = isHatchetDeliveryEnabled() ? 13 : 12;
+export const STEP_LOCK_RETRY_MAX_ATTEMPTS = isHatchetDeliveryEnabled() ? 36 : 35;
 /** Hatchet delivery's first lock-conflict retry: a normal hand-off releases the lock within ms. */
 export const STEP_LOCK_FIRST_RETRY_DELAY_MS = 1000;
 /** Base delay for the first lock-conflict re-delivery. */
 export const STEP_LOCK_RETRY_BASE_DELAY_MS = 15_000;
 /**
  * Ceiling on a single lock-conflict backoff. Together with the base delay,
- * {@link STEP_LOCK_RETRY_MAX_ATTEMPTS} attempts span ~20 minutes — comfortably
- * longer than the platform's hard step ceiling, so a step that legitimately
- * holds the lock for minutes no longer strands the delivery waiting behind it.
+ * {@link STEP_LOCK_RETRY_MAX_ATTEMPTS} attempts span ~66 minutes — at least the
+ * Hatchet step execution timeout (`HATCHET_TIMING.stepExecutionTimeoutMs`), which
+ * covers the slowest single step seen in production, so a step that
+ * legitimately holds the lock that long does not strand the delivery waiting
+ * behind it.
  */
 export const STEP_LOCK_RETRY_MAX_DELAY_MS = 120_000;

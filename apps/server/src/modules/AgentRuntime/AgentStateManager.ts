@@ -107,6 +107,12 @@ export interface AgentOperationMetadata {
   workspaceId?: string;
 }
 
+/**
+ * How long an operation's Redis state outlives its last write or refresh. It has
+ * to cover the longest gap between two step attempts (see `HATCHET_TIMING`).
+ */
+export const AGENT_RUNTIME_STATE_TTL_SECONDS = 4 * 3600;
+
 export class AgentStateManager {
   private redis: Redis;
   private readonly STATE_PREFIX = 'agent_runtime_state';
@@ -115,7 +121,7 @@ export class AgentStateManager {
   private readonly INTERRUPT_PREFIX = 'agent_runtime_interrupt';
   private readonly QUEUED_MESSAGES_PREFIX = 'agent_runtime_queued_messages';
   private readonly INLINE_RESUME_PREFIX = 'agent_runtime_inline_resume';
-  private readonly DEFAULT_TTL = 2 * 3600; // 2h
+  private readonly DEFAULT_TTL = AGENT_RUNTIME_STATE_TTL_SECONDS;
 
   constructor() {
     const redisClient = getAgentRuntimeRedisClient();
@@ -522,10 +528,8 @@ export class AgentStateManager {
         if (metadata) {
           const lastActiveTime = new Date(metadata.lastActiveAt).getTime();
           const now = Date.now();
-          const hoursSinceActive = (now - lastActiveTime) / (1000 * 60 * 60);
-
-          // Clean up operations inactive for more than 2 hours
-          if (hoursSinceActive > 2) {
+          // Clean up operations inactive for longer than their state would live
+          if (now - lastActiveTime > this.DEFAULT_TTL * 1000) {
             await this.deleteAgentOperation(operationId);
             cleanedCount++;
           }

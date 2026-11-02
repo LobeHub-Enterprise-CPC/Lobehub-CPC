@@ -10,6 +10,7 @@ import {
 import { createRuntimeExecutors } from '@/server/modules/AgentRuntime/RuntimeExecutors';
 
 import { AgentRuntimeService } from '../AgentRuntimeService';
+import { STEP_LOCK_RETRY_MAX_ATTEMPTS } from '../AgentRuntimeService/constants';
 import { CriticalAgentInterventionPersistenceError } from '../CompletionLifecycle';
 import { hookDispatcher } from '../hooks';
 
@@ -871,9 +872,8 @@ describe('AgentRuntimeService.executeStep - step idempotency (distributed lock)'
     const coordinator = (service as any).coordinator;
     coordinator.tryClaimStep = vi.fn().mockResolvedValue(false);
     coordinator.loadAgentState = vi.fn().mockResolvedValue({ status: 'running', stepCount: 5 });
-
     const result = await service.executeStep({
-      lockRetryAttempt: 12,
+      lockRetryAttempt: STEP_LOCK_RETRY_MAX_ATTEMPTS,
       operationId: 'op-exhausted',
       stepIndex: 5,
     });

@@ -11,9 +11,20 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
 /**
- * Timing contract. The runtime keeps an operation's Redis state for 2h and
- * every step attempt refreshes it, so the longest wait between two attempts
- * (queueing + one attempt + one retry wait) has to stay well inside that.
+ * Timing contract. The runtime keeps an operation's Redis state for
+ * `AGENT_RUNTIME_STATE_TTL_SECONDS` and every step attempt refreshes it, so the
+ * longest wait between two attempts (queueing + one attempt + one retry wait)
+ * has to stay inside that (`timing.test.ts`).
+ *
+ * A step attempt is one `/run` invocation: steps keep starting inline for
+ * `AGENT_INLINE_STEP_DEADLINE_MS` (450s), and the last one runs to completion
+ * with no in-process bound. Its length is therefore set by the slowest model
+ * call, not by the runtime: production measured 2,298s (38 min) for a single
+ * call between 2026-10-03 and 11-02. Timing out an attempt that is still
+ * running only redelivers it behind the step lock, and an attempt killed by
+ * the platform repeats a paid model call, so the attempt timeout, the pod
+ * termination grace (3600s) and the lock-conflict wait all cover that length
+ * instead of cutting it.
  */
 export const HATCHET_TIMING = {
   /** Same dedup window as QStash. */
@@ -32,8 +43,9 @@ export const HATCHET_TIMING = {
   queueTimeoutMs: 60 * MINUTE,
   /** Upper bound for any retry wait, whatever Retry-After or `retryDelay` asked for. */
   retryWaitCapMs: 30 * MINUTE,
-  stepExecutionTimeoutMs: 20 * MINUTE,
-  stepHttpTimeoutMs: 15 * MINUTE,
+  stepExecutionTimeoutMs: 65 * MINUTE,
+  /** One `/run` invocation: 450s of inline steps plus the slowest single step, with margin. */
+  stepHttpTimeoutMs: 60 * MINUTE,
 } as const;
 
 const positiveInt = (name: string, fallback: number): number => {

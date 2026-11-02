@@ -96,7 +96,7 @@ export async function createOperation(
   // in dispatchHooks) and swallows DB errors so runtime startup is never
   // blocked.
   // A group member's completion bridge lives in the runtime snapshot, which
-  // expires (2h). Keep a durable copy on the row so a late approval or a
+  // expires (`AGENT_RUNTIME_STATE_TTL_SECONDS`). Keep a durable copy on the row so a late approval or a
   // stop can still reach the member's supervisor (`loadGroupMemberBridge`).
   const groupMemberBridge = hooks?.find((hook) => hook.id === 'group-member-bridge')?.webhook
     ?.body as Omit<GroupActionMemberBridgeParams, 'operationId' | 'reason'> | undefined;
