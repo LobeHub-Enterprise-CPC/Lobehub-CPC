@@ -1,8 +1,28 @@
 diff --git a/es/plugins/slash/plugin/index.js b/es/plugins/slash/plugin/index.js
-index 2cc5dc5..5f88ec6 100644
+index 2cc5dc5..66ba994 100644
 --- a/es/plugins/slash/plugin/index.js
 +++ b/es/plugins/slash/plugin/index.js
-@@ -90,7 +90,10 @@ const SlashPlugin = class extends KernelPlugin {
+@@ -87,10 +87,30 @@ const SlashPlugin = class extends KernelPlugin {
+ 			});
+ 			this.register(unregisterAddBlockButton);
+ 		}
++		// Re-arm on any text the user inserts, not only on keydown: an IME (e.g. Rime
++		// or Pinyin on macOS) may deliver keystrokes, including @, without a keydown
++		// Lexical forwards. Capture phase runs before Lexical's own root handlers.
++		const rearmOnInput = () => {
++			this.suppressOpen = false;
++			this.manualOpen = false;
++		};
++		this.register(editor.registerRootListener((rootElement, prevRootElement) => {
++			if (prevRootElement) {
++				prevRootElement.removeEventListener("beforeinput", rearmOnInput, true);
++				prevRootElement.removeEventListener("compositionend", rearmOnInput, true);
++			}
++			if (rootElement) {
++				rootElement.addEventListener("beforeinput", rearmOnInput, true);
++				rootElement.addEventListener("compositionend", rearmOnInput, true);
++			}
++		}));
  		this.register(editor.registerCommand(KEY_DOWN_COMMAND, (event) => {
  			if (event.isComposing) return false;
  			const key = event.key;
@@ -14,7 +34,7 @@ index 2cc5dc5..5f88ec6 100644
  				this.suppressOpen = false;
  				this.manualOpen = false;
  			}
-@@ -127,7 +130,7 @@ const SlashPlugin = class extends KernelPlugin {
+@@ -127,7 +147,7 @@ const SlashPlugin = class extends KernelPlugin {
  					triggerText = resolution.trigger;
  					this.currentSlashTriggerIndex = resolution.leadOffset;
  				}
