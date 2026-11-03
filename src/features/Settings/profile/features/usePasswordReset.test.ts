@@ -1,5 +1,6 @@
+import { initializeTenant } from '@lobechat/business-tenant/client';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { usePasswordReset } from './usePasswordReset';
 
@@ -65,5 +66,35 @@ describe('usePasswordReset', () => {
     });
 
     expect(mocks.requestPasswordReset).not.toHaveBeenCalled();
+  });
+
+  // Better Auth resolves a relative `redirectTo` against the origin, so a bare
+  // `/reset-password` drops the tenant and the emailed link lands on the
+  // no-tenant root (`/?switch=1`) instead of this organization's reset page.
+  describe('on a tenant page', () => {
+    beforeEach(() => {
+      window.history.replaceState(null, '', '/orgs/acme/settings/profile');
+      initializeTenant(new URL(window.location.href));
+    });
+
+    afterEach(() => {
+      window.history.replaceState(null, '', '/');
+      initializeTenant(new URL(window.location.href));
+    });
+
+    it("sends the reset link back to the page's tenant", async () => {
+      mocks.requestPasswordReset.mockResolvedValue({ data: { status: true }, error: null });
+
+      const { result } = renderHook(() => usePasswordReset('alex+1@example.com'));
+
+      await act(async () => {
+        await result.current.requestReset();
+      });
+
+      expect(mocks.requestPasswordReset).toHaveBeenCalledWith({
+        email: 'alex+1@example.com',
+        redirectTo: `${window.location.origin}/orgs/acme/reset-password?email=alex%2B1%40example.com`,
+      });
+    });
   });
 });
