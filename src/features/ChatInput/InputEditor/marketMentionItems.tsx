@@ -74,6 +74,8 @@ export const toMarketSkillItem = (skill: DiscoverSkillItem): ISlashMenuOption =>
       actionCategory: 'skill',
       actionType: skill.identifier,
       description: skill.description,
+      // Installed the moment it is picked, so the send does not wait for it.
+      marketSkill: true,
       searchText: [label, skill.description].filter(Boolean).join(' '),
       timestamp: 0,
       type: 'skill' as const,

@@ -25,7 +25,12 @@ vi.mock('@/store/agent', () => ({
   useAgentStore: { getState: () => ({ createAgent: mocks.createAgent }) },
 }));
 
-const { installMarketMentions } = await import('./mentionMarketInstall');
+const {
+  MarketMentionInstallError,
+  installMarketMentions,
+  prepareMentionedMarketAgent,
+  prepareMentionedMarketSkill,
+} = await import('./mentionMarketInstall');
 
 const detail = {
   avatar: '🎯',
@@ -39,6 +44,30 @@ describe('installMarketMentions', () => {
     vi.clearAllMocks();
     mocks.getAssistantDetail.mockResolvedValue(detail);
     mocks.createAgent.mockResolvedValue({ agentId: 'agt_hidden' });
+  });
+
+  it('readies a Market agent when its chip is picked, so the send reuses that work', async () => {
+    mocks.getAgentByForkedFromIdentifier.mockResolvedValue(null);
+    let finishSkills!: () => void;
+    mocks.ensureAgentMarketSkillsAndWarn.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishSkills = resolve;
+      }),
+    );
+
+    prepareMentionedMarketAgent('picked-early', 'public');
+    await vi.waitFor(() => expect(mocks.createAgent).toHaveBeenCalledTimes(1));
+    expect(mocks.ensureAgentMarketSkillsAndWarn).toHaveBeenCalledWith(['okr-skill']);
+
+    const sending = installMarketMentions({
+      agents: [{ identifier: 'picked-early', label: 'OKR 教练', visibility: 'public' }],
+      skills: [],
+    });
+    finishSkills();
+
+    expect((await sending).get('picked-early')).toBe('agt_hidden');
+    expect(mocks.createAgent).toHaveBeenCalledTimes(1);
+    expect(mocks.ensureAgentMarketSkillsAndWarn).toHaveBeenCalledTimes(1);
   });
 
   it('runs a mentioned Market agent from a hidden copy instead of installing it', async () => {
@@ -63,6 +92,45 @@ describe('installMarketMentions', () => {
     expect(config.marketIdentifier).toBeUndefined();
     expect(visibility).toBe('public');
     expect(mocks.ensureAgentMarketSkillsAndWarn).toHaveBeenCalledWith(['okr-skill']);
+  });
+
+  it('installs a picked Market skill right away, so the send reuses that install', async () => {
+    let finish!: () => void;
+    mocks.ensureAgentMarketSkills.mockReturnValue(
+      new Promise((resolve) => {
+        finish = () => resolve([{ identifier: 'big-skill', status: 'installed' }]);
+      }),
+    );
+
+    prepareMentionedMarketSkill('big-skill');
+    expect(mocks.ensureAgentMarketSkills).toHaveBeenCalledWith(['big-skill']);
+
+    const sending = installMarketMentions({
+      agents: [],
+      skills: [{ identifier: 'big-skill', label: '大技能' }],
+    });
+    finish();
+
+    await expect(sending).resolves.toEqual(new Map());
+    expect(mocks.ensureAgentMarketSkills).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a skill whose early install failed and names it if it fails again', async () => {
+    mocks.ensureAgentMarketSkills.mockResolvedValue([
+      { identifier: 'flaky-skill', reason: 'download', status: 'failed' },
+    ]);
+
+    prepareMentionedMarketSkill('flaky-skill');
+    await vi.waitFor(() => expect(mocks.ensureAgentMarketSkills).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+
+    const sending = installMarketMentions({
+      agents: [],
+      skills: [{ identifier: 'flaky-skill', label: '不稳定技能' }],
+    });
+
+    await expect(sending).rejects.toEqual(new MarketMentionInstallError(['不稳定技能']));
+    expect(mocks.ensureAgentMarketSkills).toHaveBeenCalledTimes(2);
   });
 
   it('reuses the hidden copy an earlier mention created', async () => {

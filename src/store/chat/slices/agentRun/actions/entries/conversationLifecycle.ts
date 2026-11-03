@@ -74,6 +74,7 @@ import {
   operationSelectors,
   topicSelectors,
 } from '@/store/chat/selectors';
+import { clearBlankConversationBucket } from '@/store/chat/slices/agentRun/actions/clearBlankBucket';
 import { selectRuntimeType } from '@/store/chat/slices/agentRun/actions/dispatch/agentDispatcher';
 import {
   executeDirectMention,
@@ -1607,11 +1608,11 @@ export class ConversationLifecycleActionImpl {
         }
         if (context.isolatedTopic) {
           await onTopicCreated?.(heteroData.topicId);
+          clearBlankConversationBucket(this.#get, operationContext);
         } else {
           await this.#get().switchTopic(heteroData.topicId, {
             clearNewKey: true,
-            // The cleanup targets the blank bucket this send came from — the
-            // user may be viewing a different conversation by now.
+            // Clean up the blank bucket this send came from, not the current view.
             clearNewKeyContext: {
               agentId: operationContext.agentId,
               groupId: operationContext.groupId,
@@ -2157,15 +2158,14 @@ export class ConversationLifecycleActionImpl {
 
       if (isCreateNewTopic && data.topicId) {
         if (context.isolatedTopic) {
-          // Notify the isolated caller immediately so its UI re-subscribes to
-          // the new topic key and picks up the streaming AI response.
+          // The isolated caller re-subscribes to the new topic key itself.
           await onTopicCreated?.(data.topicId);
+          clearBlankConversationBucket(this.#get, operationContext);
         } else {
           // clearNewKey: true ensures the _new key data is cleared after topic creation
           await this.#get().switchTopic(data.topicId, {
             clearNewKey: true,
-            // The cleanup targets the blank bucket this send came from — the
-            // user may be viewing a different conversation by now.
+            // Clean up the blank bucket this send came from, not the current view.
             clearNewKeyContext: {
               agentId: operationContext.agentId,
               groupId: operationContext.groupId,

@@ -11,14 +11,15 @@ import {
   ensureAgentMarketSkillsAndWarn,
 } from '@/services/ensureAgentMarketSkills';
 import { buildMarketAgentConfig } from '@/services/installMarketplaceAgents';
+import type { EnsureMarketSkillResult } from '@/services/skill';
 import { useAgentStore } from '@/store/agent';
 
 /**
  * Readies the Market agents and skills picked from the composer's @ menu.
  *
- * Speed matters here because the send waits for it: the agent detail is
- * prefetched the moment the chip is picked, and the agent's own Market skills
- * are installed alongside its local row instead of after it.
+ * Speed matters here because the send waits for it: an agent is readied the
+ * moment its chip is picked, and the agent's own Market skills are installed
+ * alongside its local row instead of after it.
  */
 
 type AgentDetail = NonNullable<Awaited<ReturnType<typeof discoverService.getAssistantDetail>>>;
@@ -36,6 +37,7 @@ const memoize = <T>(cache: Map<string, Promise<T>>, key: string, load: () => Pro
 
 const detailCache = new Map<string, Promise<AgentDetail>>();
 const installCache = new Map<string, Promise<string>>();
+const skillCache = new Map<string, Promise<void>>();
 
 const loadAgentDetail = (identifier: string) =>
   memoize(detailCache, identifier, async () => {
@@ -43,11 +45,6 @@ const loadAgentDetail = (identifier: string) =>
     if (!detail?.config) throw new Error(`Market agent ${identifier} is unavailable`);
     return detail as AgentDetail;
   });
-
-/** Warm the read-only part of an install while the user is still typing. */
-export const prefetchMarketAgent = (identifier: string) => {
-  loadAgentDetail(identifier).catch(() => {});
-};
 
 /**
  * Mentioning a Market agent runs it without installing it: the run needs a
@@ -78,6 +75,44 @@ const prepareMarketAgent = (identifier: string, visibility: MarketInstallVisibil
   });
 };
 
+/**
+ * Start readying a Market agent the moment its chip is picked, while the user is
+ * still typing: an agent with large Market skills can take many seconds to set up,
+ * and the send then only awaits whatever is left. A failure is dropped from the
+ * cache, so the send retries it and reports it.
+ */
+export const prepareMentionedMarketAgent = (
+  identifier: string,
+  visibility: MarketInstallVisibility,
+) => {
+  prepareMarketAgent(identifier, visibility).catch((error) => {
+    console.error('[mention] failed to prepare market agent early', identifier, error);
+  });
+};
+
+class MarketSkillPrepareError extends Error {
+  constructor(readonly result: EnsureMarketSkillResult) {
+    super(`Failed to install skill: ${result.identifier}`);
+    this.name = 'MarketSkillPrepareError';
+  }
+}
+
+/** Install a Market skill picked from the @ menu once; a failure is retried next time. */
+const prepareMarketSkill = (identifier: string) =>
+  memoize(skillCache, `${getActiveWorkspaceId() ?? ''}:${identifier}`, async () => {
+    const [result] = await ensureAgentMarketSkills([identifier]);
+    if (result?.status === 'failed' || result?.status === 'notSkill') {
+      throw new MarketSkillPrepareError(result);
+    }
+  });
+
+/** Start installing a Market skill the moment its chip is picked, like Market agents. */
+export const prepareMentionedMarketSkill = (identifier: string) => {
+  prepareMarketSkill(identifier).catch((error) => {
+    console.error('[mention] failed to prepare market skill early', identifier, error);
+  });
+};
+
 export class MarketMentionInstallError extends Error {
   constructor(readonly failedNames: string[]) {
     super(`Failed to install: ${failedNames.join(', ')}`);
@@ -103,9 +138,7 @@ export const installMarketMentions = async ({
     Promise.allSettled(
       agents.map((agent) => prepareMarketAgent(agent.identifier, agent.visibility)),
     ),
-    skills.length > 0
-      ? ensureAgentMarketSkills(skills.map((skill) => skill.identifier))
-      : Promise.resolve([]),
+    Promise.allSettled(skills.map((skill) => prepareMarketSkill(skill.identifier))),
   ]);
 
   const installed = new Map<string, string>();
@@ -119,12 +152,15 @@ export const installMarketMentions = async ({
       failedNames.push(agent.label);
     }
   });
-  const skillLabels = new Map(skills.map((skill) => [skill.identifier, skill.label]));
-  for (const result of skillResults) {
-    if (result.status === 'failed' || result.status === 'notSkill') {
-      failedNames.push(skillLabels.get(result.identifier) ?? result.identifier);
-    }
-  }
+  skillResults.forEach((result, index) => {
+    if (result.status === 'fulfilled') return;
+    console.error(
+      '[mention] failed to install market skill',
+      skills[index].identifier,
+      result.reason,
+    );
+    failedNames.push(skills[index].label);
+  });
 
   if (failedNames.length > 0) throw new MarketMentionInstallError(failedNames);
   return installed;
