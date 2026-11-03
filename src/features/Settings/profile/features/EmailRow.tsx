@@ -13,6 +13,7 @@ import { electronSystemService } from '@/services/electron/system';
 import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
 import { saveToast } from '@/store/utils/saveToast';
+import { toAbsoluteAuthCallbackUrl } from '@/utils/onboardingRedirect';
 
 import ProfileRow from './ProfileRow';
 
@@ -47,7 +48,10 @@ const EmailRow = () => {
 
     try {
       setSaving(true);
-      const res = await changeEmail({ callbackURL: '/settings/profile', newEmail: trimmed });
+      const res = await changeEmail({
+        callbackURL: toAbsoluteAuthCallbackUrl('/settings/profile', window.location.origin),
+        newEmail: trimmed,
+      });
       if (res.error) {
         toast.error(res.error.message ?? res.error.statusText ?? t('profile.saveError'));
         return;

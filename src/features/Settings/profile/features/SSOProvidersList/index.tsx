@@ -12,6 +12,7 @@ import { useServerConfigStore } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
+import { toAbsoluteAuthCallbackUrl } from '@/utils/onboardingRedirect';
 
 import { useSsoProviderDetails } from './useSsoProviderDetails';
 
@@ -84,7 +85,7 @@ export const SSOProvidersList = memo(() => {
     const { oauth2 } = await import('@/libs/better-auth/auth-client');
 
     await oauth2.link({
-      callbackURL: '/profile',
+      callbackURL: toAbsoluteAuthCallbackUrl('/settings/profile', window.location.origin),
       providerId: provider,
     });
   };
