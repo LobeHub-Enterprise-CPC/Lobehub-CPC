@@ -10,13 +10,15 @@ import {
   LayoutGridIcon,
   StickyNoteIcon,
 } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { brandIcon } from '@/components/BrandIcon';
 import { InstallButton } from '@/features/CommunitySkillDetail/Header';
+import SkillFrontmatterDescriptions from '@/features/CommunitySkillDetail/SkillFrontmatterDescriptions';
 import { useSkillCategoryItem } from '@/hooks/useSkillCategory';
 import { type DiscoverSkillDetail } from '@/types/discover';
+import { getSkillDisplayDescription, parseSkillMarkdownFrontmatter } from '@/utils/skillMarkdown';
 
 import { blockStyles } from '../../features/Showcase/detail/blocks';
 import DetailFrame from '../../features/Showcase/detail/DetailFrame';
@@ -41,6 +43,11 @@ const ShowcaseSkillDetail = memo<{ data: DiscoverSkillDetail }>(({ data }) => {
   const date = data.updatedAt || data.createdAt;
   const version = (data as any).version ?? (data.manifest as any)?.version;
   const source = data.github?.url || (data as any).repository;
+  const skillMarkdown = useMemo(() => parseSkillMarkdownFrontmatter(data.content), [data.content]);
+  const description = useMemo(
+    () => getSkillDisplayDescription(data.description, data.content),
+    [data.content, data.description],
+  );
 
   return (
     <DetailFrame
@@ -64,13 +71,13 @@ const ShowcaseSkillDetail = memo<{ data: DiscoverSkillDetail }>(({ data }) => {
       ]}
       prompt={t('showcase.copyPrompt.template.skill', {
         content: data.content ?? '',
-        description: data.description,
+        description,
         interpolation: { escapeValue: false },
         name: data.name,
       })}
       share={
         <ShareButton
-          meta={{ avatar: data.icon, desc: data.description, title: data.name, url: location.href }}
+          meta={{ avatar: data.icon, desc: description, title: data.name, url: location.href }}
         />
       }
       tabs={[
@@ -82,7 +89,7 @@ const ShowcaseSkillDetail = memo<{ data: DiscoverSkillDetail }>(({ data }) => {
       {tab === 'overview' && (
         <>
           <DetailSection icon={Icons.description} title={t('showcase.detail.skillDescription')}>
-            <p {...stylex.props(blockStyles.text)}>{data.description}</p>
+            <p {...stylex.props(blockStyles.text)}>{description}</p>
           </DetailSection>
           <DetailSection icon={Icons.info} title={t('showcase.detail.skillInfo')}>
             <InfoGrid
@@ -115,7 +122,10 @@ const ShowcaseSkillDetail = memo<{ data: DiscoverSkillDetail }>(({ data }) => {
       )}
       {tab === 'skill' && (
         <div {...stylex.props(blockStyles.tinted, blockStyles.markdown)}>
-          <MarkdownRender>{data.content}</MarkdownRender>
+          {skillMarkdown.frontmatter && (
+            <SkillFrontmatterDescriptions frontmatter={skillMarkdown.frontmatter} />
+          )}
+          <MarkdownRender>{skillMarkdown.body}</MarkdownRender>
         </div>
       )}
     </DetailFrame>

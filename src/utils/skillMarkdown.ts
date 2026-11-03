@@ -1,5 +1,5 @@
 import { isRecord, pickString } from '@lobechat/utils';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 
 const SKILL_INDEX_FILENAME = 'SKILL.md';
 const SKILL_INDEX_FILE_TYPE = 'skills/index';
@@ -94,7 +94,9 @@ const stringifyMetadataValue = (value: unknown): string => {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
 
-  return JSON.stringify(value);
+  // Nested maps and lists stay as indented YAML, which reads like the source
+  // instead of a one-line JSON blob.
+  return stringify(value).trimEnd();
 };
 
 const isValidSkillName = (name: string): boolean =>
@@ -180,6 +182,37 @@ export const getSkillMarkdownMetadataError = (
   }
 };
 
+const LOOSE_FRONTMATTER_FIELD_REGEX = /^([\w.-]+)[ \t]*:(?:[ \t](.*))?$/;
+const QUOTED_SCALAR_REGEX = /^(["'])([\s\S]*)\1$/;
+
+/**
+ * Reads frontmatter that strict YAML rejects, as published SKILL.md files often
+ * leave a description unquoted around a `: `. Each unindented `key: value` line
+ * starts a field; the indented lines below it belong to that field.
+ */
+const parseLooseSkillMarkdownMetadata = (frontmatter: string): SkillMarkdownMetadataItem[] => {
+  const fields: { block: string[]; inline: string; key: string }[] = [];
+
+  for (const line of frontmatter.split(/\r?\n/)) {
+    const match = line.match(LOOSE_FRONTMATTER_FIELD_REGEX);
+    if (match) {
+      fields.push({ block: [], inline: match[2] ?? '', key: match[1] });
+    } else if (fields.length > 0 && line.trim()) {
+      fields.at(-1)!.block.push(line);
+    }
+  }
+
+  return fields.map(({ block, inline, key }) => {
+    const indent = Math.min(...block.map((line) => line.length - line.trimStart().length));
+    const value = [inline, ...block.map((line) => line.slice(indent))]
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+
+    return { key, value: value.replace(QUOTED_SCALAR_REGEX, '$2') };
+  });
+};
+
 export const parseSkillMarkdownMetadata = (frontmatter?: string): SkillMarkdownMetadataItem[] => {
   if (!frontmatter) return [];
 
@@ -191,8 +224,30 @@ export const parseSkillMarkdownMetadata = (frontmatter?: string): SkillMarkdownM
       key,
       value: stringifyMetadataValue(value),
     }));
-  } catch (error) {
-    console.error('[SkillMarkdown] Failed to parse SKILL.md frontmatter:', error);
-    return [];
+  } catch {
+    return parseLooseSkillMarkdownMetadata(frontmatter);
   }
+};
+
+const FLATTENED_FRONTMATTER_DESCRIPTION_REGEX = /^\s*name:\s.*\sdescription:\s/s;
+
+/**
+ * Some catalogues store a skill's description as its frontmatter flattened to
+ * one line (`name: x description: …`). Show the SKILL.md's own description
+ * field instead whenever that is what came back.
+ */
+export const getSkillDisplayDescription = (
+  description: string | undefined,
+  content?: string | null,
+): string | undefined => {
+  if (!description || !FLATTENED_FRONTMATTER_DESCRIPTION_REGEX.test(description)) {
+    return description;
+  }
+
+  const { frontmatter } = parseSkillMarkdownFrontmatter(content);
+  const fromFrontmatter = parseSkillMarkdownMetadata(frontmatter).find(
+    (item) => item.key === 'description',
+  )?.value;
+
+  return fromFrontmatter || description;
 };

@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
   composeSkillMarkdown,
+  getSkillDisplayDescription,
   getSkillMarkdownMetadataError,
   isSkillMarkdownDocument,
   parseSkillMarkdownFrontmatter,
@@ -80,9 +81,73 @@ optional:`),
     ).toEqual([
       { key: 'enabled', value: 'true' },
       { key: 'retries', value: '2' },
-      { key: 'resources', value: '["reference.md"]' },
+      { key: 'resources', value: '- reference.md' },
       { key: 'optional', value: '' },
     ]);
+  });
+
+  it('keeps nested metadata readable as YAML instead of one-line JSON', () => {
+    expect(
+      parseSkillMarkdownMetadata(`metadata:
+  version: "1.0"
+  sources:
+    - ECMA-376
+    - Open XML SDK`),
+    ).toEqual([
+      {
+        key: 'metadata',
+        value: 'version: "1.0"\nsources:\n  - ECMA-376\n  - Open XML SDK',
+      },
+    ]);
+  });
+
+  it('still lists the fields when a plain description holds a colon', () => {
+    // Real SKILL.md files often leave the description unquoted; strict YAML
+    // rejects "Covers: …" inside it, yet the fields are plain to read.
+    expect(
+      parseSkillMarkdownMetadata(`name: minimax-xlsx
+description: Open Excel files. Covers: creating new xlsx, editing 'xlsx'.
+license: MIT
+metadata:
+  version: "1.0"
+  sources:
+    - ECMA-376`),
+    ).toEqual([
+      { key: 'name', value: 'minimax-xlsx' },
+      { key: 'description', value: "Open Excel files. Covers: creating new xlsx, editing 'xlsx'." },
+      { key: 'license', value: 'MIT' },
+      { key: 'metadata', value: 'version: "1.0"\nsources:\n  - ECMA-376' },
+    ]);
+  });
+
+  describe('getSkillDisplayDescription', () => {
+    const content = `---
+name: minimax-xlsx
+description: Open Excel files. Covers: editing xlsx.
+---
+
+# MiniMax XLSX Skill`;
+
+    it('replaces a description that is the flattened frontmatter', () => {
+      expect(
+        getSkillDisplayDescription(
+          'name: minimax-xlsx description: Open Excel files. Covers: editing xlsx.',
+          content,
+        ),
+      ).toBe('Open Excel files. Covers: editing xlsx.');
+    });
+
+    it('keeps a real description', () => {
+      expect(getSkillDisplayDescription('Handle Excel files.', content)).toBe(
+        'Handle Excel files.',
+      );
+    });
+
+    it('keeps the description when the SKILL.md has no description field', () => {
+      expect(getSkillDisplayDescription('name: x description: y', '# Body')).toBe(
+        'name: x description: y',
+      );
+    });
   });
 
   it('reads frontmatter fields used by the metadata editor', () => {
@@ -131,12 +196,11 @@ name: skill-name
     expect(isSkillMarkdownDocument({ filename: 'README.md' })).toBe(false);
   });
 
-  it('returns an empty metadata list for invalid YAML', () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    expect(parseSkillMarkdownMetadata('description: [')).toEqual([]);
-
-    consoleError.mockRestore();
+  it('reads invalid YAML line by line, and returns nothing without any field line', () => {
+    expect(parseSkillMarkdownMetadata('description: [')).toEqual([
+      { key: 'description', value: '[' },
+    ]);
+    expect(parseSkillMarkdownMetadata('[unclosed')).toEqual([]);
   });
 
   it('validates editable YAML frontmatter', () => {
