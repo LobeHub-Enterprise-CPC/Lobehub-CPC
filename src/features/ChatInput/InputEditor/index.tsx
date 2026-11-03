@@ -24,7 +24,10 @@ import { useIMECompositionEvent } from '@/hooks/useIMECompositionEvent';
 import { usePermission } from '@/hooks/usePermission';
 import { useSingleton } from '@/hooks/useSingleton';
 import { aiChatService } from '@/services/aiChat';
-import { prefetchMarketAgent } from '@/services/mentionMarketInstall';
+import {
+  prepareMentionedMarketAgent,
+  prepareMentionedMarketSkill,
+} from '@/services/mentionMarketInstall';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
@@ -515,6 +518,7 @@ const InputEditor = memo<{
         type: String(option.metadata.actionType),
       };
       editor.dispatchCommand(INSERT_ACTION_TAG_COMMAND, payload);
+      if (option.metadata.marketSkill) prepareMentionedMarketSkill(payload.type);
     } else if (option.metadata?.type === 'localFile') {
       editor.dispatchCommand(INSERT_LOCAL_FILE_TAG_COMMAND, {
         isDirectory: !!option.metadata.isDirectory,
@@ -522,10 +526,13 @@ const InputEditor = memo<{
         path: String(option.metadata.path ?? ''),
       });
     } else {
-      // A Market agent installs when the message is sent; warm its detail now
-      // so that install only has the fork and the local row left to do.
+      // Ready a Market agent (its hidden copy and Market skills) as soon as it is
+      // picked; the send then only waits for what is still unfinished.
       if (typeof option.metadata?.marketIdentifier === 'string') {
-        prefetchMarketAgent(option.metadata.marketIdentifier);
+        prepareMentionedMarketAgent(
+          option.metadata.marketIdentifier,
+          option.metadata.marketVisibility === 'private' ? 'private' : 'public',
+        );
       }
       // Agent options carry a ReactNode label; the chip needs the plain name
       // kept in `metadata.label`. Other types (member) still use `label` itself.

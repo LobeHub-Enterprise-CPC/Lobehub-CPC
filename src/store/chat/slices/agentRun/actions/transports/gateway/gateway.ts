@@ -45,6 +45,7 @@ import {
 } from '@/store/chat/pendingSandboxSelection';
 import { consumePendingTopicRepos, getPendingTopicRepos } from '@/store/chat/pendingTopicRepos';
 import { topicSelectors } from '@/store/chat/selectors';
+import { clearBlankConversationBucket } from '@/store/chat/slices/agentRun/actions/clearBlankBucket';
 import { operationSelectors } from '@/store/chat/slices/operation/selectors';
 import {
   SETTLEABLE_TOPIC_RUN_OPERATION_TYPES,
@@ -1264,8 +1265,7 @@ export class GatewayActionImpl {
       if (!messageContext.isolatedTopic) {
         await this.#get().switchTopic(result.topicId, {
           clearNewKey: true,
-          // The cleanup targets the blank bucket this send came from — the
-          // user may be viewing a different conversation by now.
+          // Clean up the blank bucket this send came from, not the current view.
           clearNewKeyContext: {
             agentId: messageContext.agentId,
             groupId: messageContext.groupId,
@@ -1277,7 +1277,7 @@ export class GatewayActionImpl {
           onlyIfActiveTopicIn: [messageContext.topicId ?? null, result.topicId],
           skipRefreshMessage: true,
         });
-      }
+      } else clearBlankConversationBucket(this.#get, messageContext);
 
       // Refresh the topic list so the new topic appears in topicDataMap (sidebar).
       // Unlike the direct-API sendMessage path (which receives topics[] in the

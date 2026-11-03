@@ -254,7 +254,10 @@ vi.mock('./useLocalFileTag', () => ({
     searchLocalFiles: vi.fn(async () => []),
   }),
 }));
-vi.mock('@/services/mentionMarketInstall', () => ({ prefetchMarketAgent: vi.fn() }));
+vi.mock('@/services/mentionMarketInstall', () => ({
+  prepareMentionedMarketAgent: vi.fn(),
+  prepareMentionedMarketSkill: vi.fn(),
+}));
 vi.mock('./marketMentionItems', () => ({
   searchMarketForMention: vi.fn(async () => ({ agents: [], skills: [] })),
   toMarketAgentItem: vi.fn(),
