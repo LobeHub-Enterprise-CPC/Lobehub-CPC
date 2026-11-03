@@ -84,6 +84,8 @@ describe('installMarketMentions', () => {
     });
     const { config, visibility } = mocks.createAgent.mock.calls[0][0];
     expect(config).toMatchObject({
+      // Labelled as the Market expert, never with a drawn personal name.
+      name: 'OKR 教练',
       params: { forkedFromIdentifier: 'okr-coach' },
       systemRole: 'You are an OKR coach',
       title: 'OKR 教练',

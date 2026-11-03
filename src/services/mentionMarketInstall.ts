@@ -65,7 +65,14 @@ const prepareMarketAgent = (identifier: string, visibility: MarketInstallVisibil
     const detail = await loadAgentDetail(identifier);
     const [result] = await Promise.all([
       useAgentStore.getState().createAgent({
-        config: { ...buildMarketAgentConfig(detail, identifier), virtual: true },
+        // Nobody adopts a hidden copy, so it keeps the Market name instead of
+        // drawing a personal one: the reply is labelled — and the agent
+        // introduces itself — as the expert the user picked.
+        config: {
+          ...buildMarketAgentConfig(detail, identifier),
+          name: detail.title,
+          virtual: true,
+        },
         ...(workspaceId ? { visibility } : {}),
       }),
       ensureAgentMarketSkillsAndWarn(detail.config.plugins),
