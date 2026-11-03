@@ -1034,6 +1034,20 @@ export default {
   'heteroAgent.executionTarget.reconnect': 'Reconnect',
   'heteroAgent.executionTarget.reconnectFailed':
     'Could not reconnect this device. Make sure the desktop app is running, then try again.',
+  'heteroAgent.executionTarget.hint.local.desc':
+    'Runs set to Local reach this computer through the device gateway. Reconnect to continue.',
+  'heteroAgent.executionTarget.hint.local.label': 'This device is offline',
+  'heteroAgent.executionTarget.hint.local.reconnect': 'Reconnect',
+  'heteroAgent.executionTarget.hint.local.reconnected': 'This device is connected again',
+  'heteroAgent.executionTarget.hint.local.reconnectingDesc':
+    'The connection to the device gateway dropped and is retrying on its own. You can also reconnect now.',
+  'heteroAgent.executionTarget.hint.local.title':
+    'This computer is not connected to the device gateway',
+  'heteroAgent.executionTarget.hint.remote.label': 'Device offline',
+  'heteroAgent.executionTarget.hint.remote.tooltip':
+    '"{{name}}" is not connected. Choose another device that is connected.',
+  'heteroAgent.executionTarget.hint.remote.tooltipUnknown':
+    'The selected device is not connected. Choose another device that is connected.',
   'heteroAgent.executionTarget.personalGroup': 'Private Devices',
   'heteroAgent.executionTarget.sandbox': 'Cloud Sandbox',
   'heteroAgent.executionTarget.sandboxDesc': 'Runs in the cloud, no machine needed',

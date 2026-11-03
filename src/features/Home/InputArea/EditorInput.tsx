@@ -17,7 +17,9 @@ import type { HomeMode } from '../types';
 import { HOME_INPUT_BODY_HEIGHT } from './constants';
 import ModeSelect from './ModeSelect';
 
-const leftActions: ActionKeys[] = COMPOSER_AGENT_ONLY_LAYOUT ? ['plus', 'approvalMode'] : ['plus'];
+const leftActions: ActionKeys[] = COMPOSER_AGENT_ONLY_LAYOUT
+  ? ['plus', 'approvalMode', 'deviceStatus']
+  : ['plus'];
 const rightActions: ActionKeys[] = COMPOSER_AGENT_ONLY_LAYOUT
   ? ['model', 'voiceDictation']
   : ['model'];

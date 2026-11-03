@@ -1,7 +1,7 @@
 import { DESKTOP_DEVICE_GATEWAY_ALWAYS_ON } from '@lobechat/business-const';
-import { type GatewayConnectionErrorCode, useWatchBroadcast } from '@lobechat/electron-client-ipc';
+import { useWatchBroadcast } from '@lobechat/electron-client-ipc';
 import { ActionIcon, Button, createStaticStyles, Flexbox, Popover, Switch } from '@lobehub/ui';
-import { HardDrive, SettingsIcon } from 'lucide-react';
+import { HardDrive, RefreshCwIcon, SettingsIcon } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -15,13 +15,7 @@ import { useDeviceList } from '@/store/device';
 import { useElectronStore } from '@/store/electron';
 import { electronSyncSelectors } from '@/store/electron/selectors';
 
-/** Why the last attempt ended, phrased with the next step. */
-const ERROR_MESSAGE_KEYS = {
-  auth_failed: 'gateway.error.authRejected',
-  config_unavailable: 'gateway.error.configUnavailable',
-  invalid_gateway_url: 'gateway.error.invalidAddress',
-  not_signed_in: 'gateway.error.notSignedIn',
-} as const satisfies Record<GatewayConnectionErrorCode, string>;
+import { GATEWAY_ERROR_MESSAGE_KEYS, isGatewayFailureRetryable } from './gatewayFailure';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
   errorDot: css`
@@ -67,16 +61,35 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     font-weight: 500;
     color: ${cssVar.colorText};
   `,
+  warningDot: css`
+    position: absolute;
+    inset-block-end: 0;
+    inset-inline-end: 0;
+
+    width: 8px;
+    height: 8px;
+    border: 1.5px solid ${cssVar.colorBgContainer};
+    border-radius: 50%;
+
+    background: ${cssVar.colorWarning};
+  `,
 }));
 
 interface DeviceGatewayProps {
+  /**
+   * The build keeps the connection on by itself (`DESKTOP_DEVICE_GATEWAY_ALWAYS_ON`):
+   * the entry reports status and can reconnect, but offers no switch to turn
+   * the connection off.
+   */
+  alwaysOn?: boolean;
   workspaceScoped: boolean;
 }
 
 /**
  * Loads the gateway status and this device's identity, and follows status
  * broadcasts. Many features read `gatewayDeviceInfo` to recognise the current
- * computer, so this runs app-wide even when the title-bar entry is hidden.
+ * computer, and the composer's device hint reads the status, so the title-bar
+ * entry runs this app-wide.
  */
 const useGatewayStateSync = () => {
   const setGatewayConnectionState = useElectronStore((s) => s.setGatewayConnectionState);
@@ -86,13 +99,7 @@ const useGatewayStateSync = () => {
   useWatchBroadcast('gatewayConnectionStatusChanged', setGatewayConnectionState);
 };
 
-const DeviceGatewayStateSync = memo(() => {
-  useGatewayStateSync();
-
-  return null;
-});
-
-const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
+const DeviceGateway = memo<DeviceGatewayProps>(({ alwaysOn = false, workspaceScoped }) => {
   const { t } = useTranslation('electron');
   const navigate = useWorkspaceAwareNavigate();
   const [gatewayStatus, gatewayError, connectGateway, disconnectGateway] = useElectronStore((s) => [
@@ -115,6 +122,12 @@ const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
 
   // Only the personal connection is toggled from here; workspace rows have their own status.
   const failure = !workspaceScoped && !isConnected && !isConnecting ? gatewayError : undefined;
+  // Without a switch, a settled outage — or a reconnect loop that keeps
+  // failing — is fixed from the reconnect button instead.
+  const needsReconnect =
+    alwaysOn &&
+    !workspaceScoped &&
+    (gatewayStatus === 'disconnected' || gatewayStatus === 'reconnecting');
 
   const [open, setOpen] = useState(false);
 
@@ -167,7 +180,7 @@ const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
             title={t('gateway.manageDevices')}
             onClick={openDeviceSettings}
           />
-          {!workspaceScoped && (
+          {!workspaceScoped && !alwaysOn && (
             <Switch
               aria-label={t('gateway.enableConnection')}
               checked={isConnected || isConnecting}
@@ -182,15 +195,27 @@ const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
       {failure && (
         <Flexbox align="flex-start" gap={4}>
           <span className={styles.errorHint} title={failure.detail}>
-            {t(ERROR_MESSAGE_KEYS[failure.code])}
+            {t(GATEWAY_ERROR_MESSAGE_KEYS[failure.code])}
           </span>
-          <Flexbox horizontal gap={4}>
-            {failure.code !== 'not_signed_in' && failure.code !== 'invalid_gateway_url' && (
+          {!alwaysOn && isGatewayFailureRetryable(failure.code) && (
+            <Flexbox horizontal gap={4}>
               <Button outdent size="small" type="text" onClick={() => void connectGateway()}>
                 {t('gateway.retry')}
               </Button>
-            )}
-          </Flexbox>
+            </Flexbox>
+          )}
+        </Flexbox>
+      )}
+      {needsReconnect && isGatewayFailureRetryable(failure?.code) && (
+        <Flexbox horizontal>
+          <Button
+            icon={RefreshCwIcon}
+            size="small"
+            type="primary"
+            onClick={() => void connectGateway()}
+          >
+            {t('gateway.reconnect')}
+          </Button>
         </Flexbox>
       )}
     </Flexbox>
@@ -216,8 +241,10 @@ const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
         />
         {scopeConnected ? (
           <div className={styles.greenDot} />
+        ) : failure ? (
+          <div className={styles.errorDot} />
         ) : (
-          failure && <div className={styles.errorDot} />
+          needsReconnect && <div className={styles.warningDot} />
         )}
       </div>
     </Popover>
@@ -230,10 +257,12 @@ const DeviceGatewayWithAuth = memo(() => {
 
   if (!isSyncActive) return null;
 
-  // Always-on builds keep the connection without any user-facing control.
-  if (DESKTOP_DEVICE_GATEWAY_ALWAYS_ON) return <DeviceGatewayStateSync />;
-
-  return <DeviceGateway workspaceScoped={!!activeWorkspaceSlug} />;
+  return (
+    <DeviceGateway
+      alwaysOn={DESKTOP_DEVICE_GATEWAY_ALWAYS_ON}
+      workspaceScoped={!!activeWorkspaceSlug}
+    />
+  );
 });
 
 export default DeviceGatewayWithAuth;
