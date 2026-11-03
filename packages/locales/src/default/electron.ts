@@ -123,6 +123,7 @@ export default {
     'The Device Gateway address is invalid. Check the desktop environment or existing configuration, or ask your server administrator to check the gateway address.',
   'gateway.error.notSignedIn': 'Sign in to connect this device.',
   'gateway.retry': 'Retry',
+  'gateway.reconnect': 'Reconnect',
   'gateway.manageDevices': 'Manage devices',
   'gateway.statusConnected': 'This device is connected to Gateway',
   'gateway.statusConnectedConnections_one': 'Online · {{count}} connection',

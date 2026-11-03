@@ -4,6 +4,7 @@ const CHAT_ONLY_ACTIONS = new Set<ActionKey>([
   'agentMode',
   'approvalMode',
   'clear',
+  'deviceStatus',
   'fileUpload',
   'history',
   'mention',

@@ -54,9 +54,13 @@ const MainChatInput = memo(() => {
   );
 
   // The model chip lives on the right, next to Send (see rightActions); the
-  // left bar keeps the "+" menu, dictation and the expand toggle.
+  // left bar keeps the "+" menu, dictation and the expand toggle. The
+  // agent-only composer warns there when the execution device is offline.
   const leftActions: ActionKeys[] = useMemo(
-    () => (COMPOSER_AGENT_ONLY_LAYOUT ? ['plus', 'approvalMode'] : ['plus', 'voiceDictation']),
+    () =>
+      COMPOSER_AGENT_ONLY_LAYOUT
+        ? ['plus', 'approvalMode', 'deviceStatus']
+        : ['plus', 'voiceDictation'],
     [],
   );
 

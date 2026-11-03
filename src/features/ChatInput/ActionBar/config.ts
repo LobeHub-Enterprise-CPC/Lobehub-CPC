@@ -3,6 +3,7 @@ import VoiceMessage from '../VoiceMessage';
 import AgentMode from './AgentMode';
 import ApprovalMode from './ApprovalMode';
 import Clear from './Clear';
+import DeviceStatus from './DeviceStatus';
 import History from './History';
 import Memory from './Memory';
 import Mention from './Mention';
@@ -21,6 +22,7 @@ export const actionMap = {
   approvalMode: ApprovalMode,
   clear: Clear,
   contextWindow: ContextWindow,
+  deviceStatus: DeviceStatus,
   fileUpload: Upload,
   plus: Plus,
   history: History,
