@@ -16,15 +16,17 @@ import {
 } from '@lobehub/ui';
 import { ChevronRight } from 'lucide-react';
 import qs from 'query-string';
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import PublishedTime from '@/components/PublishedTime';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useDiscoverStore } from '@/store/discover';
 import { skillSelectors } from '@/store/discover/selectors';
+import { getSkillDisplayDescription, parseSkillMarkdownFrontmatter } from '@/utils/skillMarkdown';
 
 import { useDetailActionContext, useDetailContext } from '../../DetailProvider';
+import SkillFrontmatterDescriptions from '../../SkillFrontmatterDescriptions';
 import RelatedSkillCard from './RelatedSkillCard';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
@@ -92,6 +94,7 @@ const Overview = memo(() => {
     content,
   } = useDetailContext();
   const { close } = useDetailActionContext();
+  const skillMarkdown = useMemo(() => parseSkillMarkdownFrontmatter(content), [content]);
   const navigate = useWorkspaceAwareNavigate();
 
   const useFetchRelatedSkills = useDiscoverStore((s) => s.useFetchRelatedSkills);
@@ -115,7 +118,9 @@ const Overview = memo(() => {
       <Flexbox gap={12}>
         <SectionLabel>{t('skills.details.overview.about')}</SectionLabel>
         <div className={styles.summary}>
-          <Markdown variant={'chat'}>{overview?.summary || description || ''}</Markdown>
+          <Markdown variant={'chat'}>
+            {overview?.summary || getSkillDisplayDescription(description, content) || ''}
+          </Markdown>
         </div>
       </Flexbox>
 
@@ -129,7 +134,10 @@ const Overview = memo(() => {
             {
               children: (
                 <ScrollShadow height={480} offset={16} padding={16} size={16}>
-                  <Markdown variant={'chat'}>{content}</Markdown>
+                  {skillMarkdown.frontmatter && (
+                    <SkillFrontmatterDescriptions frontmatter={skillMarkdown.frontmatter} />
+                  )}
+                  <Markdown variant={'chat'}>{skillMarkdown.body}</Markdown>
                 </ScrollShadow>
               ),
               key: 'skill',
