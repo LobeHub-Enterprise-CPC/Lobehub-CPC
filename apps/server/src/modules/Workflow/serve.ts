@@ -316,8 +316,12 @@ const handle = async <TPayload, TResult>(
   let context: WorkflowContext<TPayload> | undefined;
   const payloadText = rawPayload(envelope.payload);
   try {
+    // Trigger and route often name the same key: one delivery counts once per key,
+    // otherwise a rate of 1/s is spent by the first declaration and the second
+    // throttles every delivery forever.
     const controls = [envelope.workflow.flowControl, options.flowControl].filter(
-      (control): control is FlowControl => !!control,
+      (control, index, all): control is FlowControl =>
+        !!control && all.findIndex((other) => other?.key === control.key) === index,
     );
     const flow = await acquireFlowControl(store, controls, token);
     held = flow.held;

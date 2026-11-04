@@ -272,6 +272,20 @@ describe('workflow runtime', () => {
     expect(await (await deliver(app, retry)).json()).toMatchObject({ status: 'done' });
   });
 
+  it('counts a flow-control key declared by both the trigger and the route once', async () => {
+    // process-users declares the same key, with ratePerSecond 1, on both sides. Taking a
+    // rate token per declaration made every delivery throttle itself for good.
+    const flowControl = { key: unique('process-users'), parallelism: 1, ratePerSecond: 1 };
+    const app = new Hono().post(
+      '/api/wf/same-key',
+      serve(async (context) => context.run('work', async () => 'ok'), { flowControl }),
+    );
+
+    await workflowClient.trigger({ flowControl, url: `${BASE}/api/wf/same-key` });
+
+    expect(await (await deliver(app, lastPublished())).json()).toMatchObject({ status: 'done' });
+  });
+
   it('refuses a second delivery of a run while one is executing it', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
