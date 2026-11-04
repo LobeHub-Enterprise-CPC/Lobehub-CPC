@@ -60,6 +60,7 @@ export type BrandIconKey =
   | 'nav.resourceActive'
   | 'nav.tasks'
   | 'nav.tasksActive'
+  | 'panel.expand'
   | 'panel.toggle'
   | 'project.create'
   | 'project.folder'

@@ -71,10 +71,15 @@ const ToggleLeftPanelButton = memo<ToggleLeftPanelButtonProps>(
     return (
       <ActionIcon
         active={showActive ? expand : undefined}
-        icon={icon || brandIcon('panel.toggle', expand ? PanelLeftClose : PanelLeftOpen)}
         id={id ?? undefined}
         size={size || DESKTOP_HEADER_ICON_SMALL_SIZE}
         title={title || t('toggleLeftPanel.title', { ns: 'hotkey' })}
+        icon={
+          icon ||
+          (expand
+            ? brandIcon('panel.toggle', PanelLeftClose)
+            : brandIcon('panel.expand', PanelLeftOpen))
+        }
         tooltipProps={{
           hotkey,
           placement: 'bottom',
