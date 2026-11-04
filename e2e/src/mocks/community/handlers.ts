@@ -218,8 +218,33 @@ const findByIdentifier = <T extends { identifier: string }>(items: T[], input: u
   return items.find((item) => item.identifier === identifier) ?? items[0];
 };
 
+/**
+ * `market.getAssetCategories`: Market's category directory for one asset type, read
+ * by the sidebar, list filters and detail headers. Without it the batch it shares
+ * with the list queries comes back with an undefined slot.
+ */
+const getAssetCategories = (input: unknown) => {
+  const assetType = getStringInput(input, 'assetType');
+  const source =
+    assetType === 'agent' ? mockAssistantCategories : assetType === 'mcp' ? mockMcpCategories : [];
+
+  return source.map(({ category, count }, index) => ({
+    count,
+    description: '',
+    icon: null,
+    identifier: category,
+    localizations: {},
+    name: category.charAt(0).toUpperCase() + category.slice(1),
+    sortOrder: index,
+  }));
+};
+
 const getMockResponse = (procedure: string, input: unknown): unknown => {
   switch (procedure) {
+    case 'market.getAssetCategories': {
+      return getAssetCategories(input);
+    }
+
     case 'market.getAssistantCategories': {
       return mockAssistantCategories;
     }
