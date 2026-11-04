@@ -251,3 +251,19 @@ export const getSkillDisplayDescription = (
 
   return fromFrontmatter || description;
 };
+
+const FLATTENED_DESCRIPTION_KEY = ' description: ';
+
+/**
+ * The description of a list row, where no SKILL.md is at hand to consult. Reads
+ * what follows the flattened `description:` key, and leaves anything else alone.
+ */
+export const getSkillListDescription = (description: string | undefined): string | undefined => {
+  if (!description || !FLATTENED_FRONTMATTER_DESCRIPTION_REGEX.test(description)) {
+    return description;
+  }
+
+  const start = description.indexOf(FLATTENED_DESCRIPTION_KEY);
+
+  return description.slice(start + FLATTENED_DESCRIPTION_KEY.length).trim() || description;
+};

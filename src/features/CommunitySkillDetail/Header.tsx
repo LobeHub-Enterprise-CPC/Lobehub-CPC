@@ -14,7 +14,7 @@ import {
   toast,
   useResponsive,
 } from '@lobehub/ui';
-import { CheckCircle2, CheckIcon, ChevronDown, Trash2 } from 'lucide-react';
+import { CheckCircle2, CheckIcon, ChevronDown, DownloadIcon, Trash2 } from 'lucide-react';
 import { memo, type ReactNode, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -219,6 +219,7 @@ export const InstallButton = memo<{ identifier?: string; label?: ReactNode; name
     return (
       <Button
         disabled={!canCreate}
+        icon={DownloadIcon}
         loading={installing}
         size={'middle'}
         style={{ borderRadius: 999, fontWeight: 600, paddingInline: 18 }}
