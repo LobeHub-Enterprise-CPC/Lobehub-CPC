@@ -27,6 +27,7 @@ import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { useSkillCategoryItem } from '@/hooks/useSkillCategory';
 import { discoverService } from '@/services/discover';
 import { type DiscoverSkillItem } from '@/types/discover';
+import { getSkillListDescription } from '@/utils/skillMarkdown';
 
 import ShowcaseCard from '../../../../features/Showcase/ShowcaseCard';
 import MetaInfo from './MetaInfo';
@@ -79,6 +80,7 @@ const SkillItem = memo<DiscoverSkillItem>(
     resourcesCount = 0,
   }) => {
     const { t } = useTranslation('discover');
+    const displayDescription = getSkillListDescription(description);
     const link = urlJoin('/community/skill', identifier);
     const categoryLabel = useSkillCategoryItem(category)?.label;
     const navigate = useWorkspaceAwareNavigate();
@@ -101,7 +103,7 @@ const SkillItem = memo<DiscoverSkillItem>(
         <ShowcaseCard
           avatar={<Avatar avatar={icon || name} shape={'square'} size={32} />}
           category={categoryLabel}
-          description={description}
+          description={displayDescription}
           testId={'skill-item'}
           title={name}
           to={link}
@@ -211,7 +213,7 @@ const SkillItem = memo<DiscoverSkillItem>(
               rows: 3,
             }}
           >
-            {description}
+            {displayDescription}
           </Text>
           <Flexbox
             horizontal

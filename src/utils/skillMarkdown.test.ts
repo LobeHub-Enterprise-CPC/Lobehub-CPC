@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   composeSkillMarkdown,
   getSkillDisplayDescription,
+  getSkillListDescription,
   getSkillMarkdownMetadataError,
   isSkillMarkdownDocument,
   parseSkillMarkdownFrontmatter,
@@ -243,5 +244,23 @@ description: Skill description`,
         { expectedName: 'skill-name' },
       ),
     ).toEqual({ expectedName: 'skill-name', type: 'nameLocked' });
+  });
+});
+
+describe('getSkillListDescription', () => {
+  it('takes what follows the flattened description key, as a list row must', () => {
+    expect(getSkillListDescription('name: minimax-xlsx description: Create spreadsheets.')).toBe(
+      'Create spreadsheets.',
+    );
+  });
+
+  it('keeps colons inside the description', () => {
+    expect(getSkillListDescription('name: x description: Covers: formulas')).toBe(
+      'Covers: formulas',
+    );
+  });
+
+  it('leaves an ordinary description alone', () => {
+    expect(getSkillListDescription('Create spreadsheets.')).toBe('Create spreadsheets.');
   });
 });

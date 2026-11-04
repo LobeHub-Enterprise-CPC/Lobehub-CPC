@@ -49,16 +49,19 @@ const MessageContent = memo<UIChatMessage>(
         )}
         {showFileChunks && <FileChunks data={chunksList} />}
         {showReasoning && <Reasoning {...props.reasoning} id={id} />}
-        <DisplayContent
-          content={content}
-          generating={isLoading}
-          hasImages={showImageItems}
-          id={id}
-          isMultimodal={metadata?.isMultimodal}
-          isToolCallGenerating={isToolCallGenerating}
-          markdownProps={markdownProps}
-          tempDisplayContent={metadata?.tempDisplayContent}
-        />
+        {/* A hook for the reply itself, apart from the reasoning above it. */}
+        <div data-brand-slot={'assistant-text'} style={{ display: 'contents' }}>
+          <DisplayContent
+            content={content}
+            generating={isLoading}
+            hasImages={showImageItems}
+            id={id}
+            isMultimodal={metadata?.isMultimodal}
+            isToolCallGenerating={isToolCallGenerating}
+            markdownProps={markdownProps}
+            tempDisplayContent={metadata?.tempDisplayContent}
+          />
+        </div>
         {showImageItems && <ImageFileListViewer items={imageList} />}
       </Flexbox>
     );

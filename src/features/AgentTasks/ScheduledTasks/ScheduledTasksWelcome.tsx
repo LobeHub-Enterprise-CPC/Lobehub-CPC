@@ -67,6 +67,7 @@ export const ScheduledTasksWelcome = ({
           {templates.map((template) => (
             <Button
               className={styles.template}
+              data-brand-slot={'task-template'}
               disabled={disabled}
               key={template.key}
               type="text"
