@@ -50,8 +50,16 @@ export const projectGatewayOIDCAccess = async (
     .where(eq(oidcClients.id, clientId))
     .limit(1);
   if (client && !client.enabled) throw new GatewayAuthorizationError('UNAUTHORIZED');
+  // Every token issued from a login carries its `sessionUid`; only one that
+  // `expiresWithSession` ends with that session. An offline_access token (the
+  // desktop refresh-token grant) outlives a browser sign-out by design, so
+  // binding it would refuse the gateway while the regular API still accepts it.
   const boundSessionUid =
-    'sessionUid' in token && typeof token.sessionUid === 'string' ? token.sessionUid : undefined;
+    'expiresWithSession' in token &&
+    token.expiresWithSession === true &&
+    typeof token.sessionUid === 'string'
+      ? token.sessionUid
+      : undefined;
   await redisService.gatewayAuthorization.putOIDCProjection(payload.jti, {
     tenantId: requireTenantScope().tenantId,
     issuer: payload.iss,

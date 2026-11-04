@@ -362,7 +362,12 @@ redisSuite('real source rows and immutable authorization ledger', () => {
       });
       await projectGatewayOIDCAccess(
         {} as any,
-        { clientId: 'tituwork-desktop', grantId: 'grant-A', sessionUid: 'bound-uid' } as any,
+        {
+          clientId: 'tituwork-desktop',
+          expiresWithSession: true,
+          grantId: 'grant-A',
+          sessionUid: 'bound-uid',
+        } as any,
         {
           payload: {
             jti,
@@ -377,6 +382,41 @@ redisSuite('real source rows and immutable authorization ledger', () => {
       await db.delete(oidcSessions).where(eq(oidcSessions.id, 'session-oidc'));
       await expect(authorizeGateway(connectionRequest(identity))).rejects.toMatchObject({
         code: 'UNAUTHORIZED',
+      });
+    }));
+  // An offline_access token (the desktop app's refresh-token grant) carries the
+  // login's sessionUid but does not expire with it: signing out of the browser
+  // that completed the device login must not cut the app off from the gateway.
+  it('keeps an offline OIDC token usable after the login session ends', async () =>
+    run(async () => {
+      jti = randomUUID();
+      await db.insert(oidcSessions).values({
+        id: 'session-oidc-offline',
+        userId: subject,
+        data: { uid: 'offline-uid' },
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      await projectGatewayOIDCAccess(
+        {} as any,
+        {
+          clientId: 'tituwork-desktop',
+          expiresWithSession: false,
+          grantId: 'grant-A',
+          sessionUid: 'offline-uid',
+        } as any,
+        {
+          payload: {
+            jti,
+            sub: subject,
+            iss: 'http://test.invalid/oidc',
+            exp: Math.floor(Date.now() / 1000) + 300,
+          },
+        } as any,
+      );
+      await db.delete(oidcSessions).where(eq(oidcSessions.id, 'session-oidc-offline'));
+      const identity = await mint('oidc');
+      await expect(authorizeGateway(connectionRequest(identity))).resolves.toMatchObject({
+        tenantId,
       });
     }));
   it('settles cross-version cleanup in the real abandon service without running hooks or resuming', async () =>

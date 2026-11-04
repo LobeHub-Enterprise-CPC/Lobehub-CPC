@@ -2,6 +2,8 @@ import { RequestTrigger } from '@lobechat/types';
 import type * as ModelBankModule from 'model-bank';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
+
 import { AiAgentService } from './index';
 
 const {
@@ -281,6 +283,30 @@ describe('AiAgentService entry guards', () => {
           topicStartReservationId: 'other-reservation',
         }),
       ).rejects.toThrow('Intervention continuation reservation identity conflict');
+    });
+
+    // The run is already queued when the ticket is minted, and it writes its own
+    // outcome into the assistant row. A refused ticket only costs this tab the
+    // live stream; painting the row would leave an error on a finished reply.
+    it('keeps a queued run successful when its gateway ticket is refused', async () => {
+      vi.mocked(mintOperationGatewayTicket).mockRejectedValueOnce(new Error('UNAUTHORIZED'));
+
+      const result = await service.execAgent({
+        agentId: 'agent-1',
+        appContext: { topicId: 'topic-1' },
+        prompt: 'p',
+      });
+
+      expect(result).toMatchObject({
+        assistantMessageId: 'msg-assistant',
+        status: 'created',
+        success: true,
+      });
+      expect(result.token).toBeUndefined();
+      expect(mockMessageUpdate).not.toHaveBeenCalledWith(
+        'msg-assistant',
+        expect.objectContaining({ error: expect.anything() }),
+      );
     });
 
     it('returns an error result when the supervisor is gone before the member claims its slot', async () => {
