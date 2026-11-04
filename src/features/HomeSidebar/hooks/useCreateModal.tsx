@@ -554,7 +554,7 @@ export const CreateAgentModal = memo<CreateAgentModalProps>(
               <ActionIcon icon={X} onClick={handleClose} />
             </Flexbox>
             {/* Title */}
-            <Flexbox align="center">
+            <Flexbox align="center" data-brand-slot={'agent-create-title'}>
               <h3 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>{modalTitle}</h3>
             </Flexbox>
 
