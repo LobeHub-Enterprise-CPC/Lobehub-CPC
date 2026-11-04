@@ -30,7 +30,7 @@ const ModelSwitch = memo(() => {
     provider,
     switchModel: handleModelChange,
     topicId,
-  } = useTopicModelSwitch(selection);
+  } = useTopicModelSwitch({ ...selection, agentId });
   const { isShared } = useAgentShareSupported(agentId);
   const chatModels = useEnabledChatModels();
   const enabledList =

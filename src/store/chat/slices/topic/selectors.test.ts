@@ -153,6 +153,47 @@ describe('topicSelectors', () => {
       expect(topicSelectors.getTopicModelById('noModel')(state)).toBeUndefined();
     });
 
+    // A direct @Agent thread runs another agent on the caller's topic; the pin
+    // (e.g. a Codex topic's `codex/gpt-6.1-sol`) belongs to the caller only.
+    describe('scoped to an agent', () => {
+      const pinned = { id: 'pinned', model: 'gpt-6.1-sol', provider: 'codex', title: 'Pinned' };
+      const bucket = (key: string, items: object[]) => ({
+        [key]: { currentPage: 0, hasMore: false, items, pageSize: 20, total: items.length },
+      });
+
+      it('keeps the pin for the agent whose sidebar bucket holds the topic, drops it for another', () => {
+        const state = merge(initialStore, {
+          topicDataMap: bucket(topicMapKey({ agentId: 'codex' }), [pinned]),
+        });
+
+        expect(topicSelectors.getTopicModelById('pinned', 'codex')(state)).toEqual({
+          model: 'gpt-6.1-sol',
+          provider: 'codex',
+        });
+        expect(topicSelectors.getTopicModelById('pinned', 'nora')(state)).toBeUndefined();
+        expect(topicSelectors.isTopicModelPinOwner('pinned', 'nora')(state)).toBe(false);
+      });
+
+      it('uses the owner carried by a by-id detail row', () => {
+        const state = merge(initialStore, {
+          topicDetailMap: { pinned: { ...pinned, agentId: 'codex' } },
+        });
+
+        expect(topicSelectors.getTopicModelById('pinned', 'codex')(state)).toBeDefined();
+        expect(topicSelectors.getTopicModelById('pinned', 'nora')(state)).toBeUndefined();
+      });
+
+      it('keeps the pin when the owner is unknown: group topics and legacy rows', () => {
+        const state = merge(initialStore, {
+          topicDataMap: bucket(topicMapKey({ groupId: 'group-1' }), [pinned]),
+          topicDetailMap: { legacy: { ...pinned, agentId: null, id: 'legacy' } },
+        });
+
+        expect(topicSelectors.getTopicModelById('pinned', 'member')(state)).toBeDefined();
+        expect(topicSelectors.getTopicModelById('legacy', 'nora')(state)).toBeDefined();
+      });
+    });
+
     it('activeTopicModel reads the active topic model, undefined when no active topic', () => {
       const base = merge(initialStore, { topicDataMap: modelTopicDataMap, activeAgentId: 'test' });
       expect(topicSelectors.activeTopicModel(base)).toBeUndefined();

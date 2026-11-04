@@ -184,9 +184,17 @@ export const useChatInputNotices = (): ChatInputNotice[] => {
   // active topic — see `useTopicId`.
   const topicId = useTopicId();
   const topicModel = useChatStore((s) =>
-    topicId ? topicSelectors.getTopicModelById(topicId)(s) : undefined,
+    topicId ? topicSelectors.getTopicModelById(topicId, agentId)(s) : undefined,
   );
-  const hasTopicRow = useChatStore((s) => !!topicId && !!topicSelectors.getTopicById(topicId)(s));
+  // A pin belongs to the topic's own agent; a composer for another agent on
+  // this topic (a direct @Agent thread) is judged — and repaired — by that
+  // agent's own model, so its topic row must not be re-pointed either.
+  const hasTopicRow = useChatStore(
+    (s) =>
+      !!topicId &&
+      !!topicSelectors.getTopicById(topicId)(s) &&
+      topicSelectors.isTopicModelPinOwner(topicId, agentId)(s),
+  );
   const updateTopicModel = useChatStore((s) => s.updateTopicModel);
   // The main chat's topic row arrives with the sidebar list (or its detail
   // fetch) a beat after the route makes it active; until then it reads as "no

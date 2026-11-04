@@ -137,17 +137,48 @@ const currentActiveTopicSummary = (s: ChatStoreState): ChatTopicSummary | undefi
 
 const currentTopicMetadata = (s: ChatStoreState) => currentActiveTopic(s)?.metadata;
 
+const AGENT_TOPIC_BUCKET_PREFIX = topicMapKey({ agentId: '' });
+
+/**
+ * Whether `agentId` owns topic `id`'s model pin. The pin belongs to the agent
+ * the topic was created for; a topic without a known owner (legacy rows, group
+ * topics, optimistic rows) counts as owned.
+ *
+ * Sidebar rows omit `agentId`, so the owner comes from the per-agent bucket
+ * that holds the row; by-id detail and feed rows carry `agentId` directly.
+ */
+const isTopicModelPinOwner =
+  (id: string, agentId: string) =>
+  (s: ChatStoreState): boolean => {
+    const containerKey = getTopicContainerKeyById(id)(s);
+    if (containerKey)
+      return (
+        !containerKey.startsWith(AGENT_TOPIC_BUCKET_PREFIX) ||
+        containerKey === topicMapKey({ agentId })
+      );
+
+    const ownerId = (s.topicDetailMap?.[id] as { agentId?: string | null } | undefined)?.agentId;
+    return !ownerId || ownerId === agentId;
+  };
+
 /**
  * Get the model/provider pinned to a specific topic (snapshotted on creation,
  * updated when the user switches model while the topic is active).
  * Returns undefined when the topic has no model recorded (e.g. legacy topics),
  * in which case callers should fall back to the agent default.
+ *
+ * Pass `agentId` when resolving the model for a specific agent: the pin belongs
+ * to the topic's own agent, so another agent answering in this topic (a direct
+ * @Agent thread runs on the caller's topic) keeps its own model — the same rule
+ * the server applies in `turnSetup` (`canUseTopicModelPin`). Legacy topics
+ * without an owner keep the pin.
  */
 const getTopicModelById =
-  (id: string) =>
+  (id: string, agentId?: string) =>
   (s: ChatStoreState): { model: string; provider: string } | undefined => {
     const topic = getTopicById(id)(s);
     if (!topic?.model) return undefined;
+    if (agentId && !isTopicModelPinOwner(id, agentId)(s)) return undefined;
 
     return { model: topic.model, provider: topic.provider || '' };
   };
@@ -534,6 +565,7 @@ export const topicSelectors = {
   getTopicContainerKeyById,
   getTopicHeteroPinById,
   getTopicModelById,
+  isTopicModelPinOwner,
   getTopicReasoningConfigForModel,
   getTopicReasoningPinById,
   getTopicWorkingDirectory,

@@ -203,13 +203,13 @@ export class StreamingExecutorActionImpl {
     // 1. `modelOverride` — forced by the spawn site (see runClientSubAgent); not
     //    re-derived here because `isSubAgent` is also set for isolated group
     //    members which must keep their own model, so it can't gate on its own.
-    // 2. Topic-scoped model — a topic snapshots the model it was created with and
-    //    remembers switches made while active (top-level `topics.model`/`provider`
-    //    columns, read via `getTopicModelById`), overriding the agent default so
-    //    the whole model→topic chain (tools, context window, generation) uses it.
-    // resolveAgentConfig returns an immer-frozen config, so build a new object
-    // rather than mutating in place.
-    const topicModel = topicId ? topicSelectors.getTopicModelById(topicId)(this.#get()) : undefined;
+    // 2. Topic-scoped model (`topics.model`/`provider`, via `getTopicModelById`),
+    //    overriding the agent default for the whole model→topic chain — only for
+    //    the topic's own agent; a direct @Agent thread keeps its own model.
+    // resolveAgentConfig returns an immer-frozen config, so build a new object.
+    const topicModel = topicId
+      ? topicSelectors.getTopicModelById(topicId, effectiveAgentId)(this.#get())
+      : undefined;
     const modelResolution = modelOverride ?? topicModel;
     const agentConfig: ResolvedAgentConfig =
       (modelResolution || chatConfigOverride) && resolvedAgentConfig.agentConfig
@@ -1117,7 +1117,7 @@ export class StreamingExecutorActionImpl {
       //    internal_createAgentState applies to the parent run itself.
       const parentAgentConfig = agentSelectors.getAgentConfigById(agentId)(getAgentStoreState());
       const parentEffectiveModel =
-        topicSelectors.getTopicModelById(topicId)(this.#get()) ?? parentAgentConfig;
+        topicSelectors.getTopicModelById(topicId, agentId)(this.#get()) ?? parentAgentConfig;
       const subAgentModel = resolveSubAgentModel(
         parentAgentConfig?.agencyConfig?.subagent,
         parentEffectiveModel,
