@@ -266,6 +266,7 @@ export const shareRouter = router({
               userId: share.groupUserId,
             }
           : undefined,
+        participants: share.participants,
         shareId: share.shareId,
         title: share.title,
         topicId: share.topicId,
