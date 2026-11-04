@@ -194,6 +194,9 @@ vi.mock('@/server/modules/Redis', async (importOriginal) => ({
   // latency cache, ...) open a real connection to `redis://test`, whose retry errors keep
   // logging after the file finishes and fail the run with an EnvironmentTeardownError.
   initializeRedis: vi.fn(async () => null),
+  // Platform-level runtime config (feature flags) reads the shared, tenant-independent Redis.
+  initializeSharedRedis: vi.fn(async () => null),
+  initializeRedisWithPrefix: vi.fn(async () => null),
   tryInitializeRedisWithPrefix: mockTryInitializeRedisWithPrefix,
 }));
 // Without REDIS_URL the service never reaches the fake provider and claims fall
