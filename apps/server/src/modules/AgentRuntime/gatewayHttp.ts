@@ -1,10 +1,30 @@
 import { isLlmRelayChannelId } from '@lobechat/agent-gateway-client';
 import { requireTenantScope } from '@lobechat/database/tenant';
+import { Agent } from 'undici';
 import urlJoin from 'url-join';
 
 import { loadGatewayOperation } from '@/server/services/gatewayAuthorization/operationAuthority';
 import { GatewayAuthorizationError } from '@/server/services/gatewayAuthorization/wire';
 import { readBlobWithLimit } from '@/utils/readBlobWithLimit';
+
+/**
+ * In-cluster connects take milliseconds, while a gateway Service with no ready
+ * Pod (a restart) never answers. Failing the connect fast lets callers tell a
+ * request that never connected from one that may have been delivered.
+ */
+const gatewayDispatcher = new Agent({ connect: { timeout: 1000 } });
+const UNREACHABLE_CODES = new Set([
+  'ECONNREFUSED',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+/** True when the request never connected, so the gateway cannot have received it. */
+export const isGatewayUnreachable = (error: unknown): boolean => {
+  const code = (error as { cause?: { code?: unknown } } | undefined)?.cause?.code;
+  return typeof code === 'string' && UNREACHABLE_CODES.has(code);
+};
 
 /** Each operation's persisted intent supplies the version; retries never stamp the current scope. */
 export const gatewayOperationPost = async (
@@ -27,6 +47,7 @@ export const gatewayOperationPost = async (
     throw new GatewayAuthorizationError('OPERATION_OWNER_CONFLICT', 409);
   const base = url.replace(/\/tenant\/v1\/?$/, '');
   const response = await fetch(urlJoin(base, 'tenant/v1', path), {
+    dispatcher: gatewayDispatcher,
     method: 'POST',
     redirect: 'error',
     signal,
@@ -43,7 +64,7 @@ export const gatewayOperationPost = async (
       tenantId: scope.tenantId,
       sourceAcceptedVersion: version,
     }),
-  });
+  } as RequestInit);
   if (response.status === 404 || response.status === 426)
     throw new GatewayAuthorizationError('GATEWAY_TENANCY_UNSUPPORTED', 426);
   if (
