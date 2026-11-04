@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   forEachTenant: vi.fn(),
   publishJSON: vi.fn(async () => ({ messageId: 'm1' })),
   task: vi.fn((options: object) => options),
+  trigger: vi.fn(async () => ({ workflowRunId: 'wfr_1' })),
 }));
 
 vi.mock('@/server/modules/Tenant/callbackUrl');
@@ -13,6 +14,7 @@ vi.mock('./directDelivery', () => ({
   getDirectDeliveryClient: () => ({ publishJSON: mocks.publishJSON }),
 }));
 vi.mock('./client', () => ({ getHatchetClient: () => ({ task: mocks.task }) }));
+vi.mock('@/server/modules/Workflow', () => ({ workflowClient: { trigger: mocks.trigger } }));
 
 const { fanOutTenantSchedule, getScheduleTasks } = await import('./schedules');
 
@@ -53,6 +55,23 @@ describe('tenant schedules', () => {
     });
   });
 
+  it('starts a workflow run per tenant for a job served as a workflow', async () => {
+    // A `serve` route rejects a bare delivery ("Not a workflow delivery"), so the
+    // memory analysis entry point has to be started as a run.
+    vi.stubEnv('APP_URL', 'https://app.example.com');
+    tenants('acme');
+
+    expect(await fanOutTenantSchedule('memory-hourly-analysis')).toEqual({
+      failed: 0,
+      published: 1,
+    });
+    expect(mocks.trigger).toHaveBeenCalledWith({
+      body: {},
+      url: 'https://app.example.com/orgs/acme/api/workflows/memory-user-memory/call-cron-hourly-analysis',
+    });
+    expect(mocks.publishJSON).not.toHaveBeenCalled();
+  });
+
   it('sends the deliveries to the internal address when there is one', async () => {
     vi.stubEnv('APP_URL', 'https://app.example.com');
     vi.stubEnv('INTERNAL_APP_URL', 'http://cpc:3210');
@@ -74,6 +93,7 @@ describe('tenant schedules', () => {
     }[];
     expect(tasks.map(({ name, onCrons }) => [name, onCrons])).toEqual([
       ['cpc-cron-goal-sweep', ['*/5 * * * *']],
+      ['cpc-cron-memory-hourly-analysis', ['17 * * * *']],
       ['cpc-cron-task-schedule-dispatch', ['*/10 * * * *']],
       ['cpc-cron-widget-tick', ['* * * * *']],
     ]);

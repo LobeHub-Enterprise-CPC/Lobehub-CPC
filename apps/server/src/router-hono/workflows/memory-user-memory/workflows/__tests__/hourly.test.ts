@@ -1,5 +1,5 @@
 import { AsyncTaskStatus } from '@lobechat/types';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createStepRunner } from '@/server/workflows/testing/stepContext';
 
@@ -70,6 +70,11 @@ vi.mock('../runGuard', () => ({
 }));
 
 describe('hourlyWorkflowHandler', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.createExecutor.mockResolvedValue({
@@ -87,6 +92,7 @@ describe('hourlyWorkflowHandler', () => {
   });
 
   it('creates a tracked hourly task when the entrypoint has no hourlyTaskId', async () => {
+    vi.stubEnv('MEMORY_EXTRACTION_HOURLY_TASK_USER_ID', 'service-account-user');
     /**
      * @example
      * await expect(hourlyWorkflowHandler(cronContext)).resolves.toMatchObject({ scheduled: true });
@@ -245,6 +251,35 @@ describe('hourlyWorkflowHandler', () => {
         scheduledChildRuns: 2,
         status: AsyncTaskStatus.Success,
       },
+    );
+  });
+
+  it('fans out untracked over the last 30 days when no task owner is configured', async () => {
+    // Multi-tenant deployments have no deployment-wide service user that exists in every
+    // tenant, so the tenant cron must run without the tracking task instead of failing.
+    vi.stubEnv('MEMORY_EXTRACTION_HOURLY_TASK_USER_ID', '');
+    vi.useFakeTimers({ now: new Date('2026-11-04T15:17:00.000Z'), toFake: ['Date'] });
+    mocks.getUsersForHourlyExtraction.mockResolvedValue({ ids: ['u1'] });
+
+    const context = {
+      requestPayload: {},
+      run: createStepRunner(),
+      workflowRunId: 'entry-hourly-run',
+    };
+
+    await expect(hourlyWorkflowHandler(context as never)).resolves.toMatchObject({
+      processedUsers: 1,
+      scheduledBatches: 1,
+    });
+
+    expect(mocks.triggerHourlyTracked).not.toHaveBeenCalled();
+    expect(mocks.triggerProcessUsers).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromDate: new Date('2026-10-05T15:17:00.000Z'),
+        hourlyTaskId: undefined,
+        userIds: ['u1'],
+      }),
+      { extraHeaders: {} },
     );
   });
 });

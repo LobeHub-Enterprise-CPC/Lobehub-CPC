@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../../core/getTestDB';
-import { topics, users } from '../../../schemas';
+import { messages, topics, users } from '../../../schemas';
 import type { LobeChatDatabase } from '../../../type';
 import { TopicModel } from '../../topic';
 
@@ -137,5 +137,84 @@ describe('TopicModel - listTopicsForMemoryExtractor', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('t1');
+  });
+});
+
+describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages', () => {
+  const failedRun = (lastRunAt: string) => ({
+    userMemoryExtractRunState: { lastRunAt, status: 'failed' as const },
+    userMemoryExtractStatus: 'failed' as const,
+  });
+
+  beforeEach(async () => {
+    await serverDB.delete(users);
+    await serverDB.insert(users).values({ id: userId });
+    await serverDB.insert(topics).values([
+      { createdAt: new Date('2023-01-01'), id: 'pending', metadata: {}, userId },
+      {
+        createdAt: new Date('2023-01-02'),
+        id: 'failed-stale',
+        metadata: failedRun('2023-02-01T00:00:00.000Z'),
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-03'),
+        id: 'failed-active',
+        metadata: failedRun('2023-02-01T00:00:00.000Z'),
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-04'),
+        id: 'failed-no-run-time',
+        metadata: { userMemoryExtractStatus: 'failed' },
+        userId,
+      },
+    ]);
+    await serverDB.insert(messages).values([
+      {
+        createdAt: new Date('2023-01-15'),
+        id: 'm-stale',
+        role: 'user',
+        topicId: 'failed-stale',
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-15'),
+        id: 'm-active-old',
+        role: 'user',
+        topicId: 'failed-active',
+        userId,
+      },
+      {
+        createdAt: new Date('2023-02-02'),
+        id: 'm-active-new',
+        role: 'user',
+        topicId: 'failed-active',
+        userId,
+      },
+    ]);
+  });
+
+  afterEach(async () => {
+    await serverDB.delete(users);
+  });
+
+  it('retries a failed topic only after it received a message since the failed run', async () => {
+    const result = await topicModel.listTopicsForMemoryExtractor({
+      skipFailedWithoutNewMessages: true,
+    });
+
+    expect(result.map((topic) => topic.id)).toEqual(['pending', 'failed-active']);
+  });
+
+  it('keeps every unfinished topic when the option is off', async () => {
+    const result = await topicModel.listTopicsForMemoryExtractor({});
+
+    expect(result.map((topic) => topic.id)).toEqual([
+      'pending',
+      'failed-stale',
+      'failed-active',
+      'failed-no-run-time',
+    ]);
   });
 });

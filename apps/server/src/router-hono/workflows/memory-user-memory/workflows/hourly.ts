@@ -23,6 +23,14 @@ import {
 
 const USER_PAGE_SIZE = 200;
 const USER_BATCH_SIZE = 20;
+// Unattended runs only look back this far, so enabling the schedule does not pay to
+// backfill a tenant's entire chat history; a user can still analyze older topics.
+const TOPIC_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+// The tracking task needs an owner that exists in the tenant database. A
+// multi-tenant deployment has no such deployment-wide user, so it runs untracked
+// (no task row; cancellation goes through the run guard).
+const isHourlyTaskTracked = () => !!process.env.MEMORY_EXTRACTION_HOURLY_TASK_USER_ID;
 const WORKFLOW_PATH = 'api/workflows/memory-user-memory/call-cron-hourly-analysis';
 
 const { webhook, upstashWorkflowExtraHeaders } = parseMemoryExtractionConfig();
@@ -49,7 +57,7 @@ export const hourlyWorkflowHandler = async (
     throw new Error('Missing baseUrl for hourly memory extraction workflow');
   }
 
-  if (!hourlyTaskId) {
+  if (!hourlyTaskId && isHourlyTaskTracked()) {
     const stepName = 'memory:user-memory:hourly:create-tracked-task';
     const guard = await checkGuard(context, WORKFLOW_PATH, {
       response: { processedUsers: 0 },
@@ -153,6 +161,7 @@ export const hourlyWorkflowHandler = async (
           buildWorkflowPayloadInput(
             normalizeMemoryExtractionPayload({
               baseUrl,
+              fromDate: new Date(Date.now() - TOPIC_WINDOW_MS),
               hourlyTaskId,
               mode: 'workflow',
               sources: [MemorySourceType.ChatTopic],
