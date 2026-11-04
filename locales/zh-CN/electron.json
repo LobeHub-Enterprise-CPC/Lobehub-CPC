@@ -5,6 +5,8 @@
   "gateway.error.invalidAddress": "设备网关地址无效。请检查桌面端的环境变量或已有配置，或联系服务器管理员检查网关地址。",
   "gateway.error.notSignedIn": "登录后即可连接此设备。",
   "gateway.manageDevices": "管理设备",
+  "gateway.reconnect": "重连网关",
+  "gateway.reconnected": "已重新连接设备网关",
   "gateway.retry": "重试",
   "gateway.statusConnected": "本机已连接设备网关",
   "gateway.statusConnectedConnections_one": "在线 · {{count}} 个连接",
