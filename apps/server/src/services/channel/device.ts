@@ -1,3 +1,4 @@
+import { requireTenantScope } from '@lobechat/database/tenant';
 import type {
   CodexChannelSnapshot,
   CodexChannelStart,
@@ -10,6 +11,11 @@ import type { LobeChatDatabase } from '@/database/type';
 import { assertWorkspaceRootApproved } from '@/server/routers/lambda/deviceWorkspaceGuard';
 import { deviceGateway } from '@/server/services/deviceGateway';
 import { resolveAttachmentsByFileIds } from '@/server/services/file/resolveAttachments';
+import { runWithBackgroundGatewaySource } from '@/server/services/gatewayAuthorization/context';
+import type {
+  GatewayChannelAuthority,
+  GatewayChannelSource,
+} from '@/server/services/gatewayAuthorization/types';
 
 import { resolveChannelMemberRuntime } from './members';
 import { beginChannelServerDefaultOperation } from './serverDefault';
@@ -41,26 +47,48 @@ export class ChannelDevice {
     private readonly db: LobeChatDatabase,
     private readonly ownerId: string,
     private readonly deviceId: string,
+    private readonly authority?: GatewayChannelAuthority,
   ) {}
 
   private async call<T>(
-    apiName: string,
+    apiName: GatewayChannelSource['apiName'],
     input: Record<string, unknown>,
     onDispatch?: () => void,
   ): Promise<T> {
     const device = await new DeviceModel(this.db, this.ownerId).findByDeviceId(this.deviceId);
     if (!device || device.workspaceId)
       throw new ChannelDeviceOfflineError('Personal execution device is unavailable');
+    if (
+      this.authority &&
+      'runId' in this.authority &&
+      apiName !== 'channelProbe' &&
+      (input.runId !== this.authority.runId || input.fence !== this.authority.fence)
+    )
+      throw new Error('Channel execution authority does not match the device request');
     onDispatch?.();
-    const result = await deviceGateway.executeToolCall(
-      { userId: this.ownerId, deviceId: this.deviceId },
-      {
-        identifier: 'local',
-        apiName,
-        arguments: JSON.stringify({ ...input, ownerId: this.ownerId }),
-      },
-      10_000,
-    );
+    const dispatch = () =>
+      deviceGateway.executeToolCall(
+        { userId: this.ownerId, deviceId: this.deviceId },
+        {
+          identifier: 'local',
+          apiName,
+          arguments: JSON.stringify({ ...input, ownerId: this.ownerId }),
+        },
+        10_000,
+      );
+    const result = this.authority
+      ? await runWithBackgroundGatewaySource(
+          {
+            ...this.authority,
+            kind: 'channel',
+            tenantId: requireTenantScope().tenantId,
+            subject: this.ownerId,
+            deviceId: this.deviceId,
+            apiName,
+          },
+          dispatch,
+        )
+      : await dispatch();
     if (!result.success) {
       const message = result.error || 'Channel Desktop adapter is unavailable';
       throw OFFLINE_CODES.has(result.error ?? '')

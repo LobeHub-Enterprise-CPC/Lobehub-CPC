@@ -11,6 +11,11 @@ export const runWithGatewaySource = <T>(
   run: () => T,
 ): T => sources.run({ source }, run);
 export const currentGatewaySource = () => sources.getStore()?.source;
+/** Only independent background work may supply durable authority; HTTP auth stays authoritative. */
+export const runWithBackgroundGatewaySource = <T>(
+  source: GatewayAuthorizationSource,
+  run: () => T,
+): T => (sources.getStore() ? run() : runWithGatewaySource(source, run));
 export const requireGatewaySource = (subject: string): GatewayAuthorizationSource => {
   const source = currentGatewaySource();
   if (!source || source.subject !== subject)

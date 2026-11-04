@@ -16,8 +16,9 @@ import { hasActiveWorkspaceMembership, hasWorkspaceAdminAccess } from '@/databas
 import { assertOIDCUserActive, isOIDCUserInactiveError } from '@/libs/oidc-provider/access-control';
 import { redisService } from '@/server/services/redis';
 
+import { assertChannelGatewaySource } from './channelSource';
 import { gatewayOIDCClients } from './oidcProjection';
-import type { GatewayAuthorizationSource, GatewayPrincipal } from './types';
+import type { GatewayAuthorizationSource, GatewayExecutionAction, GatewayPrincipal } from './types';
 import { GatewayAuthorizationError } from './wire';
 
 const deny = (): never => {
@@ -34,6 +35,8 @@ export const assertGatewaySource = async (
     principal: GatewayPrincipal;
     enroller?: boolean;
     execute?: boolean;
+    action?: GatewayExecutionAction;
+    resourceId?: string;
   },
   db?: LobeChatDatabase,
 ): Promise<number> => {
@@ -47,6 +50,19 @@ export const assertGatewaySource = async (
   }
   let expiresAt = now + 300_000;
   switch (source.kind) {
+    case 'channel': {
+      // This source authorizes only its personal-device tool call. It cannot
+      // mint a socket/enrollment ticket, authorize an agent operation or another device.
+      if (
+        resource.action !== 'device.tool-call' ||
+        resource.resourceId !== source.deviceId ||
+        resource.operationId ||
+        resource.principal.kind !== 'user'
+      )
+        throw new GatewayAuthorizationError('FORBIDDEN', 403);
+      await assertChannelGatewaySource(source, database);
+      break;
+    }
     case 'session': {
       const [found] = await database
         .select({ expiresAt: session.expiresAt })
