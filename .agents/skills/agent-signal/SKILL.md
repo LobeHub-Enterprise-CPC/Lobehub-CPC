@@ -25,7 +25,7 @@ Durable self-iteration work has one extra completion branch:
 
 - Use `emitAgentSignalSourceEvent(...)` when a server-owned producer should execute the pipeline immediately.
 - Use `executeAgentSignalSourceEvent(...)` when a worker or controlled backend path already owns execution timing and may inject a runtime guard backend.
-- Use `enqueueAgentSignalSourceEvent(...)` when the caller should return quickly and let Upstash Workflow process the event out-of-band.
+- Use `enqueueAgentSignalSourceEvent(...)` when the caller should return quickly and let the workflow runtime process the event out-of-band.
 - Use `emitAgentSignalSourceEventWithStore(...)` for isolated tests or evals that should avoid ambient Redis state.
 
 Read:

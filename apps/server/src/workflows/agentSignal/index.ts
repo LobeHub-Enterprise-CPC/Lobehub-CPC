@@ -47,16 +47,8 @@ export class AgentSignalWorkflow {
   static async triggerRun(payload: AgentSignalWorkflowRunPayload) {
     const traceHeaders = new Headers();
 
-    // NOTICE:
-    // Upstash Workflow/QStash only forwards user headers to the workflow destination when they
-    // are sent through the SDK's `headers` option, which the SDK rewrites into
-    // `Upstash-Forward-*` headers under the hood.
-    // Source/context:
-    // - Upstash docs: workflow trigger + QStash receiving docs describe `Upstash-Forward-*`
-    // - Local SDK source (`@upstash/workflow`) rewrites `headers` to `Upstash-Forward-*`
-    // Removal condition:
-    // - Safe to simplify only if Upstash adds native trace-context propagation for workflow
-    //   triggers or we stop relying on Workflow/QStash as the async hop.
+    // Trace context reaches the workflow route only through the trigger's `headers`, which every
+    // delivery of the run forwards.
     injectActiveTraceHeaders(traceHeaders);
 
     if (!appEnv.enableQueueAgentRuntime) {
@@ -64,7 +56,7 @@ export class AgentSignalWorkflow {
     }
 
     const url = getWorkflowUrl(WORKFLOW_PATHS.run);
-    const { workflowClient } = await import('@/libs/qstash');
+    const { workflowClient } = await import('@/server/modules/Workflow');
 
     log('Triggering run workflow payload=%O', {
       agentId: payload.agentId,

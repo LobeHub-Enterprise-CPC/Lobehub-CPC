@@ -133,16 +133,11 @@ export const getAppConfig = () => {
       AGENT_GATEWAY_PROTOCOL: z.coerce.number().int().min(1).max(2).optional(),
       /**
        * Enable Queue-based Agent Runtime
-       * When true, use QStash for async agent execution (production)
+       * When true, run agent steps and background deliveries through Hatchet (production)
        * When false, execute agent steps synchronously in current process (development)
        * @default false
        */
       enableQueueAgentRuntime: z.boolean().optional(),
-      /**
-       * Queue-mode direct deliveries go through Hatchet instead of QStash
-       * (AGENT_RUNTIME_DELIVERY=hatchet). Only meaningful with the queue runtime.
-       */
-      enableHatchetAgentDelivery: z.boolean().optional(),
       TELEMETRY_DISABLED: z.boolean().optional(),
     },
     runtimeEnv: {
@@ -193,7 +188,6 @@ export const getAppConfig = () => {
       DESKTOP_DOWNLOAD_URL_MACOS: process.env.DESKTOP_DOWNLOAD_URL_MACOS,
       DESKTOP_DOWNLOAD_URL_WINDOWS: process.env.DESKTOP_DOWNLOAD_URL_WINDOWS,
       enableQueueAgentRuntime: process.env.AGENT_RUNTIME_MODE === 'queue',
-      enableHatchetAgentDelivery: process.env.AGENT_RUNTIME_DELIVERY === 'hatchet',
       TELEMETRY_DISABLED: process.env.TELEMETRY_DISABLED === '1',
     },
   });

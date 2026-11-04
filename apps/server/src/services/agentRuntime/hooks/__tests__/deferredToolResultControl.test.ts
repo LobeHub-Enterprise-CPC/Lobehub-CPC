@@ -9,7 +9,6 @@ const { fetchHook, queueMode } = vi.hoisted(() => ({ fetchHook: vi.fn(), queueMo
 vi.mock('@/database/models/user', () => ({ UserModel: { getEmailsByIds: async () => [] } }));
 vi.mock('@/database/server', () => ({ getServerDB: async () => ({}) }));
 vi.mock('@/server/services/queue/impls', () => ({ isQueueAgentRuntimeEnabled: queueMode }));
-vi.mock('@/libs/qstash', () => ({ OtelQstashClient: class {} }));
 
 const secret = 'synthetic-private-child-result';
 const denialReason = '子任务结果被策略拒绝';

@@ -53,7 +53,7 @@ or production-state dependency produce neither output.
 
 - `.agents/skills/db-migrations/SKILL.md`, `.agents/skills/drizzle/SKILL.md` — schema and migration
   changes
-- `.agents/skills/upstash-workflow/SKILL.md` — queue and workflow changes
+- `.agents/skills/workflow/SKILL.md` — queue and workflow changes
 - `.agents/skills/builtin-tool/SKILL.md`, `.agents/skills/agent-tracing/SKILL.md` — prompt and tool
   behavior
 - `.agents/skills/react/SKILL.md` — shared UI surfaces

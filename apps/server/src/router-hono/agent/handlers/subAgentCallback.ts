@@ -25,7 +25,7 @@ const log = debug('lobe-server:agent:subagent-callback');
  * "Sub-agent did not complete (error).". `streamOwnerUserId` is forwarded by
  * the abandon paths for when the child's coordinator metadata is gone.
  *
- * Auth: `qstashAuth` on the route — QStash signature required.
+ * Auth: `qstashAuth` on the route — delivery signature required.
  */
 export async function subAgentCallback(c: Context): Promise<Response> {
   let body: any;

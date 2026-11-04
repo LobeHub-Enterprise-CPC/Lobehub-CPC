@@ -21,7 +21,6 @@ import path from 'node:path';
 if (!process.env.NODE_ENV) Object.assign(process.env, { NODE_ENV: 'test' });
 process.env.KEY_VAULTS_SECRET ??= 'openapi-spec-generation';
 process.env.CLOUD_DATABASE_URL ??= 'postgresql://mock:mock@localhost:5432/mock';
-process.env.QSTASH_TOKEN ??= 'mock-qstash-token';
 
 const PKG_ROOT = path.join(import.meta.dirname, '..');
 const SPEC_PATH = path.join(PKG_ROOT, 'openapi.yml');

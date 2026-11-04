@@ -1,7 +1,7 @@
 import { errorNameFrom } from '@lobechat/utils';
-import type { PublicServeOptions, WorkflowContext } from '@upstash/workflow';
 
 import { getServerDB } from '@/database/server';
+import type { ServeOptions, WorkflowContext } from '@/server/modules/Workflow';
 import { publishOnboardingGenerationProgress } from '@/server/services/onboardingProgress';
 import {
   createTaskRecommendationService,
@@ -115,4 +115,4 @@ export const processOnboardingTaskRecommendationWorkflowOptions = {
   },
   initialPayloadParser: (input: string) =>
     ProcessOnboardingTaskRecommendationPayloadSchema.parse(JSON.parse(input)),
-} satisfies PublicServeOptions<ProcessOnboardingTaskRecommendationPayload>;
+} satisfies ServeOptions<ProcessOnboardingTaskRecommendationPayload>;

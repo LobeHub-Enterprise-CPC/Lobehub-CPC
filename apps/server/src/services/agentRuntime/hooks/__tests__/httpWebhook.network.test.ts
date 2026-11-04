@@ -6,7 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { deliverWebhook, executeToolCallWebhook } from '../httpWebhook';
 
-vi.mock('@/libs/qstash', () => ({ OtelQstashClient: class {} }));
+// No queue here: queued notifications take the fetch fallback over a real socket.
+vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
+  getDirectDeliveryClient: () => ({
+    publishJSON: async () => {
+      throw new Error('no queue');
+    },
+  }),
+}));
 
 /** Real socket tests: no fetch mocks. */
 describe('HTTP hook network boundary', () => {
@@ -65,7 +72,6 @@ describe('HTTP hook network boundary', () => {
       vi.stubEnv('INTERNAL_APP_URL', undefined);
       vi.stubEnv('APP_URL', undefined);
       vi.stubEnv(variable, base);
-      vi.stubEnv('QSTASH_TOKEN', undefined);
       await expect(deliverWebhook({ url: '/hook' }, {})).resolves.toBeUndefined();
       await expect(
         deliverWebhook({ url: '/hook', delivery: 'qstash' }, {}),
@@ -102,7 +108,6 @@ describe('HTTP hook network boundary', () => {
     expect(requests).toEqual([path]);
   });
   it.each(['/large', '/slow'])('ignores successful fetch fallback bodies at %s', async (path) => {
-    vi.stubEnv('QSTASH_TOKEN', undefined);
     await expect(
       deliverWebhook({ url: `${base}${path}`, delivery: 'qstash', timeout: 0.5 }, {}),
     ).resolves.toBeUndefined();

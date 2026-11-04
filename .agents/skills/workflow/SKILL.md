@@ -1,12 +1,30 @@
 ---
-name: upstash-workflow
-description: 'Use for Upstash Workflow/QStash handlers, triggers, durable steps and async fan-out.'
+name: workflow
+description: 'Use for durable workflow handlers, triggers, steps and async fan-out (`@/server/modules/Workflow`, delivered by Hatchet).'
 user-invocable: false
 ---
 
-# Upstash Workflow Implementation Guide
+# Workflow Implementation Guide
 
-Standard patterns for implementing Upstash Workflow + QStash async workflows in the LobeHub codebase.
+Standard patterns for durable async workflows in the LobeHub codebase. Workflows use
+`serve` / `createWorkflow` / `serveMany` and `workflowClient` from `@/server/modules/Workflow`,
+an Upstash-Workflow-compatible runtime: every delivery is a signed HTTP request sent by
+Hatchet (queue mode) or by this process (local mode).
+
+## Runtime semantics
+
+- `context.run(name, fn)` results are memoized in Redis by **position and name**; a later
+  delivery replays completed steps. Keep the order of steps deterministic and names stable
+  across deploys — a renamed or reordered step runs again.
+- A delivery that has worked for 5 minutes hands over to a fresh one at the next step
+  boundary; `context.sleep` / `sleepUntil` and `context.invoke` likewise end the delivery and
+  resume later. Never wrap steps in `try/catch` that swallows `WorkflowAbort`.
+- One delivery executes a run at a time (per-run lock); `flowControl` takes per-key slots
+  (`parallelism`) and a start rate (`rate`/`period`, or `ratePerSecond`).
+- After the last retry (or a `WorkflowNonRetryableError`), `failureFunction` runs once and the
+  run is marked failed. `workflowClient.cancel` stops runs by id or URL prefix.
+- Local mode (`AGENT_RUNTIME_MODE` unset/`local`) keeps run state in memory and loses it on
+  restart; queue mode needs Hatchet and Redis.
 
 ## 🎯 The Three Core Patterns
 
@@ -136,24 +154,21 @@ Every layer is a handler mounted on a per-workflow Hono app under `apps/server/s
 
 Pick the reference that matches what you're doing:
 
-| You want to...                                       | Read                                                             |
-| ---------------------------------------------------- | ---------------------------------------------------------------- |
-| Write the Workflow class + 3 routes from scratch     | [`references/implementation.md`](./references/implementation.md) |
-| Tune flowControl, error handling, logging, testing   | [`references/best-practices.md`](./references/best-practices.md) |
-| See two real workflows end-to-end                    | [`references/examples.md`](./references/examples.md)             |
-| Deploy on lobehub-cloud (re-exports, cloud-only ops) | [`references/cloud.md`](./references/cloud.md)                   |
+| You want to...                                     | Read                                                             |
+| -------------------------------------------------- | ---------------------------------------------------------------- |
+| Write the Workflow class + 3 routes from scratch   | [`references/implementation.md`](./references/implementation.md) |
+| Tune flowControl, error handling, logging, testing | [`references/best-practices.md`](./references/best-practices.md) |
+| See two real workflows end-to-end                  | [`references/examples.md`](./references/examples.md)             |
 
 ---
 
 ## Environment Variables
 
 ```bash
-# Required for all workflows
-APP_URL=https://your-app.com # Base URL for workflow endpoints
-QSTASH_TOKEN=qstash_xxx      # QStash authentication token
-
-# Optional (for custom QStash URL)
-QSTASH_URL=https://custom-qstash.com
+APP_URL=https://your-app.com          # Base URL; INTERNAL_APP_URL wins for server-to-server calls
+AGENT_RUNTIME_MODE=queue              # queue = durable delivery through Hatchet; local = in-process
+DELIVERY_SIGNING_KEY=<random secret>  # Signs deliveries; routes verify it (required in queue mode)
+HATCHET_CLIENT_TOKEN=...              # Hatchet engine access (queue mode)
 ```
 
 ---
@@ -182,7 +197,6 @@ QSTASH_URL=https://custom-qstash.com
 ### Quality & Deployment
 
 - [ ] Return consistent response shapes
-- [ ] Configure cloud deployment ([`references/cloud.md`](./references/cloud.md) if on lobehub-cloud)
 - [ ] Write integration tests (`dryRun` path + full path)
 - [ ] Smoke-test with dry-run first
 - [ ] Test with a small batch before full rollout
@@ -191,7 +205,7 @@ QSTASH_URL=https://custom-qstash.com
 
 ## Additional Resources
 
-- [Upstash Workflow Documentation](https://upstash.com/docs/workflow)
-- [QStash Documentation](https://upstash.com/docs/qstash)
+- [Workflow runtime](../../../apps/server/src/modules/Workflow/)
+- [Hatchet delivery runbook](../../../apps/server/src/modules/Hatchet/RUNBOOK.md)
 - [Example Workflows in Codebase](<../../../src/app/(backend)/api/workflows/>)
 - [Workflow Classes](../../../apps/server/src/workflows/)

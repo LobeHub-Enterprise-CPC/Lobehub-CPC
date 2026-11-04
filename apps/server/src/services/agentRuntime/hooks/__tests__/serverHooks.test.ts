@@ -11,7 +11,6 @@ import type { AgentHook, ToolCallHookEvent } from '../types';
 
 const { queueMode } = vi.hoisted(() => ({ queueMode: vi.fn(() => false) }));
 vi.mock('@/server/services/queue/impls', () => ({ isQueueAgentRuntimeEnabled: queueMode }));
-vi.mock('@/libs/qstash', () => ({ OtelQstashClient: class {} }));
 vi.mock('@/database/models/user', () => ({ UserModel: { getEmailsByIds: async () => [] } }));
 vi.mock('@/database/server', () => ({ getServerDB: async () => ({}) }));
 

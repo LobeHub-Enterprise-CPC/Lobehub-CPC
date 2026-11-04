@@ -12,7 +12,7 @@ vi.mock('@/envs/app', () => ({
   },
 }));
 
-vi.mock('@/libs/qstash', () => ({
+vi.mock('@/server/modules/Workflow', () => ({
   workflowClient: {
     trigger: triggerMock,
   },

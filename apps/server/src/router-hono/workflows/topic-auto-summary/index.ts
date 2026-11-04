@@ -1,8 +1,8 @@
 import { withOtelMetricsForUpstashWorkflows } from '@lobechat/observability-otel/modules/upstash-workflow';
-import { serve } from '@upstash/workflow/hono';
 import { Hono } from 'hono';
 
-import { createWorkflowQstashClient } from '../qstashClient';
+import { serve } from '@/server/modules/Workflow';
+
 import { dispatchTopicAutoSummary, dispatchTopicAutoSummaryOptions } from './dispatch';
 import { executeTopicAutoSummary, executeTopicAutoSummaryOptions } from './execute';
 
@@ -14,7 +14,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(dispatchTopicAutoSummary, {
       url: '/api/workflows/topic-auto-summary/dispatch',
     }),
-    { ...dispatchTopicAutoSummaryOptions, qstashClient: createWorkflowQstashClient() },
+    dispatchTopicAutoSummaryOptions,
   ),
 );
 
@@ -24,7 +24,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(executeTopicAutoSummary, {
       url: '/api/workflows/topic-auto-summary/execute',
     }),
-    { ...executeTopicAutoSummaryOptions, qstashClient: createWorkflowQstashClient() },
+    executeTopicAutoSummaryOptions,
   ),
 );
 

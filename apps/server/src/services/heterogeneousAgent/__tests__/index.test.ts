@@ -28,10 +28,8 @@ vi.mock('@/server/services/queue/impls', () => ({
 }));
 
 const mockPublishJSON = vi.hoisted(() => vi.fn());
-vi.mock('@upstash/qstash', () => ({
-  Client: class {
-    publishJSON = mockPublishJSON;
-  },
+vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
+  getDirectDeliveryClient: () => ({ publishJSON: mockPublishJSON }),
 }));
 
 const { isQueueAgentRuntimeEnabled } = await import('@/server/services/queue/impls');
@@ -963,7 +961,6 @@ describe('HeterogeneousAgentService', () => {
   // link that, if broken, leaves a finished hetero task's `task_topics.status`
   // stuck at `running` because `onTopicComplete` never fires.
   describe('heteroFinish — queue-mode terminal webhook delivery (regression guard)', () => {
-    const originalToken = process.env.QSTASH_TOKEN;
     const originalAppUrl = process.env.APP_URL;
 
     const taskHook: SerializedHook = {
@@ -1010,14 +1007,11 @@ describe('HeterogeneousAgentService', () => {
       vi.mocked(isQueueAgentRuntimeEnabled).mockReturnValue(true);
       mockPublishJSON.mockReset();
       mockPublishJSON.mockResolvedValue(undefined);
-      process.env.QSTASH_TOKEN = 'test-token';
       process.env.APP_URL = 'https://app.test';
     });
 
     afterEach(() => {
       vi.mocked(isQueueAgentRuntimeEnabled).mockReturnValue(false);
-      if (originalToken === undefined) delete process.env.QSTASH_TOKEN;
-      else process.env.QSTASH_TOKEN = originalToken;
       if (originalAppUrl === undefined) delete process.env.APP_URL;
       else process.env.APP_URL = originalAppUrl;
     });
@@ -1087,7 +1081,6 @@ describe('HeterogeneousAgentService', () => {
   // hand-wave, and lets us reproduce the production "stuck task_topics" symptom
   // by injecting the suspected lost-update race on topic.metadata.
   describe('heteroFinish — seed→read→deliver round-trip + lost-update repro', () => {
-    const originalToken = process.env.QSTASH_TOKEN;
     const originalAppUrl = process.env.APP_URL;
     const TOPIC = 'topic-int';
 
@@ -1183,15 +1176,12 @@ describe('HeterogeneousAgentService', () => {
       vi.mocked(isQueueAgentRuntimeEnabled).mockReturnValue(true);
       mockPublishJSON.mockReset();
       mockPublishJSON.mockResolvedValue(undefined);
-      process.env.QSTASH_TOKEN = 'test-token';
       process.env.APP_URL = 'https://app.test';
     });
 
     afterEach(() => {
       vi.mocked(isQueueAgentRuntimeEnabled).mockReturnValue(false);
       hookDispatcher.unregister('op-int');
-      if (originalToken === undefined) delete process.env.QSTASH_TOKEN;
-      else process.env.QSTASH_TOKEN = originalToken;
       if (originalAppUrl === undefined) delete process.env.APP_URL;
       else process.env.APP_URL = originalAppUrl;
     });

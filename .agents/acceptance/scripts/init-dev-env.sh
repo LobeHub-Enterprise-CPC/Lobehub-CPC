@@ -17,9 +17,8 @@
 #   init-dev-env.sh setup-db         # start local Postgres/Redis and run migrations
 #   init-dev-env.sh migrate          # run DB migrations against the configured DB
 #   init-dev-env.sh seed-user        # seed the baseline test user + CLI API key
-#   init-dev-env.sh qstash           # run local Upstash QStash dev server
 #   init-dev-env.sh s3               # run local s3rver object storage
-#   init-dev-env.sh preflight        # check agent-runtime prerequisites (QStash + S3)
+#   init-dev-env.sh preflight        # check agent-runtime prerequisites (Redis + S3; Hatchet in queue mode)
 #   init-dev-env.sh dev-next         # exec `pnpm run dev:next` with this env
 #   init-dev-env.sh dev              # exec `bun run dev` with this env
 #   init-dev-env.sh stop-dev         # stop the dev server (Next + Vite) started by `dev`
@@ -28,7 +27,7 @@
 #   init-dev-env.sh clean-db         # remove the managed Postgres/Redis containers
 #
 # Overrides:
-#   SERVER_PORT=3010 DB_PORT=5433 DB_CONTAINER=lobehub-agent-testing-postgres REDIS_PORT=6380 REDIS_CONTAINER=lobehub-agent-testing-redis QSTASH_DEV_PORT=8080 S3_DEV_PORT=29000
+#   SERVER_PORT=3010 DB_PORT=5433 DB_CONTAINER=lobehub-agent-testing-postgres REDIS_PORT=6380 REDIS_CONTAINER=lobehub-agent-testing-redis S3_DEV_PORT=29000
 #   AGENT_TESTING_DEV_STATE_FILE=.records/runtime/agent-testing-dev.state
 
 set -euo pipefail
@@ -126,10 +125,6 @@ ENV_FILE_DEFAULT="$WORKSPACE_ROOT/.records/env/agent-testing-dev.env"
 CLI_ENV_FILE_DEFAULT="$WORKSPACE_ROOT/.records/env/agent-testing-cli.env"
 JWKS_FILE_DEFAULT="$WORKSPACE_ROOT/.records/env/agent-testing-jwks.json"
 AGENT_TESTING_API_KEY="${AGENT_TESTING_API_KEY:-sk-lh-agenttesting0001}"
-QSTASH_DEV_PORT="${QSTASH_DEV_PORT:-8080}"
-QSTASH_LOCAL_TOKEN="${QSTASH_LOCAL_TOKEN:-eyJVc2VySUQiOiJkZWZhdWx0VXNlciIsIlBhc3N3b3JkIjoiZGVmYXVsdFBhc3N3b3JkIn0=}"
-QSTASH_LOCAL_CURRENT_SIGNING_KEY="${QSTASH_LOCAL_CURRENT_SIGNING_KEY:-sig_7kYjw48mhY7kAjqNGcy6cr29RJ6r}"
-QSTASH_LOCAL_NEXT_SIGNING_KEY="${QSTASH_LOCAL_NEXT_SIGNING_KEY:-sig_5ZB6DVzB1wjE8S6rZ7eenA8Pdnhs}"
 S3_DEV_PORT="${S3_DEV_PORT:-29000}"
 S3_DATA_DIR="${S3_DATA_DIR:-$WORKSPACE_ROOT/.records/data/agent-testing-s3}"
 
@@ -162,24 +157,6 @@ _http_reachable() {
   [[ -n "$code" && "$code" != "000" ]]
 }
 
-# QStash-specific probe. 8080 is a common dev port, so "something answers HTTP"
-# is not enough — a foreign listener would make preflight green while `agent
-# run` later publishes to a non-QStash endpoint and fails. Key on QStash's REST
-# contract instead: `/v2/schedules` rejects a tokenless request with 401 and
-# answers the configured bearer with 200. A bare/foreign server fails one leg
-# (catch-all 200 servers don't 401; 404/other servers don't 200), and a wrong
-# token also fails (surfacing auth misconfig). Returns 2 when curl is absent.
-_qstash_reachable() {
-  command -v curl > /dev/null 2>&1 || return 2
-  local base="${QSTASH_URL%/}" unauth auth
-  unauth="$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$base/v2/schedules" 2>/dev/null || true)"
-  [[ "$unauth" == "401" ]] || return 1
-  auth="$(curl -s -o /dev/null -m 3 \
-    -H "Authorization: Bearer ${QSTASH_TOKEN:-}" \
-    -w '%{http_code}' "$base/v2/schedules" 2>/dev/null || true)"
-  [[ "$auth" == "200" ]]
-}
-
 guard_no_root_env() {
   if [[ -f "$ROOT_ENV_FILE" && -z "$EXPLICIT_ENV_FILE" ]]; then
     bad "root .env exists: $ROOT_ENV_FILE"
@@ -191,12 +168,14 @@ guard_no_root_env() {
 
 apply_env() {
   export AGENT_GATEWAY_SERVICE_TOKEN="${AGENT_GATEWAY_SERVICE_TOKEN:-agent-testing-local-gateway-service-token}"
-  export AGENT_RUNTIME_MODE="${AGENT_RUNTIME_MODE:-queue}"
+  export AGENT_RUNTIME_MODE="${AGENT_RUNTIME_MODE:-local}"
   export APP_URL="${APP_URL:-http://localhost:${SERVER_PORT}}"
   export AUTH_EMAIL_VERIFICATION="${AUTH_EMAIL_VERIFICATION:-0}"
   export AUTH_SECRET="${AUTH_SECRET:-agent-testing-local-auth-secret-32chars}"
   export DATABASE_DRIVER="${DATABASE_DRIVER:-node}"
   export DATABASE_URL
+  # Signs webhook and workflow deliveries; the agent routes reject unsigned ones.
+  export DELIVERY_SIGNING_KEY="${DELIVERY_SIGNING_KEY:-agent-testing-local-delivery-signing-key}"
   export DEVICE_GATEWAY_SERVICE_TOKEN="${DEVICE_GATEWAY_SERVICE_TOKEN:-agent-testing-local-device-gateway-token}"
   # Background self-iteration follows each user's Labs → Self-evolving switch (off for new
   # users), so no flag is needed to keep a simple chat from fanning out.
@@ -205,11 +184,6 @@ apply_env() {
   export NEXT_PUBLIC_AUTH_EMAIL_VERIFICATION="${NEXT_PUBLIC_AUTH_EMAIL_VERIFICATION:-0}"
   export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=6144}"
   export PORT="${PORT:-$SERVER_PORT}"
-  export QSTASH_CURRENT_SIGNING_KEY="${QSTASH_CURRENT_SIGNING_KEY:-$QSTASH_LOCAL_CURRENT_SIGNING_KEY}"
-  export QSTASH_DEV_PORT
-  export QSTASH_NEXT_SIGNING_KEY="${QSTASH_NEXT_SIGNING_KEY:-$QSTASH_LOCAL_NEXT_SIGNING_KEY}"
-  export QSTASH_TOKEN="${QSTASH_TOKEN:-$QSTASH_LOCAL_TOKEN}"
-  export QSTASH_URL="${QSTASH_URL:-http://127.0.0.1:${QSTASH_DEV_PORT}}"
   export REDIS_URL
   export S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-S3RVER}"
   export S3_BUCKET="${S3_BUCKET:-agent-testing-bucket}"
@@ -245,17 +219,13 @@ env_keys() {
     AUTH_SECRET \
     DATABASE_DRIVER \
     DATABASE_URL \
+    DELIVERY_SIGNING_KEY \
     DEVICE_GATEWAY_SERVICE_TOKEN \
     FEATURE_FLAGS \
     KEY_VAULTS_SECRET \
     NEXT_PUBLIC_AUTH_EMAIL_VERIFICATION \
     NODE_OPTIONS \
     PORT \
-    QSTASH_CURRENT_SIGNING_KEY \
-    QSTASH_DEV_PORT \
-    QSTASH_NEXT_SIGNING_KEY \
-    QSTASH_TOKEN \
-    QSTASH_URL \
     REDIS_URL \
     S3_ACCESS_KEY_ID \
     S3_BUCKET \
@@ -549,7 +519,6 @@ cmd_status() {
   note "AGENT_RUNTIME_MODE=$AGENT_RUNTIME_MODE"
   note "DATABASE_URL=$DATABASE_URL"
   note "PORT=$PORT"
-  note "QSTASH_URL=$QSTASH_URL"
   note "REDIS_URL=$REDIS_URL"
   if command -v docker > /dev/null 2>&1; then
     ok "docker CLI available"
@@ -566,11 +535,6 @@ cmd_status() {
   else
     bad "docker CLI is not available"
   fi
-  if _qstash_reachable; then
-    ok "QStash reachable: $QSTASH_URL"
-  else
-    note "QStash is not answering as QStash at $QSTASH_URL (needed for agent-runtime / queue mode)"
-  fi
   if node "$REPO_ROOT/.agents/acceptance/scripts/check-s3.mjs" > /dev/null 2>&1; then
     ok "S3 reachable and writable: $S3_ENDPOINT/$S3_BUCKET"
   else
@@ -578,11 +542,10 @@ cmd_status() {
   fi
 }
 
-# Prerequisite gate for agent-runtime tests. In queue mode (the default here and
-# in production) creating an agent operation POSTs to QStash; if QStash is down
-# the run fails with `ECONNREFUSED 127.0.0.1:8080 / fetch failed` at operation
-# creation — before any LLM call, so no trace is ever recorded. Run this before
-# `lh agent run` (or any durable-op path) and start `qstash` if it fails.
+# Prerequisite gate for agent-runtime tests. Local mode (the default here) runs
+# steps and deliveries in the dev server process. Queue mode (production)
+# dispatches through a Hatchet engine; point HATCHET_CLIENT_* at one before
+# testing it. Run this before `lh agent run` (or any durable-op path).
 cmd_preflight() {
   apply_env
   local failed=0
@@ -598,15 +561,14 @@ cmd_preflight() {
   fi
 
   if [[ "$AGENT_RUNTIME_MODE" == "queue" ]]; then
-    if _qstash_reachable; then
-      ok "QStash reachable: $QSTASH_URL (operation dispatch)"
+    if [[ -n "${HATCHET_CLIENT_TOKEN:-}" ]]; then
+      ok "Hatchet client configured: ${HATCHET_CLIENT_HOST_PORT:-<default host>} (operation dispatch)"
     else
-      bad "QStash NOT answering as QStash at $QSTASH_URL — agent runs will fail with 'fetch failed' (ECONNREFUSED) or auth errors"
-      note "start it in a separate terminal: $0 qstash"
+      bad "AGENT_RUNTIME_MODE=queue needs a Hatchet engine — set HATCHET_CLIENT_TOKEN and HATCHET_CLIENT_HOST_PORT"
       failed=1
     fi
   else
-    note "AGENT_RUNTIME_MODE=$AGENT_RUNTIME_MODE (not queue) — QStash not required"
+    note "AGENT_RUNTIME_MODE=$AGENT_RUNTIME_MODE — steps and deliveries run in the dev server process"
   fi
 
   if node "$REPO_ROOT/.agents/acceptance/scripts/check-s3.mjs" > /dev/null 2>&1; then
@@ -628,14 +590,6 @@ cmd_preflight() {
     return 1
   fi
   ok "preflight passed — safe to run agent-runtime tests"
-}
-
-cmd_qstash() {
-  apply_env
-  cd "$REPO_ROOT"
-  note "starting local QStash dev server at $QSTASH_URL"
-  note "keep this process running while testing workflow paths"
-  exec pnpm run qstash -- -port "$QSTASH_DEV_PORT"
 }
 
 process_start() {
@@ -833,7 +787,6 @@ case "$COMMAND" in
     ;;
   migrate) migrate_db ;;
   seed-user) seed_user ;;
-  qstash) cmd_qstash ;;
   s3) cmd_s3 ;;
   preflight) cmd_preflight ;;
   dev-next) cmd_dev_next ;;

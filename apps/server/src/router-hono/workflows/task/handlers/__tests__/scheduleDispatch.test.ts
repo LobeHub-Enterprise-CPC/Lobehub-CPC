@@ -29,7 +29,9 @@ vi.mock('@/database/models/task', () => ({
 
 vi.mock('@/envs/app', () => ({ appEnv: mocks.appEnv }));
 
-vi.mock('@/libs/qstash', () => ({ qstashClient: { publishJSON: mocks.publishJSON } }));
+vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
+  getDirectDeliveryClient: () => ({ publishJSON: mocks.publishJSON }),
+}));
 
 vi.mock('@/server/services/taskRunner/scheduleTick', () => ({
   runScheduleTick: mocks.runScheduleTick,

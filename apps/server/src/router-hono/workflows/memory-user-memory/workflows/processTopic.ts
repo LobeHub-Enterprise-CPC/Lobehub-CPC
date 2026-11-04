@@ -5,11 +5,11 @@ import {
 } from '@lobechat/observability-otel/modules/upstash-workflow';
 import { LayersEnum, MemorySourceType } from '@lobechat/types';
 import { errorMessageFrom } from '@lobechat/utils';
-import { type WorkflowContext } from '@upstash/workflow';
-import { WorkflowAbort, WorkflowNonRetryableError } from '@upstash/workflow';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { getServerDB } from '@/database/server';
+import { type WorkflowContext } from '@/server/modules/Workflow';
+import { WorkflowAbort, WorkflowNonRetryableError } from '@/server/modules/Workflow';
 import { type MemoryExtractionPayloadInput } from '@/server/services/memory/userMemory/extract';
 import {
   MemoryExtractionExecutor,

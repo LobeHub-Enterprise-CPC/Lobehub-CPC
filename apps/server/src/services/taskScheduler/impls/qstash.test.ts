@@ -1,6 +1,7 @@
 // @vitest-environment node
-import type { Client } from '@upstash/qstash';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { DirectDeliveryClient as Client } from '@/server/modules/Hatchet/directDelivery';
 
 import { QStashTaskScheduler } from './qstash';
 

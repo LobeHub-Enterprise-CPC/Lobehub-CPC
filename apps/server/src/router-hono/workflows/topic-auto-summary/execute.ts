@@ -1,6 +1,5 @@
-import type { WorkflowContext } from '@upstash/workflow';
-
 import { getServerDB } from '@/database/server';
+import type { WorkflowContext } from '@/server/modules/Workflow';
 import { TopicAutoSummaryService } from '@/server/services/topicAutoSummary';
 import { runStep } from '@/server/workflows/step';
 import type { ExecuteTopicAutoSummaryPayload } from '@/server/workflows/topicAutoSummary';

@@ -59,7 +59,7 @@ drive / probe / capture / publish. Skip a row only when its surface AND runtime 
 | P87 | web, electron | any             | fixture        | Render a pending intervention card: explicit dispatch context, `messagesInit`, `intervention` on BOTH projections, a registered operation                    |
 | P35 | web           | gateway         | probe          | Step-boundary `uiMessages` snapshots overwrite the bucket; record `replaceMessages` stacks, A/B with `disableGatewayMode`                                    |
 | P36 | web           | gateway         | env            | Run the JWT handshake probe after every gateway restart; `/health` 200 proves nothing                                                                        |
-| P37 | any           | gateway         | env            | QStash / s3rver on fixed ports may belong to a sibling session; read the start log before stopping anything                                                  |
+| P37 | any           | gateway         | env            | s3rver on a fixed port may belong to a sibling session; read the start log before stopping anything                                                          |
 | P38 | web           | any             | fixture        | Call the real load-more store action when the fixture is too short for the observer                                                                          |
 | P39 | web, electron | any             | fixture        | Replace the react-query `mutationFn` with a rejection via HMR so no network call ever fires                                                                  |
 | P40 | web, electron | any             | drive          | Remount the DevDock panel after a reload; pre-seed `LOBE_DEV_DOCK_UI` to land on it                                                                          |
@@ -1286,18 +1286,18 @@ when in doubt.
 
 **applies-to:** surface=any · runtime=gateway · phase=env
 
-**Situation:** starting QStash / s3rver for a run through `init-dev-env.sh` in a
+**Situation:** starting s3rver for a run through `init-dev-env.sh` in a
 worktree while another agent-testing session is already active on the machine.
 
-**Doesn't work:** trusting that a backgrounded `init-dev-env.sh qstash` (or `s3`)
-came up because `preflight` then reports the service reachable. Both use fixed ports
-(8080 / 29000), so the second starter dies immediately with
+**Doesn't work:** trusting that a backgrounded `init-dev-env.sh s3`
+came up because `preflight` then reports the service reachable. It uses a fixed port
+(29000), so the second starter dies immediately with
 `address already in use` while the sibling session's process keeps answering — and
 `preflight` is a reachability check, so it passes. The run works, but on services it
 does not own.
 
 **Works:** read the start log before assuming ownership
-(`.records/logs/qstash.log`, `.records/logs/s3.log`), and treat "already in use" as
+(`.records/logs/s3.log`), and treat "already in use" as
 "this is not mine". It matters at teardown: stopping a service you did not start
 kills the other session's run. Only the dev server (`stop-dev`, which verifies PID
 ownership) and anything you launched on a port you chose yourself are yours to stop.

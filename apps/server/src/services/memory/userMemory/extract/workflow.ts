@@ -1,5 +1,3 @@
-import type { FlowControl } from '@upstash/qstash';
-import type { Client } from '@upstash/workflow';
 import { and, eq, sql } from 'drizzle-orm';
 
 import {
@@ -8,9 +6,9 @@ import {
 } from '@/database/models/asyncTask';
 import { asyncTasks } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
-import { OtelWorkflowClient } from '@/libs/qstash';
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { type FlowControl, workflowClient } from '@/server/modules/Workflow';
 import {
   AsyncTaskError,
   AsyncTaskErrorType,
@@ -58,30 +56,7 @@ const buildHourlyChildWorkflowRunId = (entryWorkflowRunId: string) =>
 // owns the extraction), never carried in `baseUrl`.
 const getWorkflowUrl = (path: string, baseUrl: string) => buildTenantCallbackUrl(path, baseUrl);
 
-const getWorkflowClient = () => {
-  const token = process.env.QSTASH_TOKEN;
-  if (!token) throw new Error('QSTASH_TOKEN is required to trigger workflows');
-
-  const config: ConstructorParameters<typeof Client>[0] = { token };
-
-  if (process.env.QSTASH_URL) {
-    (config as Record<string, unknown>).url = process.env.QSTASH_URL;
-  }
-
-  return new OtelWorkflowClient(config);
-};
-
 export class MemoryExtractionWorkflowService {
-  private static client: Client;
-
-  private static getClient() {
-    if (!this.client) {
-      this.client = getWorkflowClient();
-    }
-
-    return this.client;
-  }
-
   static triggerProcessUsers(
     payload: MemoryExtractionPayloadInput,
     options?: { extraHeaders?: Record<string, string> },
@@ -91,7 +66,7 @@ export class MemoryExtractionWorkflowService {
     }
 
     const url = getWorkflowUrl(WORKFLOW_PATHS.users, payload.baseUrl);
-    return this.getClient().trigger({
+    return workflowClient.trigger({
       body: payload,
       flowControl: PROCESS_USERS_FLOW_CONTROL,
       headers: options?.extraHeaders,
@@ -108,7 +83,7 @@ export class MemoryExtractionWorkflowService {
     }
 
     const url = getWorkflowUrl(WORKFLOW_PATHS.hourly, payload.baseUrl);
-    return this.getClient().trigger({
+    return workflowClient.trigger({
       body: payload,
       headers: options?.extraHeaders,
       url,
@@ -225,7 +200,7 @@ export class MemoryExtractionWorkflowService {
     }
 
     const url = getWorkflowUrl(WORKFLOW_PATHS.userTopics, payload.baseUrl);
-    return this.getClient().trigger({
+    return workflowClient.trigger({
       body: payload,
       flowControl: getProcessUserTopicsFlowControl(),
       headers: options?.extraHeaders,
@@ -243,7 +218,7 @@ export class MemoryExtractionWorkflowService {
     }
 
     const url = getWorkflowUrl(WORKFLOW_PATHS.topicBatch, payload.baseUrl);
-    return this.getClient().trigger({
+    return workflowClient.trigger({
       body: payload,
       flowControl: {
         key: `memory-user-memory.pipelines.chat-topic.process-topics.user.${userId}`,
@@ -268,7 +243,7 @@ export class MemoryExtractionWorkflowService {
     }
 
     const url = getWorkflowUrl(WORKFLOW_PATHS.topic, payload.baseUrl);
-    return this.getClient().trigger({
+    return workflowClient.trigger({
       body: payload,
       // NOTICE: fire-and-forget fan-out (replaces the old context.invoke). The per-user key bounds
       // how many process-topic runs a single user can start concurrently, so one heavy user can't
@@ -293,7 +268,7 @@ export class MemoryExtractionWorkflowService {
     }
 
     const url = getWorkflowUrl(WORKFLOW_PATHS.personaUpdate, baseUrl);
-    return this.getClient().trigger({
+    return workflowClient.trigger({
       body: { hourlyTaskId: options?.hourlyTaskId, userIds: [userId] },
       flowControl: {
         key: `memory-user-memory.pipelines.persona.update-write.${userId}`,

@@ -192,6 +192,7 @@ const legacyRawRedisClientConsumers = [
   'apps/server/src/services/file/impls/s3.ts',
   'apps/server/src/services/generation/latency.ts',
   'apps/server/src/workflows/runGuard/store.ts',
+  'apps/server/src/modules/Workflow/store.ts',
   'apps/server/src/runtimeConfig/providers/RedisRuntimeConfigProvider.ts',
   'apps/server/src/router-hono/workflows/memory-user-memory/workflows/runGuard.ts',
   'apps/server/src/modules/AgentRuntime/redis.ts',

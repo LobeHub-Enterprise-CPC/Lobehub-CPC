@@ -6,7 +6,6 @@ import {
   type HourlyUserMemoryExtractionMetadata,
   type UserMemoryExtractionMetadata,
 } from '@lobechat/types';
-import { Client as WorkflowClient } from '@upstash/workflow';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 import { z } from 'zod';
@@ -18,6 +17,7 @@ import {
 } from '@/database/models/asyncTask';
 import { asyncTasks } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
+import { workflowClient } from '@/server/modules/Workflow';
 
 const cancelPayloadSchema = z.object({
   // Optional human-readable cancellation reason.
@@ -31,18 +31,6 @@ const cancelPayloadSchema = z.object({
   // Optional additional workflow run ids for bulk cancellation.
   workflowRunIds: z.array(z.string()).optional(),
 });
-
-const getWorkflowClient = () => {
-  const token = process.env.QSTASH_TOKEN;
-  if (!token) throw new Error('QSTASH_TOKEN is required to cancel workflow runs');
-
-  const config: ConstructorParameters<typeof WorkflowClient>[0] = { token };
-  if (process.env.QSTASH_URL) {
-    (config as Record<string, unknown>).url = process.env.QSTASH_URL;
-  }
-
-  return new WorkflowClient(config);
-};
 
 const supportedTaskTypes = [
   AsyncTaskType.UserMemoryExtractionHourly,
@@ -125,7 +113,7 @@ export const memoryUserMemoryChatTopicCancel = async (c: Context) => {
     let cancelledWorkflowRuns = 0;
     if (workflowRunIds.length > 0) {
       try {
-        const result = await getWorkflowClient().cancel({ ids: workflowRunIds });
+        const result = await workflowClient.cancel({ ids: workflowRunIds });
         cancelledWorkflowRuns = result.cancelled || 0;
       } catch (error) {
         console.error(

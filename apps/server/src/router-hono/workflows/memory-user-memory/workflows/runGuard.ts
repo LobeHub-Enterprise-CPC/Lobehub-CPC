@@ -1,8 +1,7 @@
-import { type WorkflowContext } from '@upstash/workflow';
-
 import { getRedisConfig } from '@/envs/redis';
 import { initializeRedis, isRedisEnabled } from '@/server/modules/Redis';
 import { type BaseRedisProvider } from '@/server/modules/Redis/types';
+import { type WorkflowContext } from '@/server/modules/Workflow';
 import { assertWorkflowRunAllowed, WorkflowRunGuardError } from '@/server/workflows/runGuard';
 import { runStep } from '@/server/workflows/step';
 

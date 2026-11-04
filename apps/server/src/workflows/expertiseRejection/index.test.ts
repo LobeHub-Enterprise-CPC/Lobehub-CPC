@@ -11,7 +11,7 @@ const { appEnv, ingestAcceptanceRound, workflowClient } = vi.hoisted(() => ({
 
 vi.mock('@/database/server', () => ({ getServerDB: vi.fn().mockResolvedValue({}) }));
 vi.mock('@/envs/app', () => ({ appEnv }));
-vi.mock('@/libs/qstash', () => ({ workflowClient }));
+vi.mock('@/server/modules/Workflow', () => ({ workflowClient }));
 vi.mock('@/server/modules/Tenant/callbackUrl');
 vi.mock('@/server/services/expertise/ingestion', () => ({
   ExpertiseIngestionService: class {

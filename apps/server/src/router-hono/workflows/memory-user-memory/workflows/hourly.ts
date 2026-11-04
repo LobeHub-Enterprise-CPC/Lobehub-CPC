@@ -1,9 +1,9 @@
 import { MemorySourceType } from '@lobechat/types';
-import { type WorkflowContext } from '@upstash/workflow';
 import { chunk } from 'es-toolkit/compat';
 
 import { appEnv } from '@/envs/app';
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
+import { type WorkflowContext } from '@/server/modules/Workflow';
 import {
   buildWorkflowPayloadInput,
   MemoryExtractionExecutor,

@@ -1,7 +1,7 @@
-import { type WorkflowContext } from '@upstash/workflow';
 import { z } from 'zod';
 
 import { getServerDB } from '@/database/server';
+import { type WorkflowContext } from '@/server/modules/Workflow';
 import {
   buildUserPersonaJobInput,
   UserPersonaService,

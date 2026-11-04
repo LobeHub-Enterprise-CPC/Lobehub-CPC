@@ -2,7 +2,6 @@ import type { Context } from 'hono';
 
 import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
-import { toQStashDeduplicationId } from '@/libs/qstash/deduplicationId';
 import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { createWidgetSandboxRunner } from '@/server/services/widget/sandbox';
@@ -14,7 +13,7 @@ import {
 
 export const RUN_WIDGET_PATH = '/api/workflows/widget/run-widget';
 
-/** Logical run key per due slot; encoded for QStash at the publish boundary. */
+/** Logical run key per due slot. */
 export const widgetRunDeduplicationId = (widgetId: string, slotIso: string) =>
   `widget:${widgetId}:${slotIso}`;
 
@@ -29,11 +28,7 @@ interface TickPayload {
 }
 
 /**
- * Widget scheduler tick. Meant to run as a QStash Schedule (`lobe-widget-tick`).
- * It is deliberately not created by `scripts/serverLauncher/startServer.js`:
- * a per-minute schedule alone burns most of a free QStash plan's daily quota
- * and starves the task/goal schedules, so self-hosted deployments register it
- * themselves if they want widget scheduling. In queue mode each due slot is
+ * Widget scheduler tick, fanned out per tenant by the `widget-tick` cron. In queue mode each due slot is
  * published to `run-widget` as `{ widgetId, slot }` (deduplicated per slot) and
  * that handler claims it before running, and each stale reservation (a run
  * whose worker died past its lease) as `{ widgetId, runId, leaseStartedAt }`
@@ -41,7 +36,7 @@ interface TickPayload {
  * claims, resumes and runs itself.
  *
  * Trigger a tick by hand against a local server (the script signs the
- * request when `QSTASH_CURRENT_SIGNING_KEY` is set, as `qstashAuth` then
+ * request when `DELIVERY_SIGNING_KEY` is set, as `qstashAuth` then
  * requires):
  *
  *   SERVER_URL=http://localhost:3010 bun run widget:tick [--dry-run]
@@ -54,7 +49,7 @@ export async function tick(c: Context) {
     const dispatch = appEnv.enableQueueAgentRuntime
       ? async (target: WidgetDispatchTarget) => {
           if (!process.env.APP_URL) {
-            throw new Error('APP_URL is required to fan out widget runs via QStash');
+            throw new Error('APP_URL is required to fan out widget runs');
           }
           const url = buildTenantCallbackUrl(RUN_WIDGET_PATH, process.env.APP_URL);
 
@@ -63,9 +58,7 @@ export async function tick(c: Context) {
             await getDirectDeliveryClient().publishJSON({
               body: { leaseStartedAt, runId: target.runId, widgetId: target.widgetId },
               // Overlapping ticks see the same stale lease; publish it once.
-              deduplicationId: toQStashDeduplicationId(
-                widgetResumeDeduplicationId(target.runId, leaseStartedAt),
-              ),
+              deduplicationId: widgetResumeDeduplicationId(target.runId, leaseStartedAt),
               url,
             });
             return;
@@ -75,9 +68,7 @@ export async function tick(c: Context) {
           await getDirectDeliveryClient().publishJSON({
             body: { slot: slotIso, widgetId: target.widgetId },
             // Overlapping ticks see the same unclaimed slot; publish it once.
-            deduplicationId: toQStashDeduplicationId(
-              widgetRunDeduplicationId(target.widgetId, slotIso),
-            ),
+            deduplicationId: widgetRunDeduplicationId(target.widgetId, slotIso),
             url,
           });
         }

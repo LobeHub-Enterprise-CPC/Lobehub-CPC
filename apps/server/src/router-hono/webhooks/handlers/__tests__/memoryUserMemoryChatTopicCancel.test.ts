@@ -10,13 +10,7 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 
-vi.mock('@upstash/workflow', () => ({
-  Client: vi.fn(function () {
-    return {
-      cancel: mocks.cancel,
-    };
-  }),
-}));
+vi.mock('@/server/modules/Workflow', () => ({ workflowClient: { cancel: mocks.cancel } }));
 
 vi.mock('@/database/models/asyncTask', async (importOriginal) => {
   const actual = await importOriginal<typeof AsyncTaskModelModule>();
@@ -77,7 +71,6 @@ const createRequest = (body: Record<string, unknown>) =>
 describe('memory extraction cancel route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubEnv('QSTASH_TOKEN', 'test-qstash-token');
     mocks.cancel.mockResolvedValue({ cancelled: 2 });
     mocks.update.mockResolvedValue(undefined);
   });

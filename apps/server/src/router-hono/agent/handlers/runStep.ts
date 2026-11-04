@@ -184,7 +184,7 @@ async function settleOrphanedRunningOperation(
  * Execute a single agent step. Invoked by QStash with the body
  * `{ operationId, stepIndex, context, humanInput?, approvedToolCall?, ... }`.
  *
- * Auth: `qstashAuth` on the route — QStash signature required.
+ * Auth: `qstashAuth` on the route — delivery signature required.
  */
 export async function runStep(c: Context): Promise<Response> {
   const startTime = Date.now();

@@ -16,8 +16,10 @@ Full code templates for the 3-layer architecture. Read this when actually writin
 **Location:** `apps/server/src/workflows/{workflowName}/index.ts`
 
 ```typescript
-import { Client } from '@upstash/workflow';
 import debug from 'debug';
+
+import { getInternalApiUrl } from '@/envs/app';
+import { workflowClient } from '@/server/modules/Workflow';
 
 const log = debug('lobe-server:workflows:{workflow-name}');
 
@@ -43,47 +45,27 @@ export interface ExecuteItemPayload {
   itemId: string;
 }
 
-const getWorkflowUrl = (path: string): string => {
-  const baseUrl = process.env.APP_URL;
-  if (!baseUrl) throw new Error('APP_URL is required to trigger workflows');
-  return new URL(path, baseUrl).toString();
-};
-
-const getWorkflowClient = (): Client => {
-  const token = process.env.QSTASH_TOKEN;
-  if (!token) throw new Error('QSTASH_TOKEN is required to trigger workflows');
-
-  const config: ConstructorParameters<typeof Client>[0] = { token };
-  if (process.env.QSTASH_URL) {
-    (config as Record<string, unknown>).url = process.env.QSTASH_URL;
-  }
-  return new Client(config);
-};
+// Tenant routes need the tenant path: build callback URLs with
+// buildTenantCallbackUrl from '@/server/modules/Tenant/callbackUrl' (see agentEvalRun).
+const getWorkflowUrl = (path: string): string => new URL(path, getInternalApiUrl()).toString();
 
 export class {WorkflowName}Workflow {
-  private static client: Client;
-
-  private static getClient(): Client {
-    if (!this.client) this.client = getWorkflowClient();
-    return this.client;
-  }
-
   static triggerProcessItems(payload: ProcessItemsPayload) {
     const url = getWorkflowUrl(WORKFLOW_PATHS.processItems);
     log('Triggering process-items workflow');
-    return this.getClient().trigger({ body: payload, url });
+    return workflowClient.trigger({ body: payload, url });
   }
 
   static triggerPaginateItems(payload: PaginateItemsPayload) {
     const url = getWorkflowUrl(WORKFLOW_PATHS.paginateItems);
     log('Triggering paginate-items workflow');
-    return this.getClient().trigger({ body: payload, url });
+    return workflowClient.trigger({ body: payload, url });
   }
 
   static triggerExecuteItem(payload: ExecuteItemPayload) {
     const url = getWorkflowUrl(WORKFLOW_PATHS.executeItem);
     log('Triggering execute-item workflow: %s', payload.itemId);
-    return this.getClient().trigger({ body: payload, url });
+    return workflowClient.trigger({ body: payload, url });
   }
 
   /**
@@ -105,11 +87,12 @@ export class {WorkflowName}Workflow {
 **Purpose:** Validates prerequisites, calculates statistics, supports dry-run mode.
 
 ```typescript
-import { serve } from '@upstash/workflow/nextjs';
+import { serve } from '@/server/modules/Workflow';
 import { getServerDB } from '@/database/server';
 import { WorkflowClass, type ProcessPayload } from '@/server/workflows/{workflowName}';
 
-export const { POST } = serve<ProcessPayload>(
+// Mount in the workflow's Hono app: app.post('/{layer}', handler)
+export const handler = serve<ProcessPayload>(
   async (context) => {
     const { dryRun, force } = context.requestPayload ?? {};
 
@@ -176,7 +159,7 @@ export const { POST } = serve<ProcessPayload>(
 **Purpose:** Handles cursor-based pagination, implements fan-out for large batches.
 
 ```typescript
-import { serve } from '@upstash/workflow/nextjs';
+import { serve } from '@/server/modules/Workflow';
 import { chunk } from 'es-toolkit/compat';
 import { getServerDB } from '@/database/server';
 import { WorkflowClass, type PaginatePayload } from '@/server/workflows/{workflowName}';
@@ -184,7 +167,8 @@ import { WorkflowClass, type PaginatePayload } from '@/server/workflows/{workflo
 const PAGE_SIZE = 50;
 const CHUNK_SIZE = 20;
 
-export const { POST } = serve<PaginatePayload>(
+// Mount in the workflow's Hono app: app.post('/{layer}', handler)
+export const handler = serve<PaginatePayload>(
   async (context) => {
     const { cursor, itemIds: payloadItemIds } = context.requestPayload ?? {};
 
@@ -287,11 +271,12 @@ export const { POST } = serve<PaginatePayload>(
 **Purpose:** Performs the actual business logic for exactly ONE item.
 
 ```typescript
-import { serve } from '@upstash/workflow/nextjs';
+import { serve } from '@/server/modules/Workflow';
 import { getServerDB } from '@/database/server';
 import { WorkflowClass, type ExecutePayload } from '@/server/workflows/{workflowName}';
 
-export const { POST } = serve<ExecutePayload>(
+// Mount in the workflow's Hono app: app.post('/{layer}', handler)
+export const handler = serve<ExecutePayload>(
   async (context) => {
     const { itemId } = context.requestPayload ?? {};
 

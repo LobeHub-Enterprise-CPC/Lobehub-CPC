@@ -42,16 +42,6 @@ export const WORKFLOW_RUN_GUARD_DEFAULT_TTL_SECONDS = 60 * 60;
 export const WORKFLOW_RUN_GUARD_MAX_TTL_SECONDS = 24 * 60 * 60;
 
 /**
- * Policy attached to a workflow run guard value.
- */
-export interface WorkflowRunGuardPolicy {
-  /**
-   * Whether downstream QStash work should be canceled when this guard matches.
-   */
-  cancelQstash?: boolean;
-}
-
-/**
  * Serialized value stored for a workflow run guard key.
  */
 export interface WorkflowRunGuardValue {
@@ -59,11 +49,6 @@ export interface WorkflowRunGuardValue {
    * ISO timestamp indicating when the guard was created.
    */
   createdAt?: string;
-
-  /**
-   * Optional behavior controls to apply when the guard matches.
-   */
-  policy?: WorkflowRunGuardPolicy;
 
   /**
    * Human-readable reason for blocking workflow execution.

@@ -1,7 +1,7 @@
 # Goal Chaos integration
 
 Goal consumes Agent Chaos through application-owned adapters. `@achaos/*` must not import Goal,
-Task, Drizzle schemas, QStash, or server services.
+Task, Drizzle schemas, workflow delivery, or server services.
 
 ## Test harness
 
@@ -63,7 +63,7 @@ resilience work to be present on the target branch.
 ## CI tiers
 
 - PR: deterministic in-process and PGlite/Postgres campaigns; no real process kill or network fault.
-- Nightly: server restart, QStash duplicate/reorder, heterogeneous Agent and real child-process kill.
+- Nightly: server restart, delivery duplicate/reorder, heterogeneous Agent and real child-process kill.
 - Canary: allowlisted non-destructive experiments with a kill switch and strict blast radius.
 - Production: observation and trace capture only until a separate approval policy exists.
 

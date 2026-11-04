@@ -1,8 +1,8 @@
-import { type WorkflowContext } from '@upstash/workflow';
 import debug from 'debug';
 
 import { AgentEvalRunModel } from '@/database/models/agentEval';
 import { getServerDB } from '@/database/server';
+import { type WorkflowContext } from '@/server/modules/Workflow';
 import { AgentEvalRunWorkflow, type ExecuteTestCasePayload } from '@/server/workflows/agentEvalRun';
 import { resolveAgentEvalRunWorkspace } from '@/server/workflows/agentEvalRun/utils';
 import { runStep } from '@/server/workflows/step';

@@ -106,7 +106,7 @@ and message usage; it does not reconstruct runtime-only model context.
 
 ## Diagnose
 
-- PostgreSQL, Redis, RustFS, QStash, or Compose state: local eval infrastructure.
+- PostgreSQL, Redis, RustFS, or Compose state: local eval infrastructure.
 - Port `3210`, migrations, API-key auth, or `/api/version`: LobeHub.
 - Ports `8787`/`8788`, gateway health, or service tokens: gateway.
 - Docker-only connectivity: bridge address, published port, or host firewall.

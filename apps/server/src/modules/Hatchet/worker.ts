@@ -15,7 +15,14 @@ import { resolveDeliveryTarget } from './address';
 import { getHatchetClient } from './client';
 import { getHatchetCapacity } from './config';
 import { pendingPublishCount, settlePendingPublishes } from './pending';
-import { type DeliveryTask, getAgentStepTask, getDeliveryTask } from './tasks';
+import { getScheduleTasks } from './schedules';
+import { getDeliverySigningKey } from './signature';
+import { getAgentStepTask, getDeliveryTask } from './tasks';
+
+type Workflows = Extract<
+  Parameters<ReturnType<typeof getHatchetClient>['worker']>[1],
+  object
+>['workflows'];
 
 const READY_POLL_MS = 500;
 /** Warn on the first failed readiness probe, then on every this many: about every 30s. */
@@ -246,6 +253,8 @@ let started = false;
  */
 export const startHatchetWorkers = (): void => {
   if (started) return;
+  // Every delivery to our own routes is signed with it, and every receiver checks it.
+  if (!getDeliverySigningKey()) throw new Error('DELIVERY_SIGNING_KEY is required in queue mode');
   started = true;
 
   // Post-response work and Hatchet publishes are waited for on shutdown even
@@ -260,13 +269,12 @@ export const startHatchetWorkers = (): void => {
   void (async () => {
     const capacity = getHatchetCapacity();
     const id = `${hostname()}-${process.pid}`;
-    const registration = (name: string, slots: number, task: DeliveryTask) => () =>
+    const registration = (name: string, slots: number, workflows: Workflows) => () =>
       retryUntilDraining(
         () =>
-          orUndefined(`could not register ${task.name}`, () =>
+          orUndefined(`could not register ${name}`, () =>
             withoutSdkSignalHandlers(
-              () =>
-                getHatchetClient().worker(name, { handleKill: false, slots, workflows: [task] }),
+              () => getHatchetClient().worker(name, { handleKill: false, slots, workflows }),
               true,
             ),
           ),
@@ -274,8 +282,12 @@ export const startHatchetWorkers = (): void => {
       );
     const roles: Role[] = [];
     for (const register of [
-      registration(`cpc-steps-${id}`, capacity.stepSlots, getAgentStepTask()),
-      registration(`cpc-delivery-${id}`, capacity.deliverySlots, getDeliveryTask()),
+      registration(`cpc-steps-${id}`, capacity.stepSlots, [getAgentStepTask()]),
+      // Recurring jobs only publish deliveries, so they share the delivery worker.
+      registration(`cpc-delivery-${id}`, capacity.deliverySlots, [
+        getDeliveryTask(),
+        ...getScheduleTasks(),
+      ]),
     ]) {
       const worker = await register();
       if (!worker) return;

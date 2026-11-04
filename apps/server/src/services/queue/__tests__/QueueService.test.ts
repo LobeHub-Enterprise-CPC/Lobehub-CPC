@@ -3,25 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock appEnv before importing QueueService
 const mockAppEnv = {
-  enableHatchetAgentDelivery: false,
   enableQueueAgentRuntime: false,
 };
 
-const qstashMocks = vi.hoisted(() => ({
-  client: vi.fn(),
-  publishJSON: vi.fn(),
-}));
-
 vi.mock('@/envs/app', () => ({
   appEnv: mockAppEnv,
-}));
-
-vi.mock('@/libs/qstash', () => ({
-  OtelQstashClient: qstashMocks.client.mockImplementation(function () {
-    return {
-      publishJSON: qstashMocks.publishJSON,
-    };
-  }),
 }));
 
 vi.mock('@/server/services/gatewayAuthorization/operationAuthority', () => ({
@@ -38,9 +24,6 @@ describe('QueueService', () => {
     vi.resetModules();
     // Reset to default local mode
     mockAppEnv.enableQueueAgentRuntime = false;
-    mockAppEnv.enableHatchetAgentDelivery = false;
-    qstashMocks.client.mockClear();
-    qstashMocks.publishJSON.mockReset();
   });
 
   afterEach(() => {
@@ -209,35 +192,8 @@ describe('QueueService', () => {
   });
 
   describe('Queue Mode (AGENT_RUNTIME_MODE=queue)', () => {
-    it('should throw error when QSTASH_TOKEN is not set', async () => {
+    it('delivers through Hatchet', async () => {
       mockAppEnv.enableQueueAgentRuntime = true;
-      delete process.env.QSTASH_TOKEN;
-
-      const { createQueueServiceModule } = await import('../impls');
-
-      expect(() => createQueueServiceModule()).toThrow(
-        'QSTASH_TOKEN is required when AGENT_RUNTIME_MODE=queue',
-      );
-    });
-
-    it('should create QStashQueueServiceImpl when QSTASH_TOKEN is set', async () => {
-      mockAppEnv.enableQueueAgentRuntime = true;
-      process.env.QSTASH_TOKEN = 'test-qstash-token';
-
-      const { createQueueServiceModule } = await import('../impls');
-      const impl = createQueueServiceModule();
-
-      expect(impl).not.toBeNull();
-      expect(impl?.constructor.name).toBe('QStashQueueServiceImpl');
-
-      // Cleanup
-      delete process.env.QSTASH_TOKEN;
-    });
-
-    it('delivers through Hatchet with AGENT_RUNTIME_DELIVERY=hatchet, without a QStash token', async () => {
-      mockAppEnv.enableQueueAgentRuntime = true;
-      mockAppEnv.enableHatchetAgentDelivery = true;
-      delete process.env.QSTASH_TOKEN;
 
       const { createQueueServiceModule } = await import('../impls');
       const { HatchetQueueServiceImpl } = await import('../impls/hatchet');
@@ -245,197 +201,13 @@ describe('QueueService', () => {
       expect(createQueueServiceModule()).toBeInstanceOf(HatchetQueueServiceImpl);
     });
 
-    it('ignores the Hatchet delivery flag outside queue mode', async () => {
-      mockAppEnv.enableHatchetAgentDelivery = true;
-
-      const { createQueueServiceModule, LocalQueueServiceImpl } = await import('../impls');
-
-      expect(createQueueServiceModule()).toBeInstanceOf(LocalQueueServiceImpl);
-    });
-
     it('should return false for isLocalExecution when in queue mode', async () => {
       mockAppEnv.enableQueueAgentRuntime = true;
-      process.env.QSTASH_TOKEN = 'test-qstash-token';
 
       const { QueueService } = await import('../QueueService');
       const service = new QueueService();
 
       expect(service.isLocalExecution()).toBe(false);
-
-      // Cleanup
-      delete process.env.QSTASH_TOKEN;
-    });
-
-    it('should round sub-second delays up to 1s for QStash', async () => {
-      qstashMocks.publishJSON.mockResolvedValue({ messageId: 'msg-test' });
-
-      const { QStashQueueServiceImpl } = await import('../impls/qstash');
-      const impl = new QStashQueueServiceImpl({ qstashToken: 'test-qstash-token' });
-      const result = impl.scheduleMessage({
-        context: { phase: 'user_input' } as any,
-        delay: 500,
-        endpoint: 'https://example.com/api/agent/run',
-        operationId: 'op-test',
-        priority: 'high',
-        stepIndex: 0,
-      });
-
-      await expect(result).resolves.toBe('msg-test');
-
-      const request = qstashMocks.publishJSON.mock.calls[0][0];
-      expect(request).toMatchObject({ delay: 1 });
-      expect(request.body.timestamp).toEqual(expect.any(Number));
-    });
-
-    it('should publish zero delay immediately without a QStash delay', async () => {
-      qstashMocks.publishJSON.mockResolvedValue({ messageId: 'msg-test' });
-
-      const { QStashQueueServiceImpl } = await import('../impls/qstash');
-      const impl = new QStashQueueServiceImpl({ qstashToken: 'test-qstash-token' });
-      const result = impl.scheduleMessage({
-        context: { phase: 'user_input' } as any,
-        delay: 0,
-        endpoint: 'https://example.com/api/agent/run',
-        operationId: 'op-test',
-        priority: 'high',
-        stepIndex: 0,
-      });
-
-      await expect(result).resolves.toBe('msg-test');
-
-      const request = qstashMocks.publishJSON.mock.calls[0][0];
-      expect(request).not.toHaveProperty('delay');
-    });
-
-    it('should pass second-granularity delays through to QStash', async () => {
-      qstashMocks.publishJSON.mockResolvedValue({ messageId: 'msg-test' });
-
-      const { QStashQueueServiceImpl } = await import('../impls/qstash');
-      const impl = new QStashQueueServiceImpl({ qstashToken: 'test-qstash-token' });
-
-      await impl.scheduleMessage({
-        context: { phase: 'user_input' } as any,
-        delay: 1500,
-        endpoint: 'https://example.com/api/agent/run',
-        operationId: 'op-test',
-        priority: 'high',
-        stepIndex: 0,
-      });
-
-      expect(qstashMocks.publishJSON.mock.calls[0][0]).toMatchObject({ delay: 2 });
-    });
-
-    it('clamps an oversized body instead of letting the publish blow the QStash quota', async () => {
-      qstashMocks.publishJSON.mockResolvedValue({ messageId: 'msg-test' });
-
-      const { QStashQueueServiceImpl } = await import('../impls/qstash');
-      const impl = new QStashQueueServiceImpl({ qstashToken: 'test-qstash-token' });
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-      // A tool that failed with ~12 MB of command output — the shape that used
-      // to 500 the publish and take the whole operation down with it.
-      const runawayOutput = 'x'.repeat(12 * 1024 * 1024);
-
-      await impl.scheduleMessage({
-        context: {
-          payload: { toolsResult: [{ content: runawayOutput }] },
-          phase: 'llm_result',
-        } as any,
-        delay: 0,
-        endpoint: 'https://example.com/api/agent/run',
-        operationId: 'op-oversized',
-        priority: 'normal',
-        stepIndex: 7,
-      });
-
-      const request = qstashMocks.publishJSON.mock.calls[0][0];
-      const clamped = request.body.context.payload.toolsResult[0].content;
-      expect(clamped.length).toBeLessThan(runawayOutput.length);
-      expect(clamped).toContain('characters omitted so the step could be scheduled');
-      expect(Buffer.byteLength(JSON.stringify(request.body), 'utf8')).toBeLessThan(9 * 1024 * 1024);
-      // Shape is preserved so the worker still reads the step it expects.
-      expect(request.body).toMatchObject({ operationId: 'op-oversized', stepIndex: 7 });
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('agent.queue.oversized_message_clamped'),
-      );
-
-      warn.mockRestore();
-    });
-
-    /**
-     * Fragmented oversize: the MCP contract keeps every raw content block in
-     * `state`, so a body can pass the quota through hundreds of mid-sized
-     * strings that a single generous clamp pass would leave untouched.
-     */
-    it('tightens the clamp until a fragmented oversized body actually fits', async () => {
-      qstashMocks.publishJSON.mockResolvedValue({ messageId: 'msg-test' });
-
-      const { QStashQueueServiceImpl } = await import('../impls/qstash');
-      const impl = new QStashQueueServiceImpl({ qstashToken: 'test-qstash-token' });
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-      const blocks = Array.from({ length: 525 }, () => ({ text: 'y'.repeat(20_000) }));
-
-      await impl.scheduleMessage({
-        context: { payload: { state: { content: blocks } }, phase: 'llm_result' } as any,
-        delay: 0,
-        endpoint: 'https://example.com/api/agent/run',
-        operationId: 'op-fragmented',
-        priority: 'normal',
-        stepIndex: 3,
-      });
-
-      const request = qstashMocks.publishJSON.mock.calls[0][0];
-      expect(Buffer.byteLength(JSON.stringify(request.body), 'utf8')).toBeLessThan(9 * 1024 * 1024);
-      expect(request.body.context.payload.state.content).toHaveLength(525);
-      expect(request.body.context.payload.state.content[0].text).toContain(
-        'characters omitted so the step could be scheduled',
-      );
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('"stringKeep":4000'));
-
-      warn.mockRestore();
-    });
-
-    it('encodes logical deduplication keys as stable QStash-safe opaque IDs', async () => {
-      qstashMocks.publishJSON.mockResolvedValue({ messageId: 'msg-test' });
-
-      const { QStashQueueServiceImpl } = await import('../impls/qstash');
-      const impl = new QStashQueueServiceImpl({ qstashToken: 'test-qstash-token' });
-
-      const publish = async (deduplicationId: string) => {
-        await impl.scheduleMessage({
-          context: { phase: 'user_input' } as any,
-          deduplicationId,
-          delay: 0,
-          endpoint: 'https://example.com/api/agent/run',
-          operationId: 'op-stable',
-          priority: 'high',
-          stepIndex: 0,
-        });
-
-        return qstashMocks.publishJSON.mock.calls.at(-1)![0].deduplicationId;
-      };
-
-      const logicalId = 'agent-intervention:op_intervention_9979660c87f7db5cdac6836bc90e9038:0';
-      const first = await publish(logicalId);
-      const retry = await publish(logicalId);
-      const different = await publish(`${logicalId}:retry`);
-
-      expect(first).toBe('a2d899f251f8376646eb59522e64e447805aaf2e7b97d80b2935d2e0d293ffcb');
-      expect(retry).toBe(first);
-      expect(different).not.toBe(first);
-
-      for (const unsafeOrBoundaryId of [
-        'unsafe id/with?characters=#and-non-ascii-审批',
-        'x'.repeat(63),
-        'x'.repeat(64),
-        'x'.repeat(65),
-      ]) {
-        const providerId = await publish(unsafeOrBoundaryId);
-
-        expect(providerId).toHaveLength(64);
-        expect(providerId).toMatch(/^[a-f\d]{64}$/);
-      }
     });
   });
 

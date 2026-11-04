@@ -1,6 +1,7 @@
 import debug from 'debug';
 
 import type { LobeChatDatabase } from '@/database/type';
+import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
 import type { AbandonedSubAgentResume } from '@/server/services/agentRuntime';
 import { deliverWebhook } from '@/server/services/agentRuntime/hooks/HookDispatcher';
 import { AiAgentService } from '@/server/services/aiAgent';
@@ -53,7 +54,7 @@ export async function resumeAbandonedParent(
     toolMessageId,
   };
 
-  if (process.env.QSTASH_TOKEN) {
+  if (isHatchetDeliveryEnabled()) {
     // `streamOwnerUserId` lets the callback keep visitor rows visible when the
     // child's coordinator metadata (its usual source) is already gone.
     await deliverWebhook(

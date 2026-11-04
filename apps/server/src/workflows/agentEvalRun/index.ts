@@ -4,8 +4,8 @@ import debug from 'debug';
 import { AgentEvalRunTopicModel } from '@/database/models/agentEval';
 import type { LobeChatDatabase } from '@/database/type';
 import { getInternalApiUrl } from '@/envs/app';
-import { workflowClient } from '@/libs/qstash';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { workflowClient } from '@/server/modules/Workflow';
 
 const log = debug('lobe-server:workflows:agent-eval-run');
 

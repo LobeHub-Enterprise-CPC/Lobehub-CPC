@@ -22,7 +22,7 @@ const log = debug('lobe-server:agent:group-member-callback');
  * `webhook.body`: `{ anchorMessageId, expectedMembers, groupToolMessageId, mode,
  * onComplete, parentOperationId, threadId? }`.
  *
- * Auth: `qstashAuth` on the route — QStash signature required.
+ * Auth: `qstashAuth` on the route — delivery signature required.
  */
 export async function groupMemberCallback(c: Context): Promise<Response> {
   let body: any;

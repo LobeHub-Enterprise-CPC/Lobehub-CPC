@@ -4,11 +4,11 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Socket } from 'node:net';
 
-import { Receiver } from '@upstash/qstash';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { HATCHET_TIMING } from './config';
 import { deliver } from './deliver';
+import { verifyDeliverySignature } from './signature';
 import type { DeliveryInput } from './types';
 
 const signingKey = 'delivery-test-key';
@@ -75,6 +75,14 @@ describe('deliver HTTP integration', () => {
   });
 
   describe('deliver', () => {
+    it('delivers unsigned to loopback when no signing key is configured (local dev)', async () => {
+      vi.stubEnv('DELIVERY_SIGNING_KEY', '');
+      const result = await deliver(input, attempt, { env: deps().env });
+      expect(result).toEqual({ kind: 'delivered', status: 200 });
+      expect(received.headers['upstash-signature']).toBeUndefined();
+      expect(received.body).toBe(input.body);
+    });
+
     it('delivers exact signed bytes to loopback with trusted transport headers', async () => {
       const fetchSpy = vi.spyOn(globalThis, 'fetch');
       const result = await deliver(
@@ -109,14 +117,14 @@ describe('deliver HTTP integration', () => {
         'upstash-retried': '0',
       });
       expect(received.headers['upstash-forward-authorization']).toBeUndefined();
-      const receiver = new Receiver({ currentSigningKey: signingKey, nextSigningKey: signingKey });
-      await expect(
-        receiver.verify({
+      expect(
+        verifyDeliverySignature({
           body: received.body,
           signature: String(received.headers['upstash-signature']),
+          signingKey,
           url: input.url,
         }),
-      ).resolves.toBe(true);
+      ).toBe(true);
     });
 
     it('delivers to a single-family local listener after a busy DNS callback turn', async () => {
@@ -305,14 +313,6 @@ describe('deliver HTTP integration', () => {
 
 describe('deliver input validation', () => {
   afterEach(() => vi.unstubAllEnvs());
-  it('returns a terminal failure for a missing signing key', async () => {
-    vi.stubEnv('QSTASH_CURRENT_SIGNING_KEY', '');
-    expect(await deliver(input, attempt, { env: deps().env })).toEqual({
-      kind: 'failed',
-      reason: 'signing key missing',
-    });
-  });
-
   it('does not expose body, URL credentials, or header values in errors', async () => {
     const result = await deliver(
       { ...input, url: 'https://secret:password@app.example.com/a' },

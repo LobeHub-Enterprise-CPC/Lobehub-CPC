@@ -60,17 +60,10 @@ vi.mock('@/database/models/asyncTask', () => ({
   }),
 }));
 
-vi.mock('@/libs/qstash', () => ({
-  OtelWorkflowClient: vi.fn(function () {
-    return {
-      trigger: mockTrigger,
-    };
-  }),
-}));
+vi.mock('@/server/modules/Workflow', () => ({ workflowClient: { trigger: mockTrigger } }));
 
 describe('MemoryExtractionWorkflowService.triggerHourlyTracked', () => {
   const originalServiceUserId = process.env.MEMORY_EXTRACTION_HOURLY_TASK_USER_ID;
-  const originalQstashToken = process.env.QSTASH_TOKEN;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -78,7 +71,6 @@ describe('MemoryExtractionWorkflowService.triggerHourlyTracked', () => {
     vi.setSystemTime(new Date('2026-07-06T00:00:00.000Z'));
 
     process.env.MEMORY_EXTRACTION_HOURLY_TASK_USER_ID = 'service-account-user';
-    process.env.QSTASH_TOKEN = 'test-qstash-token';
 
     mockGetServerDB.mockResolvedValue({
       db: 'server',
@@ -105,12 +97,6 @@ describe('MemoryExtractionWorkflowService.triggerHourlyTracked', () => {
       delete process.env.MEMORY_EXTRACTION_HOURLY_TASK_USER_ID;
     } else {
       process.env.MEMORY_EXTRACTION_HOURLY_TASK_USER_ID = originalServiceUserId;
-    }
-
-    if (originalQstashToken === undefined) {
-      delete process.env.QSTASH_TOKEN;
-    } else {
-      process.env.QSTASH_TOKEN = originalQstashToken;
     }
   });
 
@@ -224,7 +210,7 @@ describe('MemoryExtractionWorkflowService.triggerHourlyTracked', () => {
      * @example
      * await expect(MemoryExtractionWorkflowService.triggerHourlyTracked({ baseUrl })).rejects.toThrow();
      */
-    const triggerError = new Error('upstash unavailable');
+    const triggerError = new Error('queue unavailable');
     mockTrigger.mockRejectedValue(triggerError);
 
     await expect(

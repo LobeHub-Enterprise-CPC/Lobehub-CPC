@@ -6,8 +6,8 @@
  *   bun run widget:tick --dry-run       # only report how many are due
  *   SERVER_URL=http://localhost:3011 bun run widget:tick
  *
- * When QSTASH_CURRENT_SIGNING_KEY is set the route verifies signatures, so the
- * request is signed with that key the way QStash would; otherwise it is sent
+ * When DELIVERY_SIGNING_KEY is set the route verifies signatures, so the
+ * request is signed with that key the way a delivery is; otherwise it is sent
  * unsigned, which the route accepts.
  */
 import { createHash, createHmac, randomUUID } from 'node:crypto';
@@ -41,7 +41,7 @@ const sign = (key: string) => {
   return `${header}.${payload}.${signature}`;
 };
 
-const signingKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
+const signingKey = process.env.DELIVERY_SIGNING_KEY;
 const response = await fetch(url, {
   body,
   headers: {

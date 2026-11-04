@@ -205,7 +205,7 @@ expect_env INTERNAL_APP_URL http://localhost:3210
 expect_env EVAL_LOBE_API_BASE_URL http://host.docker.internal:3210
 expect_env DATABASE_DRIVER node
 expect_env AGENT_RUNTIME_BASE_URL http://localhost:3210
-expect_env AGENT_RUNTIME_MODE queue
+expect_env AGENT_RUNTIME_MODE local
 expect_env DEVICE_GATEWAY_URL http://localhost:8787
 expect_env AGENT_GATEWAY_URL http://localhost:8788
 expect_env NEXT_PUBLIC_SERVICE_MODE server
@@ -214,8 +214,7 @@ expect_env ENABLE_AGENT_FILE_TRACING 1
 expect_env ENABLE_AGENT_GATEWAY 1
 
 for key in \
-  DATABASE_URL REDIS_URL S3_ENDPOINT S3_BUCKET QSTASH_URL QSTASH_TOKEN \
-  QSTASH_CURRENT_SIGNING_KEY QSTASH_NEXT_SIGNING_KEY DEVICE_GATEWAY_URL \
+  DATABASE_URL REDIS_URL S3_ENDPOINT S3_BUCKET DELIVERY_SIGNING_KEY DEVICE_GATEWAY_URL \
   DEVICE_GATEWAY_SERVICE_TOKEN AGENT_GATEWAY_URL AGENT_GATEWAY_SERVICE_TOKEN \
   AGENT_RUNTIME_BASE_URL KEY_VAULTS_SECRET AUTH_SECRET LH_SERVER_URL \
   LH_GATEWAY_URL HARBOR_AGENT_GATEWAY_URL; do
@@ -234,7 +233,7 @@ else
 fi
 
 section 'Compose services'
-for service in postgresql redis rustfs qstash gateway; do
+for service in postgresql redis rustfs gateway; do
   id="$(compose_id "$service")"
   if [[ -z "$id" ]]; then
     fail "$service container does not exist"
@@ -293,12 +292,9 @@ section 'Host endpoints'
 rustfs_port="$(read_dotenv EVAL_RUSTFS_PORT)"
 device_port="$(read_dotenv EVAL_DEVICE_GATEWAY_PORT)"
 agent_port="$(read_dotenv EVAL_AGENT_GATEWAY_PORT)"
-qstash_url="$(read_dotenv QSTASH_URL)"
-qstash_token="$(read_dotenv QSTASH_TOKEN)"
 http_probe 'RustFS' "http://localhost:${rustfs_port:-9100}/health"
 http_probe 'Device Gateway' "http://localhost:${device_port:-8787}/health"
 http_probe 'Agent Gateway' "http://localhost:${agent_port:-8788}/health"
-http_probe 'QStash API' "${qstash_url%/}/v2/logs" "Authorization: Bearer $qstash_token"
 http_probe 'LobeHub production server' 'http://localhost:3210/api/version'
 
 if [[ -f "$REPO_ROOT/.next/BUILD_ID" ]]; then

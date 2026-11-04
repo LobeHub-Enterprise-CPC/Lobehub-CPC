@@ -23,7 +23,6 @@ vi.mock('../dispatchClientTool', () => ({ dispatchClientTool: dispatchClient }))
 vi.mock('@/database/models/user', () => ({ UserModel: { getEmailsByIds } }));
 vi.mock('@/database/server', () => ({ getServerDB: async () => ({}) }));
 vi.mock('@/server/services/queue/impls', () => ({ isQueueAgentRuntimeEnabled: queueMode }));
-vi.mock('@/libs/qstash', () => ({ OtelQstashClient: class {} }));
 vi.mock('@/database/models/agent', () => ({
   AgentModel: class {
     getAgentVisibility = async () => 'private';

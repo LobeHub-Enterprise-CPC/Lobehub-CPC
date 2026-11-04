@@ -26,10 +26,8 @@ vi.mock('@/database/server', () => ({
 vi.mock('@/server/services/queue/impls', () => ({
   isQueueAgentRuntimeEnabled: () => queueMode.enabled,
 }));
-vi.mock('@upstash/qstash', () => ({
-  Client: class {
-    publishJSON = publishJSON;
-  },
+vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
+  getDirectDeliveryClient: () => ({ publishJSON }),
 }));
 
 const hookTypes: AgentHookType[] = [
@@ -345,7 +343,6 @@ describe('webhook user email', () => {
   );
 
   it('resolves the final body identity on a cold queue worker', async () => {
-    vi.stubEnv('QSTASH_TOKEN', 'test-token');
     const hooks: SerializedHook[] = [
       {
         id: 'internal',
@@ -396,8 +393,7 @@ describe('webhook user email', () => {
     expect(received[0]).not.toHaveProperty('userEmail');
   });
 
-  it('includes the resolved email in QStash JSON', async () => {
-    vi.stubEnv('QSTASH_TOKEN', 'test-token');
+  it('includes the resolved email in the queued delivery JSON', async () => {
     const queued: SerializedHook = {
       id: 'queued',
       type: 'onComplete',
@@ -421,7 +417,6 @@ describe('webhook tool results', () => {
   ] as const)(
     'trims Work payloads for $delivery (projected: $projected)',
     async ({ delivery, projected }) => {
-      vi.stubEnv('QSTASH_TOKEN', 'test-token');
       const args = Object.freeze({ repository: 'example/project', number: 42 });
       const data = Object.freeze({ body: 'raw tool output'.repeat(1000), number: 42 });
       const intent = Object.freeze({
