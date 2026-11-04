@@ -2,12 +2,14 @@ import {
   Button,
   cssVar,
   Flexbox,
+  Icon,
   Input,
   ModalFooter,
   Text,
   toast,
   useModalContext,
 } from '@lobehub/ui';
+import { FolderIcon } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -103,8 +105,8 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
 
   return (
     <>
-      <Flexbox gap={16} padding={16}>
-        <Flexbox gap={6}>
+      <Flexbox data-brand-slot={'project-form'} gap={16} padding={16}>
+        <Flexbox data-brand-slot={'project-name-field'} gap={6}>
           <Text fontSize={13} weight={500}>
             {t('create.nameLabel')}
           </Text>
@@ -112,6 +114,7 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
             autoFocus
             maxLength={255}
             placeholder={t('create.namePlaceholder')}
+            prefix={<Icon icon={FolderIcon} size={16} />}
             value={form.name}
             onChange={(event) => updateName(event.target.value)}
             onPressEnter={handleCreate}
