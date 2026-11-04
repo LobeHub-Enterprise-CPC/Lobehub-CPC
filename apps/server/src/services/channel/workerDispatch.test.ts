@@ -424,7 +424,10 @@ describe('Channel dispatch isolation', () => {
         ]),
       );
       await worker.tick();
-      expect(deviceConstructor).toHaveBeenCalledWith(expect.anything(), 'owner', 'old-device');
+      expect(deviceConstructor).toHaveBeenCalledWith(expect.anything(), 'owner', 'old-device', {
+        runId: 'old',
+        fence: 1,
+      });
       expect(stopDevice).toHaveBeenCalledWith('old', 1);
       expect(methods.recordEnvironmentCleanup).toHaveBeenCalledWith(
         channel.id,

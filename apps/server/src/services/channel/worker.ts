@@ -116,6 +116,7 @@ export class ChannelWorker {
                   this.db,
                   channel.ownerId,
                   config.deviceId,
+                  { runId: run.id, fence: run.executionFence },
                 ).stop(run.id, run.executionFence);
                 const confirmed =
                   snapshot?.runId === run.id &&
@@ -301,11 +302,10 @@ export class ChannelWorker {
           let block: { code: ChannelJobBlockCode; reason: string } | undefined;
           try {
             if (config.deviceId && config.workingDirectory) {
-              const canonical = await new ChannelDevice(
-                this.db,
-                channel.ownerId,
-                config.deviceId,
-              ).probe(config.workingDirectory, config.runtime, config.agentId);
+              const canonical = await new ChannelDevice(this.db, channel.ownerId, config.deviceId, {
+                jobId: job.id,
+                environmentRevision: revision,
+              }).probe(config.workingDirectory, config.runtime, config.agentId);
               if (canonical !== config.workingDirectory)
                 block = {
                   code: 'workspace_changed',
@@ -342,7 +342,10 @@ export class ChannelWorker {
             }
           } else if (config.deviceId && config.workingDirectory) {
             try {
-              await new ChannelDevice(this.db, channel.ownerId, config.deviceId).start(
+              await new ChannelDevice(this.db, channel.ownerId, config.deviceId, {
+                runId: claim.run.id,
+                fence: claim.run.executionFence,
+              }).start(
                 {
                   cwd: config.workingDirectory,
                   fence: claim.run.executionFence,
@@ -484,7 +487,10 @@ export class ChannelWorker {
     config: ChannelMemberConfig,
     stopped: boolean,
   ) {
-    const device = new ChannelDevice(this.db, ownerId, config.deviceId!);
+    const device = new ChannelDevice(this.db, ownerId, config.deviceId!, {
+      runId: run.id,
+      fence: run.executionFence,
+    });
     const snapshot = stopped
       ? await device.stop(run.id, run.executionFence)
       : await device.inspect(run.id, run.executionFence);

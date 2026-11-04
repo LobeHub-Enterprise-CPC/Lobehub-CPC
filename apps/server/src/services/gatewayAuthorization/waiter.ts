@@ -48,6 +48,8 @@ export const waitForGatewayResult = async (
         principal: attempt.intent.targetPrincipal,
         operationId: key.operationId,
         execute: true,
+        action: attempt.intent.action,
+        resourceId: attempt.intent.resourceId,
       });
       if (attempt.result) return attempt.result;
       if (!['prepared', 'claimed'].includes(attempt.state))

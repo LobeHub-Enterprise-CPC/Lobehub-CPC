@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto';
 
+import { channelJobs } from '@lobechat/database/privateSchemas';
 import { devices, session } from '@lobechat/database/schemas';
 import type { TenantScope } from '@lobechat/database/tenant';
 import { runWithTenantScope } from '@lobechat/database/tenant';
 import { GatewayHttpClient } from '@lobechat/device-gateway-client';
 import type { GatewayDispatchEnvelope } from '@lobechat/types';
+import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getTestDB } from '@/database/core/getTestDB';
+import { ChannelModel } from '@/database/models/channel';
 import type { LobeChatDatabase } from '@/database/type';
 import { resetRedisClient } from '@/server/modules/Redis';
 import { deviceGatewayTenancy } from '@/server/services/deviceGateway/tenancy';
@@ -42,6 +45,7 @@ vi.mock('@lobechat/business-auth', () => ({
   assertBusinessUserAccess: async () => {},
   isBusinessAuthorizationError: () => false,
 }));
+vi.mock('@/server/services/channel/gate', () => ({ isChannelEnabled: async () => true }));
 vi.mock('@/server/modules/Tenant/runtime', () => ({
   getTenantRuntime: () => ({
     gatewayAdmission: async (tenantId: string) => ({
@@ -79,6 +83,34 @@ const run = <T>(fn: () => T) =>
 let dispatched: GatewayAttemptRecord;
 let reply: Record<string, unknown>;
 let mutate: (() => Promise<void>) | undefined;
+const channelSource = async (): Promise<GatewayAuthorizationSource> => {
+  const model = new ChannelModel(db, subject);
+  const channel = await model.create('Device settlement fixture', [
+    {
+      name: 'Device',
+      config: {
+        runtime: 'codex',
+        model: '',
+        provider: 'codex',
+        deviceId: 'device-b12',
+        workingDirectory: '/repo',
+      },
+    },
+    { name: 'Peer', config: { runtime: 'native', model: 'fixture', provider: 'fixture' } },
+  ]);
+  const member = (await model.detail(channel.id)).members.find((row) => row.name === 'Device')!;
+  await model.send(channel.id, { content: 'Probe', mentions: [member.id], requestKey: 'probe' });
+  const [job] = await db.select().from(channelJobs).where(eq(channelJobs.channelId, channel.id));
+  return {
+    kind: 'channel',
+    tenantId,
+    subject,
+    deviceId: 'device-b12',
+    apiName: 'channelProbe',
+    jobId: job.id,
+    environmentRevision: member.environmentRevision,
+  };
+};
 const makeClient = () =>
   new GatewayHttpClient({
     gatewayUrl: 'http://gateway.invalid',
@@ -164,6 +196,51 @@ afterAll(async () => {
 });
 
 redisSuite('Device inline result settles the original real Work attempt', () => {
+  it('settles a Channel worker probe through the real HTTP client and Redis attempt ledger', async () =>
+    run(async () => {
+      const channel = await channelSource();
+      mutate = async () => {
+        reply.result = { content: '{"available":true}', success: true };
+      };
+      const result = await runWithGatewaySource(channel, () =>
+        makeClient().executeToolCall(
+          { userId: subject, deviceId: 'device-b12' },
+          { identifier: 'local', apiName: 'channelProbe', arguments: '{"cwd":"/repo"}' },
+        ),
+      );
+      expect(result.success).toBe(true);
+      expect(
+        await redisService.gatewayAuthorization.getAttempt(dispatched.intent.attemptId),
+      ).toMatchObject({ state: 'completed', source: channel, dispatchResult: reply });
+    }));
+  it('rejects a Channel result after its exact queued job was cancelled', async () =>
+    run(async () => {
+      const channel = await channelSource();
+      if (channel.kind !== 'channel' || !('jobId' in channel))
+        throw new Error('Missing job authority');
+      mutate = async () => {
+        reply.result = { content: '{}', success: true };
+        await db
+          .update(channelJobs)
+          .set({ status: 'cancelled' })
+          .where(eq(channelJobs.id, channel.jobId));
+      };
+      await expect(
+        runWithGatewaySource(channel, () =>
+          makeClient().executeToolCall(
+            { userId: subject, deviceId: 'device-b12' },
+            { identifier: 'local', apiName: 'channelProbe', arguments: '{}' },
+          ),
+        ),
+      ).resolves.toMatchObject({
+        success: false,
+        executionUnknown: true,
+        error: 'DEVICE_GATEWAY_ERROR: DEVICE_DISPATCH_SETTLEMENT_UNKNOWN',
+      });
+      expect(
+        await redisService.gatewayAuthorization.getAttempt(dispatched.intent.attemptId),
+      ).toMatchObject({ state: 'claimed' });
+    }));
   it('commits completed before returning a successful RPC without operation or toolCall IDs', async () =>
     run(async () => {
       expect(await invoke()).toMatchObject({ data: { ok: 1 }, success: true });

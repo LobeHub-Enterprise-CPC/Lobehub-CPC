@@ -54,6 +54,8 @@ export const createGatewayAttempt = async (
     principal: input.targetPrincipal,
     operationId: input.operationId,
     execute: true,
+    action: input.action,
+    resourceId: input.resourceId,
   });
   if (input.action.startsWith('device.'))
     await gatewayDeviceTarget(input.source.subject, input.targetPrincipal, input.resourceId);
@@ -102,6 +104,8 @@ export const loadGatewayAttempt = async (
     principal: record.intent.targetPrincipal,
     operationId: record.intent.operationId,
     execute: true,
+    action: record.intent.action,
+    resourceId: record.intent.resourceId,
   });
   if (record.intent.action.startsWith('device.'))
     await gatewayDeviceTarget(

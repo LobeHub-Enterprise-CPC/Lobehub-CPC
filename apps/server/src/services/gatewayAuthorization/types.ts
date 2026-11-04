@@ -8,11 +8,23 @@ import type {
   GatewayPrincipal,
 } from '@lobechat/types';
 
+/** Durable Channel rows, rather than browser credentials, authorize worker RPCs. */
+export type GatewayChannelAuthority =
+  { jobId: string; environmentRevision: number } | { runId: string; fence: number };
+export type GatewayChannelSource = GatewayChannelAuthority & {
+  kind: 'channel';
+  tenantId: string;
+  subject: string;
+  deviceId: string;
+  apiName: 'channelProbe' | 'channelStart' | 'channelInspect' | 'channelStop';
+};
+
 export type GatewayAuthorizationSource =
   | { kind: 'session'; sessionId: string; subject: string }
   | { kind: 'apiKey'; keyId: string; keyHash: string; subject: string; workspaceId?: string }
   | { kind: 'oidc'; jti: string; subject: string }
-  | { kind: 'operation'; operationId: string; subject: string };
+  | { kind: 'operation'; operationId: string; subject: string }
+  | GatewayChannelSource;
 export type {
   GatewayAudience,
   GatewayCapability,
