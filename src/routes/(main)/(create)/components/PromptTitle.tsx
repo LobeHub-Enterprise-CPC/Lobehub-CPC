@@ -17,6 +17,7 @@ const PromptTitle = memo<PromptTitleProps>(({ mode }) => {
     <Flexbox
       horizontal
       align={'center'}
+      data-brand-slot={'create-title'}
       justify={'center'}
       style={{ fontSize: 28, fontWeight: 'bold', marginBottom: 24 }}
       width={'100%'}

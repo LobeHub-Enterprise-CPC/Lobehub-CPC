@@ -50,7 +50,9 @@ export const ScheduledTasksWelcome = ({
               />
             </svg>
           </div>
-          <h1 className={styles.welcomeTitle}>{t('scheduledTasks.welcome')}</h1>
+          <h1 className={styles.welcomeTitle} data-brand-slot={'tasks-welcome-title'}>
+            {t('scheduledTasks.welcome')}
+          </h1>
           <Button
             className={styles.pill}
             disabled={disabled}

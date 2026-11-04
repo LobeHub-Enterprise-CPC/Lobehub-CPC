@@ -328,7 +328,13 @@ const AddButton = ({ iconOnly, rootLevel }: AddButtonProps = {}) => {
               title={canCreate ? t('addLibrary') : undefined}
             />
           ) : (
-            <Button data-no-highlight disabled={!canCreate} icon={Plus} type="primary">
+            <Button
+              data-no-highlight
+              data-brand-slot={'resource-add'}
+              disabled={!canCreate}
+              icon={Plus}
+              type="primary"
+            >
               {t('addLibrary')}
             </Button>
           )}

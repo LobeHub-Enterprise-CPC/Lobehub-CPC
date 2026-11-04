@@ -91,7 +91,12 @@ const AddGroupMemberModal = memo<AddGroupMemberModalProps>(
         onCancel={handleCancel}
         onOk={handleConfirm}
       >
-        <Flexbox horizontal className={styles.container} gap={8}>
+        <Flexbox
+          horizontal
+          className={styles.container}
+          data-brand-slot={'add-member-picker'}
+          gap={8}
+        >
           {/* Left Column - Available Agents */}
           <AvailableAgentList agents={availableAgents} isLoading={isLoadingAgents} />
 
