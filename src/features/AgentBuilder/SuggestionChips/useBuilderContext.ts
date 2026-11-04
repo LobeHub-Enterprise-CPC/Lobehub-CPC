@@ -52,7 +52,7 @@ const buildGroupSummary = (group?: AgentGroupDetail): string => {
   const members = agents.filter((a) => !a.isSupervisor);
   const memberLines = members
     .slice(0, 12)
-    .map((m) => `- ${summarize(m.title, '(untitled)')}`)
+    .map((m) => `- ${summarize(agentDisplayName(m), '(untitled)')}`)
     .join('\n');
   return [
     `Name: ${summarize(group.title, '(untitled)')}`,
@@ -69,6 +69,7 @@ export interface BuilderContext {
   generationMode: BuilderSuggestionMode;
   locale: string;
   targetId?: string;
+  targetName?: string;
 }
 
 /**
@@ -101,5 +102,6 @@ export const useBuilderContext = (mode: SuggestMode): BuilderContext => {
     generationMode: isGroup ? 'group' : 'agent',
     locale: i18n.language,
     targetId: isGroup ? activeGroupId : activeAgentId,
+    targetName: isGroup ? (group?.title ?? undefined) : agentDisplayName(agentItem),
   };
 };

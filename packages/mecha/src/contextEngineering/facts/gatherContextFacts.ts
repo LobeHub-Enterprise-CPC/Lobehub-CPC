@@ -29,6 +29,7 @@ import {
   type TopicReferenceItem,
   type WorkspaceContext,
 } from '@lobechat/context-engine';
+import { agentDisplayName } from '@lobechat/types';
 import debug from 'debug';
 import pMap from 'p-map';
 
@@ -388,7 +389,7 @@ const gatherGroupAgentBuilderContext = async (
         description: member.description ?? undefined,
         id: member.agentId,
         isSupervisor: member.role === 'supervisor',
-        title: member.title || 'Untitled Agent',
+        title: agentDisplayName(member, 'Untitled Agent'),
       })),
       officialTools: listOfficialTools({
         connectedConnectorIds: new Set(connected ?? []),

@@ -1,3 +1,5 @@
+import { agentDisplayName } from '@lobechat/types';
+
 /**
  * Agent Profile Formatting
  *
@@ -10,6 +12,7 @@ export interface AgentProfileInfo {
   description?: string | null;
   id: string;
   model?: string | null;
+  name?: string | null;
   provider?: string | null;
   systemRole?: string | null;
   title?: string | null;
@@ -45,7 +48,7 @@ export const formatAgentProfile = (agent: AgentProfileInfo): string => {
       ? agent.systemRole.slice(0, 500) + '... (truncated)'
       : agent.systemRole;
 
-  return AGENT_PROFILE_TEMPLATE.replace('{{title}}', agent.title || 'Untitled Agent')
+  return AGENT_PROFILE_TEMPLATE.replace('{{title}}', agentDisplayName(agent, 'Untitled Agent'))
     .replace('{{id}}', agent.id)
     .replace('{{description}}', agent.description || 'N/A')
     .replace('{{model}}', agent.model || 'Unknown Model')

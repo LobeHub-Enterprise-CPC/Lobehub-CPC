@@ -44,6 +44,7 @@ export interface GroupFacts {
   members: {
     agentId: string;
     description?: string | null;
+    name?: string | null;
     role: 'supervisor' | 'participant';
     title?: string | null;
   }[];

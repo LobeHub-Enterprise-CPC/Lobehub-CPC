@@ -1,6 +1,7 @@
 'use client';
 
 import { DEFAULT_AVATAR, EDITOR_DEBOUNCE_TIME } from '@lobechat/const';
+import { agentDisplayName, agentRenameField } from '@lobechat/types';
 import { Block, Flexbox, Icon, Input, Skeleton, toast, Tooltip } from '@lobehub/ui';
 import { debounce } from 'es-toolkit/compat';
 import isEqual from 'fast-deep-equal';
@@ -47,18 +48,19 @@ const AgentHeader = memo<AgentHeaderProps>(({ readOnly, disabled: disabledProp }
   const [uploading, setUploading] = useState(false);
 
   // Local state for inputs (to avoid stuttering during typing)
-  const [localTitle, setLocalTitle] = useState(agentMeta.title || '');
+  const displayName = agentDisplayName(agentMeta) ?? '';
+  const [localTitle, setLocalTitle] = useState(displayName);
 
   // Sync local state when meta changes from external source
   useEffect(() => {
-    setLocalTitle(agentMeta.title || '');
-  }, [agentId, agentMeta.title]);
+    setLocalTitle(displayName);
+  }, [agentId, displayName]);
 
   // Debounced save for title - save to agent store
   const debouncedSaveTitle = useMemo(
     () =>
-      debounce((targetAgentId: string, value: string) => {
-        updateAgentMetaById(targetAgentId, { title: value });
+      debounce((targetAgentId: string, field: 'name' | 'title', value: string) => {
+        updateAgentMetaById(targetAgentId, { [field]: value });
       }, EDITOR_DEBOUNCE_TIME),
     [updateAgentMetaById],
   );
@@ -240,7 +242,7 @@ const AgentHeader = memo<AgentHeaderProps>(({ readOnly, disabled: disabledProp }
           setLocalTitle(e.target.value);
           if (!agentId || disabled) return;
 
-          debouncedSaveTitle(agentId, e.target.value);
+          debouncedSaveTitle(agentId, agentRenameField(agentMeta), e.target.value);
         }}
       />
     </Flexbox>

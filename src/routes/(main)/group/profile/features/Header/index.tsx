@@ -1,5 +1,6 @@
 'use client';
 
+import { agentDisplayName } from '@lobechat/types';
 import { type DropdownItem, Flexbox, Icon } from '@lobehub/ui';
 import { createStaticStyles } from '@lobehub/ui';
 import { Crown, Sparkles, Users, UsersRound } from 'lucide-react';
@@ -87,7 +88,9 @@ const Header = memo(() => {
         icon: agent.isSupervisor ? <Crown size={16} /> : undefined,
         id: agent.id,
         isExternal: !agent.isSupervisor && !agent.virtual,
-        title: agent.isSupervisor ? t('group.profile.supervisor') : agent.title || 'Untitled Agent',
+        title: agent.isSupervisor
+          ? t('group.profile.supervisor')
+          : agentDisplayName(agent, 'Untitled Agent'),
       });
     }
 

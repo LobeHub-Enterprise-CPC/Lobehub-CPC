@@ -1,3 +1,5 @@
+import { agentDisplayName } from '@lobechat/types';
+
 /**
  * Group Context Template
  *
@@ -38,6 +40,7 @@ Your internal agent ID is {{AGENT_ID}} (for system use only, never expose to use
  */
 export interface GroupSupervisorAgentInfo {
   id: string;
+  name?: string | null;
   title?: string | null;
 }
 
@@ -61,7 +64,7 @@ export interface GroupSupervisorAgentInfo {
  */
 export const buildGroupMembersXml = (agents: GroupSupervisorAgentInfo[]): string => {
   return agents
-    .map((agent) => `  <member name="${agent.title || agent.id}" id="${agent.id}" />`)
+    .map((agent) => `  <member name="${agentDisplayName(agent, agent.id)}" id="${agent.id}" />`)
     .join('\n');
 };
 
