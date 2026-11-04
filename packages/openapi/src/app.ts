@@ -16,6 +16,7 @@ import { workspaceAuthMiddleware } from './middleware/workspace';
 // Import routes
 import routes from './routes';
 import { buildSpecDocument } from './spec';
+import { withTenantServers } from './tenantServers';
 
 // Create Hono app instance
 const app = new Hono().basePath('/api/v1');
@@ -58,7 +59,7 @@ app.get('/health', describeRoute({ summary: 'Health check', tags: ['health'] }),
 let specCache: Awaited<ReturnType<typeof buildSpecDocument>> | null = null;
 app.get('/openapi.json', async (c) => {
   specCache ??= await buildSpecDocument(app);
-  return c.json(specCache);
+  return c.json(withTenantServers(specCache));
 });
 // Scalar ships built-in UI translations for these locales.
 const SCALAR_BUILTIN_LOCALES = ['ar', 'de', 'en', 'es', 'fr', 'ru', 'zh-CN'] as const;
@@ -100,7 +101,10 @@ app.get('/docs', (c, next) => {
     // 'none' keeps the runtime bundle from injecting its own theme stylesheet
     // after our customCss, which would override every variable we set.
     theme: 'none',
-    url: '/api/v1/openapi.json',
+    // Relative to the address the docs were opened at, so `/orgs/{slug}/api/v1/docs`
+    // loads its tenant's spec; the bare `/api/v1/openapi.json` names no tenant
+    // and the proxy refuses it with `TENANT_REQUIRED`.
+    url: 'openapi.json',
   })(c, next);
 });
 
