@@ -49,7 +49,6 @@ import { TaskResultBridgeService } from '@/server/services/taskResultBridge';
 import { createTaskSchedulerModule } from '@/server/services/taskScheduler';
 
 import { reusedScheduleExecutions } from '../task/reusedScheduleExecutions';
-
 import {
   isTrivialAssistantContent,
   selectBriefPriority,

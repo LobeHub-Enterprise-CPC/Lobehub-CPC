@@ -1,13 +1,14 @@
 import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { appEnv, findById, getUserSettings } = vi.hoisted(() => ({
+const { appEnv, findById, getUserSettings, resolveBusinessOrgUnitIds } = vi.hoisted(() => ({
   appEnv: {
     MARKET_TRUSTED_CLIENT_ID: 'client-id' as string | undefined,
     MARKET_TRUSTED_CLIENT_SECRET: 'client-secret' as string | undefined,
   },
   findById: vi.fn(),
   getUserSettings: vi.fn(),
+  resolveBusinessOrgUnitIds: vi.fn(),
 }));
 
 vi.mock('@/envs/app', () => ({ appEnv }));
@@ -24,6 +25,8 @@ vi.mock('@/database/models/user', () => ({
   ),
 }));
 vi.mock('../../init', () => ({ trpc: { middleware: (fn: unknown) => fn } }));
+// A tenant identity carries the user's org-unit chain from the distribution's auth package.
+vi.mock('@lobechat/business-auth', () => ({ resolveBusinessOrgUnitIds }));
 
 const { resolveMarketUserContext } = await import('../marketUserInfo');
 
@@ -36,6 +39,7 @@ beforeEach(() => {
   appEnv.MARKET_TRUSTED_CLIENT_SECRET = 'client-secret';
   findById.mockResolvedValue({ email: 'ada@example.com', fullName: 'Ada', id: 'user_1' });
   getUserSettings.mockResolvedValue({ market: { accessToken: 'db-token' } });
+  resolveBusinessOrgUnitIds.mockResolvedValue(['ou_team', 'ou_root']);
 });
 
 describe('resolveMarketUserContext', () => {
@@ -49,6 +53,7 @@ describe('resolveMarketUserContext', () => {
       marketUserInfo: {
         email: 'ada@example.com',
         name: 'Ada',
+        orgUnitIds: ['ou_team', 'ou_root'],
         tenantId: 'tenant-a',
         userId: 'user_1',
       },

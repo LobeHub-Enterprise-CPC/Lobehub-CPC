@@ -5,10 +5,10 @@ import { useTranslation } from 'react-i18next';
 
 import { ModelIcon } from '@/components/LobeIcons';
 import { useAgentStore } from '@/store/agent';
-import { useAiInfraStore, aiModelSelectors } from '@/store/aiInfra';
 import { agentByIdSelectors } from '@/store/agent/selectors';
+import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 
-import { useTaskRunTarget, deviceLabel } from '../features/useTaskRunTarget';
+import { deviceLabel, useTaskRunTarget } from '../features/useTaskRunTarget';
 import { useAgentDisplayMeta } from '../shared/useAgentDisplayMeta';
 import { scheduleSummary } from './scheduleSummary';
 import { styles } from './style';

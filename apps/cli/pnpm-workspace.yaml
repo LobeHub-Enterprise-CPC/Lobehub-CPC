@@ -40,5 +40,10 @@ allowBuilds:
   esbuild: true
 
 overrides:
+  # packages/types depends on the private Market SDK built into vendor/, and the
+  # vendored market-sdk pins market-types to the same build, which is not on npm.
+  # Force both for every importer, as the root pnpm-workspace.yaml does.
+  '@lobehub/market-sdk': file:../../vendor/lobehub-market-sdk-0.41.0-cpc.2.tgz
+  '@lobehub/market-types': file:../../vendor/lobehub-market-types-1.17.1-cpc.2.tgz
   '@types/react': 19.2.13
   antd: 6.3.5

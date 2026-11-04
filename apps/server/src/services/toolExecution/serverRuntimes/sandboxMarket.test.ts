@@ -12,9 +12,10 @@ vi.mock('@/server/services/market', () => ({
   },
 }));
 
-it('requires a runtime owner before issuing an execution identity', () => {
-  expect(() =>
+it('requires a runtime owner before issuing an execution identity', async () => {
+  // The factory resolves the market identity asynchronously, so the refusal is a rejection.
+  await expect(
     createSandboxMarketService({} as ToolExecutionContext, undefined, undefined, null),
-  ).toThrow('userId is required');
+  ).rejects.toThrow('userId is required');
   expect(construct).not.toHaveBeenCalled();
 });

@@ -49,9 +49,11 @@ describe('UserAvatar', () => {
       });
     });
 
-    render(<UserAvatar />);
-    // When user has no avatar url, <Avatar /> falls back to initials rendering (not an <img />)
-    expect(screen.getByText('TE')).toBeInTheDocument();
+    const { container } = render(<UserAvatar />);
+    // Without an avatar url, <Avatar /> draws a fallback for the name instead of an <img />:
+    // initials in older @lobehub/ui, a generated image labelled with the name in newer ones.
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelector('.lobe-avatar')).toBeInTheDocument();
   });
 
   it("shows the distribution's avatar instead of initials when a signed-in user has none", () => {

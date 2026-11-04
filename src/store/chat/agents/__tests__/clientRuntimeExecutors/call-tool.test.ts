@@ -518,6 +518,7 @@ describe('call_tool executor', () => {
       const existingToolMessage = {
         id: 'msg_existing_tool',
         role: 'tool',
+        tool_call_id: 'tool_call_existing',
         content: '',
         pluginIntervention: { status: 'pending' },
         createdAt: Date.now(),
@@ -526,7 +527,7 @@ describe('call_tool executor', () => {
       mockStore.dbMessagesMap[context.messageKey] = [assistantMessage, existingToolMessage as any];
 
       const instruction = createCallToolInstruction(
-        {},
+        { id: 'tool_call_existing' },
         {
           skipCreateToolMessage: true,
           parentMessageId: 'msg_existing_tool',
@@ -566,6 +567,7 @@ describe('call_tool executor', () => {
       const existingToolMessage = {
         id: 'msg_tool_reuse',
         role: 'tool',
+        tool_call_id: 'tool_resume',
         content: '',
         createdAt: Date.now(),
         updatedAt: Date.now(),

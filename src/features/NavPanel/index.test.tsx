@@ -236,7 +236,8 @@ describe('NavPanelShell', () => {
   });
 
   it('provides the Home entry on routes that never mount the Home layout', async () => {
-    pathname = '/tasks';
+    // Global /tasks is the scheduled-task workspace, which hides the panel instead.
+    pathname = '/agents';
 
     render(<NavPanelShell />);
 
