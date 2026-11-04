@@ -1,5 +1,6 @@
 'use client';
 
+import { BRANDED_USER_AVATAR } from '@lobechat/const';
 import { Avatar, createStaticStyles, cssVar, cx, Flexbox, Icon, Text } from '@lobehub/ui';
 import { ChevronDown, ChevronUp, CircleAlert, Loader2, MessagesSquare } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
@@ -75,7 +76,7 @@ const AuthorAvatar = memo<{ author: RejectFeedbackItem['author']; label: string 
       <Avatar avatar={<Icon icon={MessagesSquare} size={12} />} size={20} />
     ) : (
       // First character only — a two-character CJK name wraps in a small circle.
-      <Avatar avatar={author.avatar || label.slice(0, 1)} size={20} />
+      <Avatar avatar={author.avatar || BRANDED_USER_AVATAR || label.slice(0, 1)} size={20} />
     ),
 );
 

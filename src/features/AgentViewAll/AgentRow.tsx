@@ -1,7 +1,7 @@
 'use client';
 
 import { AGENT_DIRECTORY_SHOWCASE_LAYOUT } from '@lobechat/business-const';
-import { DEFAULT_AVATAR } from '@lobechat/const';
+import { BRANDED_USER_AVATAR, DEFAULT_AVATAR } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
 import { ContextMenuTrigger, type DropdownItem, Flexbox, Tooltip } from '@lobehub/ui';
@@ -183,7 +183,10 @@ const AgentRow = memo<AgentRowProps>(
               <Flexbox flex={'none'} style={{ width: AUTHOR_COL_WIDTH }}>
                 {author && (
                   <Tooltip title={author.name}>
-                    <Avatar avatar={author.avatar || DEFAULT_AVATAR} size={AUTHOR_COL_WIDTH} />
+                    <Avatar
+                      avatar={author.avatar || BRANDED_USER_AVATAR || DEFAULT_AVATAR}
+                      size={AUTHOR_COL_WIDTH}
+                    />
                   </Tooltip>
                 )}
               </Flexbox>

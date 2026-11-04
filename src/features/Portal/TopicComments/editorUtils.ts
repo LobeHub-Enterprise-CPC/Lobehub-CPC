@@ -1,3 +1,4 @@
+import { BRANDED_USER_AVATAR } from '@lobechat/const';
 import type { TopicCommentJson } from '@lobechat/types';
 import type { IEditor, ISlashMenuOption } from '@lobehub/editor';
 import { INSERT_MENTION_COMMAND } from '@lobehub/editor';
@@ -31,7 +32,7 @@ export const createTopicCommentMentionItems = (members: MentionableWorkspaceMemb
 
     return [
       {
-        avatar: profile?.avatar || label,
+        avatar: profile?.avatar || BRANDED_USER_AVATAR || label,
         key: `member-${member.userId}`,
         label,
         metadata: {

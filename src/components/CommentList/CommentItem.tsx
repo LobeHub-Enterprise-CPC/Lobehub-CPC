@@ -1,5 +1,6 @@
 'use client';
 
+import { BRANDED_USER_AVATAR } from '@lobechat/const';
 import { AgentIcon } from '@lobehub/icons';
 import { Avatar, createStaticStyles, Flexbox, Markdown, responsive, Text } from '@lobehub/ui';
 import { memo, useMemo } from 'react';
@@ -112,7 +113,12 @@ const CommentItem = memo<{ item: SkillCommentItem }>(({ item }) => {
     }
 
     return (
-      <Avatar avatar={author?.avatar || authorName} shape={'circle'} size={32} title={authorName} />
+      <Avatar
+        avatar={author?.avatar || BRANDED_USER_AVATAR || authorName}
+        shape={'circle'}
+        size={32}
+        title={authorName}
+      />
     );
   }, [author?.avatar, author?.sourceType, author?.type, authorName]);
 

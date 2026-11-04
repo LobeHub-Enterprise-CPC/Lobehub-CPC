@@ -1,3 +1,4 @@
+import { BRANDED_USER_AVATAR } from '@lobechat/const';
 import type { DocumentCommentItem } from '@lobechat/types';
 import { ChatInput, ChatInputActionBar, useEditor } from '@lobehub/editor/react';
 import {
@@ -240,7 +241,7 @@ const CommentCard = memo<CommentCardProps>(
           gap={compact ? 8 : 8}
         >
           <Avatar
-            avatar={comment.author.avatar || authorName}
+            avatar={comment.author.avatar || BRANDED_USER_AVATAR || authorName}
             size={compact ? 28 : variant === 'reply' ? 28 : 32}
           />
           {compact ? (

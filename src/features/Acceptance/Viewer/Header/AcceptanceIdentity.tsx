@@ -1,5 +1,6 @@
 'use client';
 
+import { BRANDED_USER_AVATAR } from '@lobechat/const';
 import { Avatar, createStaticStyles, cssVar, Flexbox, Text } from '@lobehub/ui';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -101,7 +102,10 @@ const AcceptanceIdentity = ({ focusSlot, statusSlot, topicSlot }: AcceptanceIden
             as nobody's, and the status alone never says whose work it is. */}
         {authorName && (
           <Flexbox horizontal align={'center'} gap={6}>
-            <Avatar avatar={author?.avatar || authorName.slice(0, 1)} size={18} />
+            <Avatar
+              avatar={author?.avatar || BRANDED_USER_AVATAR || authorName.slice(0, 1)}
+              size={18}
+            />
             <Text style={{ color: cssVar.colorText, fontSize: 'inherit' }}>{authorName}</Text>
           </Flexbox>
         )}

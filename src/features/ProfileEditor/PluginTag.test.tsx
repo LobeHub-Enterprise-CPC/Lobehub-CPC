@@ -61,7 +61,10 @@ vi.mock('@lobehub/ui', async (importOriginal) => {
   }
   return merged;
 });
-vi.mock('@lobechat/const', () => ({ resolveConnectorCatalogItem: () => undefined }));
+vi.mock('@lobechat/const', () => ({
+  BRANDED_USER_AVATAR: undefined,
+  resolveConnectorCatalogItem: () => undefined,
+}));
 vi.mock('@lobehub/ui/icons', () => ({ McpIcon: () => null }));
 vi.mock('@/components/Plugins/PluginAvatar', () => ({ default: () => null }));
 

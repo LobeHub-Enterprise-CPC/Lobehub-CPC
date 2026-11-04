@@ -2,20 +2,29 @@ import {
   AGENT_AVATAR_GALLERY,
   BRANDING_INBOX_TITLE,
   BRANDING_LOGO_URL,
+  BRANDING_USER_AVATAR_URL,
 } from '@lobechat/business-const';
 import type { MetaData } from '@lobechat/types';
 
 // A distribution with its own avatar gallery supplies the fallback from it, so
 // an agent without an avatar still belongs to the same set as the rest.
 export const DEFAULT_AVATAR = AGENT_AVATAR_GALLERY?.defaultAvatar ?? '/avatars/agent-default.png';
-export const DEFAULT_USER_AVATAR = '😀';
+/**
+ * The avatar of a person who has not set one, when the distribution brands it.
+ * Every surface that draws a person falls back to it, so someone without a photo
+ * looks the same in a Channel, a comment and the user menu. Upstream has none:
+ * each surface keeps its own fallback (the emoji below, or initials).
+ */
+export const BRANDED_USER_AVATAR: string | undefined = BRANDING_USER_AVATAR_URL || undefined;
+export const DEFAULT_USER_AVATAR = BRANDED_USER_AVATAR || '😀';
 export const DEFAULT_SUPERVISOR_AVATAR = '🎙️';
 export const DEFAULT_SUPERVISOR_ID = 'supervisor';
 export const DEFAULT_BACKGROUND_COLOR = undefined;
 export const DEFAULT_AGENT_META: MetaData = {};
 export const DEFAULT_INBOX_TITLE = BRANDING_INBOX_TITLE;
 export const DEFAULT_INBOX_AVATAR = BRANDING_LOGO_URL || '/avatars/lobe-ai.png';
-export const DEFAULT_USER_AVATAR_URL = BRANDING_LOGO_URL || '/app-icons/icon-192x192.png';
+export const DEFAULT_USER_AVATAR_URL =
+  BRANDED_USER_AVATAR || BRANDING_LOGO_URL || '/app-icons/icon-192x192.png';
 
 /**
  * Avatars for the remaining built-in agents.

@@ -1,3 +1,5 @@
+import { BRANDED_USER_AVATAR } from '@lobechat/const';
+
 import { useAuthorInfo } from '@/business/client/hooks/useAuthorInfo';
 import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
@@ -19,7 +21,7 @@ export const useUserDisplayMeta = (userId?: string | null): UserDisplayMeta | un
   const selfName = useUserStore(userProfileSelectors.displayUserName);
 
   if (!userId) return undefined;
-  if (author) return { avatar: author.avatar, title: author.fullName };
-  if (isSelf) return { avatar: selfAvatar, title: selfName };
+  if (author) return { avatar: author.avatar || BRANDED_USER_AVATAR, title: author.fullName };
+  if (isSelf) return { avatar: selfAvatar || BRANDED_USER_AVATAR, title: selfName };
   return undefined;
 };
