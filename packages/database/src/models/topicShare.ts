@@ -1,8 +1,8 @@
 import type { ShareVisibility } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 
-import { agents, chatGroups, chatGroupsAgents, topics, topicShares } from '../schemas';
+import { agents, chatGroups, chatGroupsAgents, messages, topics, topicShares } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import {
   normalizeInboxAgentAvatar,
@@ -190,6 +190,31 @@ export class TopicShareModel {
       );
     }
 
+    // Other agents that answered in the shared transcript (a direct @Agent
+    // reply is stored under the mentioned agent), so the page can show who
+    // answered instead of a placeholder. Thread messages are not shared.
+    const participantRows = await db
+      .selectDistinct({
+        avatar: agents.avatar,
+        backgroundColor: agents.backgroundColor,
+        id: agents.id,
+        name: agents.name,
+        slug: agents.slug,
+        title: agents.title,
+      })
+      .from(messages)
+      .innerJoin(agents, eq(messages.agentId, agents.id))
+      .where(
+        and(
+          eq(messages.topicId, share.topicId),
+          isNull(messages.threadId),
+          share.agentId ? ne(messages.agentId, share.agentId) : undefined,
+        ),
+      );
+    const participants = participantRows.map(({ slug, ...agent }) =>
+      normalizeInboxAgentMeta(agent, { slug }),
+    );
+
     return {
       ...share,
       agentAvatar: normalizeInboxAgentAvatar(share.agentAvatar, {
@@ -199,6 +224,7 @@ export class TopicShareModel {
         slug: share.agentSlug,
       }),
       groupMembers,
+      participants,
     };
   };
 

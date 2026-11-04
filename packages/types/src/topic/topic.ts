@@ -903,6 +903,18 @@ export interface SharedTopicData {
     updatedAt?: Date | null;
     userId?: string | null;
   };
+  /**
+   * Other agents whose replies are in the shared transcript (e.g. a direct
+   * @Agent reply), so their messages render with a name and avatar.
+   */
+  participants?: {
+    avatar: string | null;
+    backgroundColor: string | null;
+    id: string;
+    /** Personal name; renderers resolve the label with `agentDisplayName`. */
+    name: string | null;
+    title: string | null;
+  }[];
   shareId: string;
   title: string | null;
   topicId: string;

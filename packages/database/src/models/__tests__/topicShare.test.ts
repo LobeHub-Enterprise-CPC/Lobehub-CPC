@@ -8,6 +8,7 @@ import {
   agents,
   chatGroups,
   chatGroupsAgents,
+  messages,
   sessions,
   topics,
   topicShares,
@@ -51,6 +52,7 @@ describe('TopicShareModel', () => {
   });
 
   afterEach(async () => {
+    await serverDB.delete(messages);
     await serverDB.delete(topicShares);
     await serverDB.delete(topics);
     await serverDB.delete(agents);
@@ -209,6 +211,39 @@ describe('TopicShareModel', () => {
       expect(result!.ownerId).toBe(userId);
       expect(result!.visibility).toBe('link');
       expect(result!.agentId).toBe(agentId);
+    });
+
+    // A direct @Agent reply lands in the main transcript under the mentioned
+    // agent; the share page needs its name and avatar, not just the topic's.
+    it('lists the other agents that answered in the shared transcript', async () => {
+      const mentioned = 'topic-share-test-mentioned';
+      await serverDB
+        .insert(agents)
+        .values({
+          avatar: 'nora.svg',
+          id: mentioned,
+          name: 'Nora',
+          title: 'Security expert',
+          userId,
+        });
+      await serverDB.insert(messages).values([
+        { agentId, content: '@Nora hi', id: 'ts-msg-user', role: 'user', topicId, userId },
+        { agentId: mentioned, content: 'a', id: 'ts-msg-a1', role: 'assistant', topicId, userId },
+        { agentId: mentioned, content: 'b', id: 'ts-msg-a2', role: 'assistant', topicId, userId },
+      ]);
+      const created = await topicShareModel.create(topicId, 'link');
+
+      const result = await TopicShareModel.findByShareId(serverDB, created.id);
+
+      expect(result!.participants).toEqual([
+        {
+          avatar: 'nora.svg',
+          backgroundColor: null,
+          id: mentioned,
+          name: 'Nora',
+          title: 'Security expert',
+        },
+      ]);
     });
 
     it('should return null when share does not exist', async () => {

@@ -13,10 +13,24 @@ export const useSyncSharedTopicMeta = (data: SharedTopicData | undefined) => {
       dispatchAgentMap(data.agentId, {
         avatar: data.agentMeta.avatar ?? undefined,
         backgroundColor: data.agentMeta.backgroundColor ?? undefined,
+        name: data.agentMeta.name ?? undefined,
         title: data.agentMeta.title ?? undefined,
       });
     }
   }, [data?.agentId, data?.agentMeta, dispatchAgentMap]);
+
+  // Replies from other agents (a direct @Agent answer) carry their own agentId;
+  // without their meta the transcript labels them "Untitled Agent".
+  useEffect(() => {
+    for (const agent of data?.participants ?? []) {
+      dispatchAgentMap(agent.id, {
+        avatar: agent.avatar ?? undefined,
+        backgroundColor: agent.backgroundColor ?? undefined,
+        name: agent.name ?? undefined,
+        title: agent.title ?? undefined,
+      });
+    }
+  }, [data?.participants, dispatchAgentMap]);
 
   useEffect(() => {
     if (!data?.groupId || !data.groupMeta) return;
@@ -27,6 +41,7 @@ export const useSyncSharedTopicMeta = (data: SharedTopicData | undefined) => {
       dispatchAgentMap(member.id, {
         avatar: member.avatar ?? undefined,
         backgroundColor: member.backgroundColor ?? undefined,
+        name: member.name ?? undefined,
         title: member.title ?? undefined,
       });
     }
