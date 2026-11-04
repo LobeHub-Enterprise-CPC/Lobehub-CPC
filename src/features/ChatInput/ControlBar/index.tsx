@@ -90,7 +90,9 @@ const ControlBar = memo(() => {
       {/* Left: chat-mode switcher + (agent-only) execution device + working directory */}
       <Flexbox horizontal align={'center'} className={styles.leftGroup} gap={4}>
         {!COMPOSER_AGENT_ONLY_LAYOUT && <ModeSelector />}
-        {isAgentRuntimeMode && <WorkspaceControls agentId={agentId} />}
+        {isAgentRuntimeMode && (
+          <WorkspaceControls agentId={agentId} hideDevice={COMPOSER_AGENT_ONLY_LAYOUT} />
+        )}
       </Flexbox>
 
       <Flexbox horizontal align={'center'} className={styles.rightGroup} gap={4}>

@@ -581,6 +581,7 @@ const PlusAction = memo(() => {
 
   return (
     <ChatInputAction
+      data-brand-slot={'composer-plus'}
       icon={brandIcon('action.add', PlusIcon)}
       size={{ blockSize: 32, borderRadius: 16, size: 18 }}
       title={t('plus.tooltip')}

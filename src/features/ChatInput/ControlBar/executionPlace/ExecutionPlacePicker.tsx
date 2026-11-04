@@ -36,6 +36,8 @@ export interface ExecutionPlacePickerProps {
    * right-aligns the menu with the trigger, `right` left-aligns it.
    */
   placement?: 'left' | 'right';
+  /** Name the place beside its icon, for a trigger sitting among labelled controls. */
+  showLabel?: boolean;
 }
 
 const placeIcon = {
@@ -45,7 +47,7 @@ const placeIcon = {
 } as const;
 
 export const ExecutionPlacePicker = memo<ExecutionPlacePickerProps>(
-  ({ agentId, allowDirectory = true, placement = 'right' }) => {
+  ({ agentId, allowDirectory = true, placement = 'right', showLabel = false }) => {
     const { t } = useTranslation(['chat', 'device']);
     const model = useExecutionTargetController(agentId);
     const directory = useWorkingDirectoryController(agentId, model.open);
@@ -117,17 +119,21 @@ export const ExecutionPlacePicker = memo<ExecutionPlacePickerProps>(
         aria-expanded={model.open}
         aria-haspopup={model.canShowExecutionTargetSelector ? 'menu' : undefined}
         aria-label={placeLabel}
+        data-brand-slot={showLabel ? 'composer-device' : undefined}
         data-place={place}
         data-readonly={model.canShowExecutionTargetSelector ? 'false' : 'true'}
         data-testid={'execution-place-trigger'}
+        title={showLabel ? tooltip : undefined}
         type={'button'}
         {...stylex.props(
           styles.trigger,
+          showLabel && styles.triggerLabeled,
           model.open && styles.triggerOpen,
           !model.canShowExecutionTargetSelector && styles.triggerReadonly,
         )}
       >
         <Icon icon={placeIcon[place]} size={16} />
+        {showLabel && <span {...stylex.props(styles.triggerLabel)}>{placeLabel}</span>}
       </button>
     );
 

@@ -20,7 +20,7 @@ import { HOME_INPUT_BODY_HEIGHT } from './constants';
 import ModeSelect from './ModeSelect';
 
 const leftActions: ActionKeys[] = COMPOSER_AGENT_ONLY_LAYOUT
-  ? ['plus', 'approvalMode', 'deviceStatus']
+  ? ['plus', 'executionDevice', 'approvalMode', 'deviceStatus']
   : ['plus'];
 const rightActions: ActionKeys[] = COMPOSER_AGENT_ONLY_LAYOUT
   ? ['model', 'voiceDictation']
@@ -109,6 +109,7 @@ const HomeEditorInput = memo<HomeEditorInputProps>(
         resolveSendBlocked={resolveSendBlocked}
         rightActions={rightActions}
         slashPlacement="bottom"
+        topicId={null}
         chatInputEditorRef={(instance) => {
           if (!instance) return;
           useChatStore.setState({ mainInputEditor: instance });

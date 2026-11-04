@@ -4,6 +4,7 @@ import AgentMode from './AgentMode';
 import ApprovalMode from './ApprovalMode';
 import Clear from './Clear';
 import DeviceStatus from './DeviceStatus';
+import ExecutionDevice from './ExecutionDevice';
 import History from './History';
 import Memory from './Memory';
 import Mention from './Mention';
@@ -23,6 +24,7 @@ export const actionMap = {
   clear: Clear,
   contextWindow: ContextWindow,
   deviceStatus: DeviceStatus,
+  executionDevice: ExecutionDevice,
   fileUpload: Upload,
   plus: Plus,
   history: History,
