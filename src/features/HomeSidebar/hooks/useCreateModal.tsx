@@ -515,7 +515,7 @@ export const CreateAgentModal = memo<CreateAgentModalProps>(
 
     const inputContainerProps = useMemo(
       () => ({
-        minHeight: 88,
+        minHeight: 53,
         resize: false,
         style: { borderRadius: 16 },
       }),

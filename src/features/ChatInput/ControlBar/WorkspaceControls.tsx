@@ -26,6 +26,8 @@ interface WorkspaceControlsProps {
    * local mode.
    */
   alwaysShowWorkspace?: boolean;
+  /** The device selector lives elsewhere, such as among the composer's actions. */
+  hideDevice?: boolean;
   /**
    * Home dock always uses the place picker. Topic bars follow
    * `COMPOSER_AGENT_ONLY_LAYOUT` on their own.
@@ -45,7 +47,13 @@ interface WorkspaceControlsProps {
  * full-access badge) stay in their respective bars.
  */
 const WorkspaceControls = memo<WorkspaceControlsProps>(
-  ({ agentId, alwaysShowWorkspace = false, placePicker = false, placePickerPlacement }) => {
+  ({
+    agentId,
+    alwaysShowWorkspace = false,
+    hideDevice = false,
+    placePicker = false,
+    placePickerPlacement,
+  }) => {
     const { t } = useTranslation('setting');
     const { canConfigureResource, canUseResource } = useChatInputResourceAccess();
     const { enabled: placePickerActive } = useAgentPlacePicker(agentId, placePicker);
@@ -107,15 +115,16 @@ const WorkspaceControls = memo<WorkspaceControlsProps>(
 
     return (
       <>
-        {placePickerActive ? (
-          <ExecutionPlacePicker
-            agentId={agentId}
-            allowDirectory={canConfigureResource}
-            placement={placePickerPlacement}
-          />
-        ) : (
-          <DeviceSwitcher agentId={agentId} />
-        )}
+        {!hideDevice &&
+          (placePickerActive ? (
+            <ExecutionPlacePicker
+              agentId={agentId}
+              allowDirectory={canConfigureResource}
+              placement={placePickerPlacement}
+            />
+          ) : (
+            <DeviceSwitcher agentId={agentId} />
+          ))}
         {surfaces.map((surface) => (
           <Fragment key={surface}>{withAccessGate(surface)}</Fragment>
         ))}

@@ -59,7 +59,7 @@ const MainChatInput = memo(() => {
   const leftActions: ActionKeys[] = useMemo(
     () =>
       COMPOSER_AGENT_ONLY_LAYOUT
-        ? ['plus', 'approvalMode', 'deviceStatus']
+        ? ['plus', 'executionDevice', 'approvalMode', 'deviceStatus']
         : ['plus', 'voiceDictation'],
     [],
   );

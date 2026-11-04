@@ -63,36 +63,44 @@ const Conversation = memo<ConversationAreaProps>(({ mobile = false }) => {
       context={context}
       operationState={operationState}
     >
-      <Flexbox
-        flex={1}
-        width={'100%'}
-        style={{
-          overflowX: 'hidden',
-          overflowY: 'auto',
-          position: 'relative',
-        }}
-      >
-        {topicPending ? (
-          <TopicMigrationPlaceholder groupId={context.groupId} topicId={context.topicId} />
-        ) : (
-          <ChatList messageDeepLink={messageDeepLink} welcome={<WelcomeChatItem />} />
-        )}
-      </Flexbox>
-      {topicPending ? (
-        <Flexbox horizontal align={'center'} justify={'center'} paddingBlock={6} paddingInline={16}>
-          <span style={{ color: cssVar.colorTextDescription, fontSize: 12, textAlign: 'center' }}>
-            {t(
-              migrationJob?.type === 'copy'
-                ? 'transferMigration.inputDisabledHintCopy'
-                : 'transferMigration.inputDisabledHint',
-            )}
-          </span>
+      <div data-brand-slot={'group-conversation'} style={{ display: 'contents' }}>
+        <Flexbox
+          flex={1}
+          width={'100%'}
+          style={{
+            overflowX: 'hidden',
+            overflowY: 'auto',
+            position: 'relative',
+          }}
+        >
+          {topicPending ? (
+            <TopicMigrationPlaceholder groupId={context.groupId} topicId={context.topicId} />
+          ) : (
+            <ChatList messageDeepLink={messageDeepLink} welcome={<WelcomeChatItem />} />
+          )}
         </Flexbox>
-      ) : (
-        <MessageForwardFooter>
-          <MainChatInput />
-        </MessageForwardFooter>
-      )}
+        {topicPending ? (
+          <Flexbox
+            horizontal
+            align={'center'}
+            justify={'center'}
+            paddingBlock={6}
+            paddingInline={16}
+          >
+            <span style={{ color: cssVar.colorTextDescription, fontSize: 12, textAlign: 'center' }}>
+              {t(
+                migrationJob?.type === 'copy'
+                  ? 'transferMigration.inputDisabledHintCopy'
+                  : 'transferMigration.inputDisabledHint',
+              )}
+            </span>
+          </Flexbox>
+        ) : (
+          <MessageForwardFooter>
+            <MainChatInput />
+          </MessageForwardFooter>
+        )}
+      </div>
       <ChatHydration />
       <ThreadHydration />
       <ForwardMessageDispatcher />

@@ -218,6 +218,24 @@ export const styles = stylex.create({
     padding: 4,
     width: 28,
   },
+  triggerLabel: {
+    fontSize: 14,
+    lineHeight: '22px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  triggerLabeled: {
+    gap: 6,
+    height: 30,
+    maxWidth: 120,
+    minWidth: 0,
+    paddingTop: '4px',
+    paddingRight: '6px',
+    paddingBottom: '4px',
+    paddingLeft: '8px',
+    width: 'auto',
+  },
   triggerOpen: {
     backgroundColor: {
       'default': cssVar.colorFillSecondary,

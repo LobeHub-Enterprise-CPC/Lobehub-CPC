@@ -1,5 +1,6 @@
 'use client';
 
+import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
 import { memo } from 'react';
 
 import { SkeletonBar } from '@/components/Skeleton';
@@ -43,7 +44,10 @@ const HomeDockWorkspaceBody = memo<{ agentId: string; className?: string }>(
       isPreferenceLoading,
     });
 
-    if (view === 'hidden') return null;
+    // The agent-only composer shows the device among its own actions.
+    const deviceInComposer = COMPOSER_AGENT_ONLY_LAYOUT && !isHeterogeneous;
+
+    if (view === 'hidden' || (view === 'device-only' && deviceInComposer)) return null;
     if (view === 'pending') return <HomeDockWorkspaceSkeleton className={className} />;
 
     return (
@@ -55,6 +59,7 @@ const HomeDockWorkspaceBody = memo<{ agentId: string; className?: string }>(
             placePicker
             agentId={agentId}
             alwaysShowWorkspace={isHeterogeneous}
+            hideDevice={deviceInComposer}
             placePickerPlacement={'left'}
           />
         )}
