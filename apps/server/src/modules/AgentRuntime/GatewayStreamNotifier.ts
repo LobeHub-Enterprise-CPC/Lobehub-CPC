@@ -12,7 +12,7 @@ import type { GatewayExecutionIntent } from '@/server/services/gatewayAuthorizat
 import { GatewayAuthorizationError } from '@/server/services/gatewayAuthorization/wire';
 
 import { shouldRecordGatewayError } from './gatewayErrorRecord';
-import { gatewayOperationPost } from './gatewayHttp';
+import { gatewayOperationPost, isGatewayUnreachable } from './gatewayHttp';
 import {
   buildPublicEndEventData,
   buildPublicInitEventData,
@@ -107,6 +107,10 @@ export const toMirroredEvent = (event: Record<string, unknown>): Record<string, 
 
 const POST_TIMEOUT = 5000; // 5s per request
 const MAX_INFLIGHT = 20; // bounded concurrency
+// A gateway restart leaves its Service without a ready Pod for a few seconds.
+// Requests that never connected are resent within this window.
+const UNREACHABLE_RESEND_WINDOW = 30_000;
+const UNREACHABLE_RESEND_MAX_DELAY = 2000;
 
 /**
  * Op-routing fields the Gateway persists from `init` (protocol v2 §3.2) so the
@@ -685,10 +689,11 @@ export class GatewayStreamNotifier implements IStreamEventManager {
             ),
           };
     const pushes: Promise<void>[] = [
-      this.httpPost('/api/operations/push-event', {
-        event: sanitizedEvent,
-        operationId,
-      }),
+      this.httpPost(
+        '/api/operations/push-event',
+        { event: sanitizedEvent, operationId },
+        event.type !== 'stream_chunk',
+      ),
     ];
 
     // Single-connection multiplexing: also deliver to the mirror op's channel so
@@ -772,10 +777,11 @@ export class GatewayStreamNotifier implements IStreamEventManager {
       event.type === 'agent_runtime_end' && (await this.acceptsMemberRuntimeEnd(mirrorTo))
         ? toMirroredEvent(event)
         : event;
-    return this.httpPost('/api/operations/push-event', {
-      event: mirrored,
-      operationId: mirrorTo,
-    });
+    return this.httpPost(
+      '/api/operations/push-event',
+      { event: mirrored, operationId: mirrorTo },
+      event.type !== 'stream_chunk',
+    );
   }
 
   private acceptsMemberRuntimeEnd(target: string): Promise<boolean> {
@@ -893,46 +899,67 @@ export class GatewayStreamNotifier implements IStreamEventManager {
    * POST and hand back the status and body, whatever the status. The body is
    * read under the same timeout as the request, so a gateway that sends
    * headers and then stalls cannot hang the caller. Rejects on network errors
-   * and timeout.
+   * and timeout, after resending while the gateway is unreachable.
    */
   private async httpPostResponse(
     path: string,
     body: Record<string, unknown>,
   ): Promise<{ body: string; ok: boolean; status: number }> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), POST_TIMEOUT);
+    return this.post(path, body, true);
+  }
 
-    try {
-      return await gatewayOperationPost(
-        this.gatewayUrl,
-        this.serviceToken,
-        path,
-        body,
-        controller.signal,
-      );
-    } finally {
-      clearTimeout(timer);
+  /**
+   * Resends only a request that never connected: the gateway cannot have seen
+   * it, so sending it again cannot deliver it twice. Anything else — a
+   * timeout after connecting, a dropped response — may have been delivered
+   * and is surfaced as is.
+   */
+  private async post(
+    path: string,
+    body: Record<string, unknown>,
+    resend: boolean,
+  ): Promise<{ body: string; ok: boolean; status: number }> {
+    const deadline = Date.now() + UNREACHABLE_RESEND_WINDOW;
+    for (let delay = 250; ; delay = Math.min(delay * 2, UNREACHABLE_RESEND_MAX_DELAY)) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), POST_TIMEOUT);
+      try {
+        return await gatewayOperationPost(
+          this.gatewayUrl,
+          this.serviceToken,
+          path,
+          body,
+          controller.signal,
+        );
+      } catch (error) {
+        if (!resend || !isGatewayUnreachable(error) || Date.now() + delay > deadline) throw error;
+        log('Gateway %s unreachable, resending in %dms', path, delay);
+      } finally {
+        clearTimeout(timer);
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 
-  private async httpPost(path: string, body: Record<string, unknown>): Promise<void> {
+  /**
+   * Fire-and-forget POST: failures are logged, never thrown. `resend` is off
+   * for stream chunks, which are frequent and sent concurrently — resending
+   * them would hold the inflight budget and reorder them, and stream_end
+   * carries the final content anyway.
+   */
+  private async httpPost(
+    path: string,
+    body: Record<string, unknown>,
+    resend = true,
+  ): Promise<void> {
     if (this.inflight >= MAX_INFLIGHT) {
       log('Gateway %s dropped: max inflight (%d) reached', path, MAX_INFLIGHT);
       return;
     }
 
     this.inflight++;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), POST_TIMEOUT);
-
     try {
-      const res = await gatewayOperationPost(
-        this.gatewayUrl,
-        this.serviceToken,
-        path,
-        body,
-        controller.signal,
-      );
+      const res = await this.post(path, body, resend);
 
       if (!res.ok) {
         log('Gateway %s returned %d: %s', path, res.status, res.body);
@@ -940,7 +967,6 @@ export class GatewayStreamNotifier implements IStreamEventManager {
     } catch (error) {
       log('Gateway %s failed: %O', path, error);
     } finally {
-      clearTimeout(timer);
       this.inflight--;
     }
   }
