@@ -1,5 +1,6 @@
 'use client';
 
+import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
 import { createStaticStyles, cssVar, Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -37,12 +38,19 @@ const ResourceHomeDashboard = memo(() => {
   return (
     <Flexbox height={'100%'}>
       <NavHeader
-        left={<Flexbox style={{ marginLeft: 8 }}>{t('resource')}</Flexbox>}
         right={<AddButton />}
         style={{ borderBottom: `1px solid ${cssVar.colorBorderSecondary}` }}
+        left={
+          COMPOSER_AGENT_ONLY_LAYOUT ? undefined : (
+            <Flexbox style={{ marginLeft: 8 }}>{t('resource')}</Flexbox>
+          )
+        }
       />
       <div className={styles.scroll}>
-        <Flexbox className={styles.content} gap={40}>
+        <Flexbox className={styles.content} data-brand-slot={'resource-content'} gap={40}>
+          {COMPOSER_AGENT_ONLY_LAYOUT && (
+            <h1 data-brand-slot={'resource-title'}>{t('resource')}</h1>
+          )}
           <Libraries />
           <RecentWorks />
           <RecentPages />

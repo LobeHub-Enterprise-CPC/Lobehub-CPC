@@ -2,9 +2,9 @@
 
 import { Flexbox } from '@lobehub/ui';
 import {
-  ClipboardListIcon,
+  BoxIcon,
+  FileIcon,
   FilePenIcon,
-  FilesIcon,
   FileText,
   HouseIcon,
   ImageIcon,
@@ -82,7 +82,7 @@ const CategoryMenu = memo(() => {
           url: '/resource/audios',
         },
         {
-          icon: FilesIcon,
+          icon: FileIcon,
           key: FilesTabs.Files,
           title: t('tab.files'),
           url: '/resource/files',
@@ -97,7 +97,7 @@ const CategoryMenu = memo(() => {
           url: '/resource/page',
         },
         {
-          icon: ClipboardListIcon,
+          icon: BoxIcon,
           key: 'works',
           title: t('work.group'),
           url: '/resource/works',
@@ -120,7 +120,7 @@ const CategoryMenu = memo(() => {
   );
 
   return (
-    <Flexbox gap={12} paddingInline={4}>
+    <Flexbox data-brand-slot={'resource-categories'} gap={12} paddingInline={4}>
       {groups.map((group, groupIndex) => (
         <Flexbox gap={1} key={groupIndex}>
           {group.map((item) => {
