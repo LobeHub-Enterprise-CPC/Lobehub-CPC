@@ -111,6 +111,7 @@ export const createServerContextFactProviders = ({
         members: roster.map((member) => ({
           agentId: member.agentId,
           description: member.description,
+          name: member.name,
           role: member.role === 'supervisor' ? 'supervisor' : 'participant',
           title: member.title,
         })),

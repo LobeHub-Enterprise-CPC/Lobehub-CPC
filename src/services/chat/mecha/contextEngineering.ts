@@ -14,6 +14,7 @@ import { mentionsTopic } from '@lobechat/context-engine';
 import { type ContextSnapshot, gatherContextFacts, runContextEngineering } from '@lobechat/mecha';
 import { historySummaryPrompt } from '@lobechat/prompts';
 import {
+  agentDisplayName,
   type OpenAIChatMessage,
   type RuntimeAdditionalContextFragment,
   type RuntimeInitialContext,
@@ -161,7 +162,7 @@ export const contextEngineering = async ({
 
       for (const agent of groupDetail.agents) {
         const role = agent.isSupervisor ? 'supervisor' : 'participant';
-        const name = agent.title || 'Untitled Agent';
+        const name = agentDisplayName(agent, 'Untitled Agent');
 
         agentMap[agent.id] = { name, role };
         members.push({ id: agent.id, name, role });

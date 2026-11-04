@@ -3,6 +3,17 @@ import { describe, expect, it } from 'vitest';
 import { formatAgentProfile } from './agentProfile';
 import { buildGroupMembersXml, formatGroupMembers, groupContextTemplate } from './groupContext';
 
+describe('agents that have a name and no title', () => {
+  it('formatAgentProfile uses the name', () => {
+    expect(formatAgentProfile({ id: 'agt_1', name: '小漫' })).toContain('小漫');
+    expect(formatAgentProfile({ id: 'agt_1', name: '小漫' })).not.toContain('Untitled Agent');
+  });
+
+  it('buildGroupMembersXml uses the name rather than the id', () => {
+    expect(buildGroupMembersXml([{ id: 'agt_1', name: '小漫' }])).toContain('name="小漫"');
+  });
+});
+
 describe('formatAgentProfile', () => {
   it('should format agent with all fields', () => {
     const agent = {

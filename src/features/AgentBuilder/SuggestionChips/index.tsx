@@ -87,7 +87,8 @@ interface SuggestionChipsProps {
 const SuggestionChips = memo<SuggestionChipsProps>(
   ({ mode, builderAgentId, count = 3, disabled }) => {
     const { t: tCommon } = useTranslation('common');
-    const { contextSummary, generationMode, locale, targetId } = useBuilderContext(mode);
+    const { contextSummary, generationMode, locale, targetId, targetName } =
+      useBuilderContext(mode);
 
     const builderConfig = useAgentStore((s) =>
       agentByIdSelectors.getAgentConfigById(builderAgentId)(s),
@@ -104,6 +105,7 @@ const SuggestionChips = memo<SuggestionChipsProps>(
       model: model ?? '',
       provider: provider ?? '',
       targetId,
+      targetName,
     });
 
     // First load with nothing to show yet — card-shaped skeleton that keeps the

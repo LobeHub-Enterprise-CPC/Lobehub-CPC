@@ -1,4 +1,5 @@
 import type { AgentGroupConfig } from '@lobechat/context-engine';
+import { agentDisplayName } from '@lobechat/types';
 
 /**
  * Format error for storage in thread metadata
@@ -35,7 +36,12 @@ export function formatErrorForMetadata(error: unknown): Record<string, any> | un
 export const buildGroupAgentContext = (
   currentAgentId: string,
   group: { content?: string | null; title?: string | null } | undefined,
-  roster: Array<{ agentId: string; role: string | null; title: string | null }>,
+  roster: Array<{
+    agentId: string;
+    name?: string | null;
+    role: string | null;
+    title: string | null;
+  }>,
 ): AgentGroupConfig | undefined => {
   if (roster.length === 0) return undefined;
 
@@ -46,7 +52,7 @@ export const buildGroupAgentContext = (
 
   for (const member of roster) {
     const role = member.role === 'supervisor' ? 'supervisor' : 'participant';
-    const name = member.title?.trim() || 'Untitled Agent';
+    const name = agentDisplayName(member, 'Untitled Agent');
     agentMap[member.agentId] = { name, role };
     members.push({ id: member.agentId, name, role });
 

@@ -27,6 +27,7 @@ interface UseBuilderSuggestionsParams {
   provider: string;
   /** Agent/group currently being edited. Config autosaves for the same target must not regenerate. */
   targetId?: string;
+  targetName?: string;
 }
 
 interface BuilderSuggestionsResult {
@@ -52,6 +53,7 @@ export const useBuilderSuggestions = ({
   locale,
   enabled,
   targetId,
+  targetName,
 }: UseBuilderSuggestionsParams): BuilderSuggestionsResult => {
   const markRegenerated = useBuilderSuggestionFeedbackStore((s) => s.markRegenerated);
   const scope = cacheScope.use();
@@ -59,11 +61,11 @@ export const useBuilderSuggestions = ({
   const params = useMemo<BuilderSuggestionParams | null>(
     () =>
       enabled && contextSummary && model && provider
-        ? { builderAgentId, contextSummary, locale, mode, model, provider, targetId }
+        ? { builderAgentId, contextSummary, locale, mode, model, provider, targetId, targetName }
         : null,
-    [builderAgentId, contextSummary, enabled, locale, mode, model, provider, targetId],
+    [builderAgentId, contextSummary, enabled, locale, mode, model, provider, targetId, targetName],
   );
-  // The entry is keyed on target identity + locale only (see `builderSuggestionKey`):
+  // The entry is keyed on target identity, name + locale (see `builderSuggestionKey`):
   // config autosaves stream in new summaries for the same target and must not
   // regenerate. A generation reads the latest params through this ref.
   const key = params ? builderSuggestionKey(params) : undefined;

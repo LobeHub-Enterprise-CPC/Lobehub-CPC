@@ -14,6 +14,8 @@ export interface BuilderSuggestionParams {
   provider: string;
   /** Agent/group being edited. */
   targetId?: string;
+  /** Its current name. Chips quote the name, so a rename must miss the cached batch. */
+  targetName?: string;
 }
 
 /** One generated batch of opening chips and the tracing row that produced it. */
@@ -23,17 +25,21 @@ export interface BuilderSuggestionBatch {
 }
 
 /**
- * Entry identity: the edited target and the UI language (chips are generated
- * in it, so a language switch must miss). The context summary, model and
- * provider stay out, so config autosaves for the same target keep the batch.
+ * Entry identity: the edited target, its name (chips quote it, so a rename must
+ * miss) and the UI language (chips are generated in it, so a language switch must
+ * miss). The context summary, model and provider stay out, so config autosaves
+ * for the same target keep the batch.
  */
 export const builderSuggestionKey = ({
   builderAgentId,
   locale,
   mode,
   targetId,
-}: Pick<BuilderSuggestionParams, 'builderAgentId' | 'locale' | 'mode' | 'targetId'>) =>
-  [mode, builderAgentId, targetId ?? '', locale ?? ''].join('\u0000');
+  targetName,
+}: Pick<
+  BuilderSuggestionParams,
+  'builderAgentId' | 'locale' | 'mode' | 'targetId' | 'targetName'
+>) => [mode, builderAgentId, targetId ?? '', targetName ?? '', locale ?? ''].join('\u0000');
 
 /**
  * Builder opening-suggestion chips. Persisted so a revisit paints the last

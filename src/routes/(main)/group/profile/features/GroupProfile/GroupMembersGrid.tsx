@@ -1,5 +1,6 @@
 'use client';
 
+import { agentDisplayName } from '@lobechat/types';
 import { ActionIcon, Avatar, DropdownMenu, Flexbox, Icon, Text } from '@lobehub/ui';
 import { cssVar } from '@lobehub/ui/stylex/cssVar.stylex';
 import * as stylex from '@stylexjs/stylex';
@@ -90,8 +91,10 @@ const GroupMembersGrid = memo(() => {
       ) : (
         <div {...stylex.props(styles.grid)}>
           {visible.map((member) => {
-            const title =
-              member.title || t('group.profile.addMember.newMemberTitle', { ns: 'chat' });
+            const title = agentDisplayName(
+              member,
+              t('group.profile.addMember.newMemberTitle', { ns: 'chat' }),
+            );
             const open = () => setSelectedTabId(member.id);
 
             return (

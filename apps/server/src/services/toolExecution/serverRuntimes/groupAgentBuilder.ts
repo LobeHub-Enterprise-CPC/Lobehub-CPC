@@ -252,6 +252,7 @@ export const groupAgentBuilderRuntime: ServerRuntimeRegistration = {
             description: member.description ?? undefined,
             id: params.agentId,
             model: config?.model ?? undefined,
+            name: member.name ?? undefined,
             systemRole: memberAccess === 'full' ? (config?.systemRole ?? undefined) : undefined,
             title: member.title ?? undefined,
           };
