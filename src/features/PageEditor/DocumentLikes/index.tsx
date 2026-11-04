@@ -1,5 +1,6 @@
 'use client';
 
+import { BRANDED_USER_AVATAR } from '@lobechat/const';
 import type { DocumentLikeSummary } from '@lobechat/types';
 import {
   Avatar,
@@ -267,7 +268,7 @@ const DocumentLikes = memo<{ documentId: string }>(({ documentId }) => {
             const name = liker.fullName || liker.username || liker.id;
             return (
               <Tooltip key={liker.id} title={name}>
-                <Avatar avatar={liker.avatar || name} size={32} />
+                <Avatar avatar={liker.avatar || BRANDED_USER_AVATAR || name} size={32} />
               </Tooltip>
             );
           })}

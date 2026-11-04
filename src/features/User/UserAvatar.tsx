@@ -6,7 +6,7 @@ import { Avatar, type AvatarProps } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from '@lobehub/ui';
 import { useMemo } from 'react';
 
-import { DEFAULT_USER_AVATAR_URL } from '@/const/meta';
+import { BRANDED_USER_AVATAR, DEFAULT_USER_AVATAR_URL } from '@/const/meta';
 import { useUserStore } from '@/store/user';
 import { authSelectors, userProfileSelectors } from '@/store/user/selectors';
 
@@ -77,7 +77,7 @@ const UserAvatar = ({
 
   const userAvatarUrl = useMemo(() => {
     if (!isSignedIn) return DEFAULT_USER_AVATAR_URL;
-    if (!avatar) return;
+    if (!avatar) return BRANDED_USER_AVATAR;
 
     return remoteAvatar;
   }, [isSignedIn, avatar, remoteAvatar]);

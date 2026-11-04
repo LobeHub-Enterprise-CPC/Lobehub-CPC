@@ -16,6 +16,9 @@ export const BRANDING_WORDMARK_URL = '';
 export const BRANDING_WORDMARK_DARK_URL = '';
 export const BRANDING_TEXT_LOGO_URL = '';
 export const BRANDING_TEXT_LOGO_DARK_URL = '';
+// Avatar shown for a person who has not set one. Empty keeps each surface's own
+// fallback (an emoji or the person's initials).
+export const BRANDING_USER_AVATAR_URL = '';
 
 /**
  * Display name of the built-in default assistant (the inbox agent).

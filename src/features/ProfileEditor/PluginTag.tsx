@@ -1,7 +1,7 @@
 'use client';
 
 import type { ComposioAppType, LobehubSkillProviderType } from '@lobechat/const';
-import { resolveConnectorCatalogItem } from '@lobechat/const';
+import { BRANDED_USER_AVATAR, resolveConnectorCatalogItem } from '@lobechat/const';
 import { Avatar, createStaticStyles, cssVar, Flexbox, Icon, Tag, Tooltip } from '@lobehub/ui';
 import { McpIcon } from '@lobehub/ui/icons';
 import isEqual from 'fast-deep-equal';
@@ -182,7 +182,7 @@ const PluginTag = memo<PluginTagProps>(
         (agentId ? agentConnectors.find((c) => c.identifier === identifier) : undefined) ??
         connectorList.find((c) => c.identifier === identifier);
       if (!row?.authorizedByName) return null;
-      return { avatar: row.authorizedByAvatar ?? undefined, name: row.authorizedByName };
+      return { avatar: row.authorizedByAvatar || BRANDED_USER_AVATAR, name: row.authorizedByName };
     }, [showAuthor, agentId, agentConnectors, connectorList, identifier]);
 
     // Get local plugin lists - use allMetaList or metaList based on prop

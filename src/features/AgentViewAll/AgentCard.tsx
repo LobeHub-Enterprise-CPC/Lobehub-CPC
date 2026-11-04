@@ -1,6 +1,6 @@
 'use client';
 
-import { DEFAULT_AVATAR } from '@lobechat/const';
+import { BRANDED_USER_AVATAR, DEFAULT_AVATAR } from '@lobechat/const';
 import type { SidebarAgentItem } from '@lobechat/types';
 import { agentDisplayName, agentSecondaryDisplayName } from '@lobechat/types';
 import {
@@ -181,7 +181,10 @@ const AgentCard = memo<AgentCardProps>(
                   <Flexbox horizontal align={'center'} gap={6} style={{ minWidth: 0 }}>
                     {author ? (
                       <Tooltip title={author.name}>
-                        <Avatar avatar={author.avatar || DEFAULT_AVATAR} size={18} />
+                        <Avatar
+                          avatar={author.avatar || BRANDED_USER_AVATAR || DEFAULT_AVATAR}
+                          size={18}
+                        />
                       </Tooltip>
                     ) : (
                       <Text fontSize={12} type={'secondary'}>

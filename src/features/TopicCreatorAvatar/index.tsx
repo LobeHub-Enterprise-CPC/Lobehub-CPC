@@ -1,5 +1,6 @@
 'use client';
 
+import { BRANDED_USER_AVATAR } from '@lobechat/const';
 import type { BotSenderMetadata } from '@lobechat/types';
 import { cssVar, Tooltip } from '@lobehub/ui';
 import { memo, type ReactNode } from 'react';
@@ -53,7 +54,7 @@ const TopicCreatorAvatar = memo<TopicCreatorAvatarProps>(
     const avatar = (
       <Tooltip title={author.fullName}>
         <Avatar
-          avatar={author.avatar ?? undefined}
+          avatar={author.avatar || BRANDED_USER_AVATAR}
           name={author.fullName ?? undefined}
           shape={'circle'}
           size={size}

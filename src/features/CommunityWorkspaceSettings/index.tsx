@@ -1,7 +1,7 @@
 'use client';
 
 import { resolveAppUrl } from '@lobechat/business-tenant/client';
-import { OFFICIAL_URL } from '@lobechat/const';
+import { BRANDED_USER_AVATAR, OFFICIAL_URL } from '@lobechat/const';
 import { Block, Center, createStaticStyles, cssVar, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import {
   Avatar,
@@ -195,7 +195,7 @@ const MembersCard = memo<{ canManage: boolean }>(({ canManage }) => {
 
           return (
             <Flexbox horizontal align="center" gap={12}>
-              <Avatar avatar={member.avatarUrl || undefined} size={36} title={name} />
+              <Avatar avatar={member.avatarUrl || BRANDED_USER_AVATAR} size={36} title={name} />
               <Flexbox gap={2}>
                 {profileUrl ? (
                   <a
