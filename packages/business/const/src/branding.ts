@@ -139,7 +139,7 @@ export interface AgentAvatarGalleryChoice {
  */
 export interface AgentAvatarGallery {
   /** Avatars for built-in agents the distribution draws from the gallery. */
-  builtinAvatars?: { agentBuilder?: string };
+  builtinAvatars?: { agentBuilder?: string; inbox?: string };
   /** `swatch` is a CSS `background` value previewing the colour. */
   colors: { key: string; swatch: string }[];
   /** Shown for an agent with no avatar of its own. */
