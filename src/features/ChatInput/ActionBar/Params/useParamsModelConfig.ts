@@ -6,7 +6,7 @@ import { useTopicModel } from '../../hooks/useEffectiveModel';
 export const useParamsModelConfig = (agentId: string) => {
   const { model: selectedAgentModel, provider: selectedAgentProvider } =
     useAgentModelSelection(agentId);
-  const topicModel = useTopicModel();
+  const topicModel = useTopicModel(agentId);
   const model = topicModel?.model ?? selectedAgentModel;
   const provider = topicModel?.model ? topicModel.provider : selectedAgentProvider;
 

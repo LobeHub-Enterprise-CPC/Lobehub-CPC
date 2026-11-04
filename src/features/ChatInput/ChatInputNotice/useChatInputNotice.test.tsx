@@ -47,7 +47,8 @@ const testState = vi.hoisted(() => ({
   /** Chat store slice the notice reads for the topic-scoped model pin. */
   chat: {
     activeTopicId: undefined as string | undefined,
-    topics: {} as Record<string, { model?: string; provider?: string }>,
+    /** `ownerAgentId`: the agent the topic belongs to (its pin is that agent's). */
+    topics: {} as Record<string, { model?: string; ownerAgentId?: string; provider?: string }>,
     updateTopicModel: vi.fn(async () => {}),
   },
   aiInfra: {
@@ -144,11 +145,16 @@ vi.mock('@/store/chat', () => ({
 vi.mock('@/store/chat/slices/topic/selectors', () => ({
   topicSelectors: {
     getTopicById: (id: string) => (s: typeof testState.chat) => s.topics[id],
-    getTopicModelById: (id: string) => (s: typeof testState.chat) => {
+    getTopicModelById: (id: string, agentId?: string) => (s: typeof testState.chat) => {
       const topic = s.topics[id];
       if (!topic?.model) return undefined;
+      if (agentId && topic.ownerAgentId && topic.ownerAgentId !== agentId) return undefined;
 
       return { model: topic.model, provider: topic.provider || '' };
+    },
+    isTopicModelPinOwner: (id: string, agentId: string) => (s: typeof testState.chat) => {
+      const owner = s.topics[id]?.ownerAgentId;
+      return !owner || owner === agentId;
     },
   },
 }));
@@ -659,6 +665,41 @@ describe('useChatInputNotice', () => {
       model: 'gpt-4o',
       provider: 'openai',
     });
+  });
+
+  it("judges another agent's thread on this topic by that agent's own model", async () => {
+    // A direct @Agent thread panel: the composer belongs to the mentioned agent,
+    // the topic to the heterogeneous caller and pins its CLI model. That pin is
+    // the caller's; warning about it (and "enabling" it) is wrong.
+    testState.aiInfra.isInitAiProviderRuntimeState = true;
+    testState.chatInput.topicId = 'caller-topic';
+    testState.chat.activeTopicId = 'caller-topic';
+    testState.chat.topics = {
+      'caller-topic': { model: 'gpt-6.1-sol', ownerAgentId: 'codex-agent', provider: 'codex' },
+    };
+    testState.aiInfra.builtinAiModelList = [
+      { id: 'gpt-6.1-sol', providerId: 'codex', type: 'chat' },
+    ];
+    testState.aiInfra.enabledAiProviders = [{ id: 'codex' }, { id: 'openai' }];
+    testState.aiInfra.enabledChatModelList = [
+      { children: [{ abilities: { functionCall: true }, id: 'gpt-4o' }], id: 'openai' },
+    ];
+
+    const { result } = renderHook(() => useChatInputNotice());
+    expect(result.current).toBeUndefined();
+
+    // With its own model disabled, the repair lands on the agent, never the
+    // caller's topic.
+    testState.agent.provider = 'removed-provider';
+    testState.aiInfra.builtinAiModelList = [{ id: 'gpt-4o', providerId: 'openai', type: 'chat' }];
+    const { result: repaired } = renderHook(() => useChatInputNotice());
+    await act(async () => repaired.current?.onAction?.());
+
+    expect(testState.agentModelSelection.selectModel).toHaveBeenCalledWith({
+      model: 'gpt-4o',
+      provider: 'openai',
+    });
+    expect(testState.chat.updateTopicModel).not.toHaveBeenCalled();
   });
 
   it('judges an unlisted conversation topic by its agent default instead of waiting on it', async () => {

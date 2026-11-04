@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 
 import { useChatStore } from '@/store/chat';
+import { topicSelectors } from '@/store/chat/slices/topic/selectors';
 
 import { useTopicModel } from '../../hooks/useEffectiveModel';
 import { useTopicId } from '../../hooks/useTopicId';
@@ -11,6 +12,8 @@ interface ModelAndProvider {
 }
 
 interface UseTopicModelSwitchOptions {
+  /** The composer's agent — a topic pin only belongs to the topic's own agent. */
+  agentId: string;
   canSelectModel: boolean;
   /** The agent-level selection (see `useAgentModelSelection`). */
   model: string;
@@ -25,15 +28,22 @@ interface UseTopicModelSwitchOptions {
  * topic, otherwise updates the agent (via `selectModel`, which honors workspace
  * member overrides). Never the global active topic: a page copilot beside a
  * chat has `topicId: null` and must neither show nor write the outer pin.
+ * Likewise a composer for another agent on this topic (a direct @Agent thread)
+ * treats it as topic-less: the pin belongs to the topic's own agent.
  */
 export const useTopicModelSwitch = ({
+  agentId,
   canSelectModel,
   model: agentModel,
   provider: agentProvider,
   selectModel,
 }: UseTopicModelSwitchOptions) => {
-  const topicId = useTopicId();
-  const topicModel = useTopicModel();
+  const composerTopicId = useTopicId();
+  const ownsTopicPin = useChatStore(
+    (s) => !!composerTopicId && topicSelectors.isTopicModelPinOwner(composerTopicId, agentId)(s),
+  );
+  const topicId = ownsTopicPin ? composerTopicId : null;
+  const topicModel = useTopicModel(agentId);
   const updateTopicModel = useChatStore((s) => s.updateTopicModel);
   const model = topicModel?.model ?? agentModel;
   const provider = topicModel?.model ? topicModel.provider : agentProvider;

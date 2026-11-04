@@ -28,12 +28,16 @@ interface ModelAndProvider {
  * leaf like the token tag, means every consumer of the model (and the gates that
  * decide whether such a leaf mounts at all) triggers the load; the by-id fetch
  * dedupes across callers and with `useFetchActiveTopicDetail`.
+ *
+ * The pin only applies to the topic's own agent: a composer for another agent
+ * on this topic (the panel of a direct @Agent thread) gets `undefined` and
+ * follows that agent's own model, the way the run does.
  */
-export const useTopicModel = (): ModelAndProvider | undefined => {
+export const useTopicModel = (agentId: string): ModelAndProvider | undefined => {
   const topicId = useTopicId();
 
   const topicModel = useChatStore((s) =>
-    topicId ? topicSelectors.getTopicModelById(topicId)(s) : undefined,
+    topicId ? topicSelectors.getTopicModelById(topicId, agentId)(s) : undefined,
   );
   const isUnlistedTopic = useChatStore(
     (s) => !!topicId && !topicSelectors.getTopicById(topicId)(s),
@@ -60,7 +64,7 @@ export const useEffectiveModel = (agentId: string): ModelAndProvider => {
     agentByIdSelectors.getAgentModelProviderById(agentId)(s),
   ]);
 
-  const topicModel = useTopicModel();
+  const topicModel = useTopicModel(agentId);
 
   return {
     model: topicModel?.model || agentModel,
