@@ -46,11 +46,12 @@ const launch = async (env: Record<string, string>, failure?: { code: number; scr
 };
 
 describe('Docker startup migrations', () => {
-  it('finishes PostgreSQL and Elasticsearch migrations before serving requests', async () => {
+  // Startup migrates PostgreSQL only. The Elasticsearch index is migrated by an explicit
+  // `fts-search-reindex` run, and the app serves while search is down.
+  it('finishes the PostgreSQL migration before serving and leaves the search index alone', async () => {
     const result = await launch({ DATABASE_DRIVER: 'node', FTS_SEARCH_PROVIDER: 'elasticsearch' });
     expect(result.commands).toEqual([
       ['/bin/node', '/app/docker.cjs', '--tolerate-tenant-failures'],
-      ['/bin/node', '/app/fts-search-elasticsearch-reindex-tenants.cjs', '--startup', '--yes'],
       ['/bin/node', '/app/server.js'],
     ]);
     expect(result.exits).toEqual([]);
@@ -65,31 +66,21 @@ describe('Docker startup migrations', () => {
     ]);
   });
 
-  it('runs PostgreSQL first for Elasticsearch even without an explicit driver', async () => {
+  it('does not migrate at startup without an explicit driver, even with Elasticsearch', async () => {
     const result = await launch({ FTS_SEARCH_PROVIDER: 'elasticsearch' });
-    expect(result.commands.map((command) => command[1])).toEqual([
-      '/app/docker.cjs',
-      '/app/fts-search-elasticsearch-reindex-tenants.cjs',
-      '/app/server.js',
-    ]);
+    expect(result.commands.map((command) => command[1])).toEqual(['/app/server.js']);
   });
 
-  it('supplies the migration telemetry environment when Docker telemetry is enabled', async () => {
+  it('does not bring the Elasticsearch migration back when Docker telemetry is enabled', async () => {
     const result = await launch({
+      DATABASE_DRIVER: 'node',
       ENABLE_TELEMETRY: '1',
       FTS_SEARCH_PROVIDER: 'elasticsearch',
       OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector:4318',
     });
-    expect(result.commands).toEqual([
-      ['/bin/node', '/app/docker.cjs', '--tolerate-tenant-failures'],
-      [
-        '/bin/node',
-        '/app/fts-search-elasticsearch-reindex-tenants.cjs',
-        '--startup',
-        '--yes',
-        '--telemetry-environment=production',
-      ],
-      ['/bin/node', '/app/server.js'],
+    expect(result.commands.map((command) => command[1])).toEqual([
+      '/app/docker.cjs',
+      '/app/server.js',
     ]);
     expect(result.exits).toEqual([]);
   });
@@ -102,15 +93,12 @@ describe('Docker startup migrations', () => {
     ]);
   });
 
-  it.each(['/app/docker.cjs', '/app/fts-search-elasticsearch-reindex-tenants.cjs'])(
-    'does not serve requests when %s fails',
-    async (script) => {
-      const result = await launch(
-        { DATABASE_DRIVER: 'node', FTS_SEARCH_PROVIDER: 'elasticsearch' },
-        { code: 1, script },
-      );
-      expect(result.commands.some((command) => command[1] === '/app/server.js')).toBe(false);
-      expect(result.exits).toEqual([1]);
-    },
-  );
+  it('does not serve requests when /app/docker.cjs fails', async () => {
+    const result = await launch(
+      { DATABASE_DRIVER: 'node', FTS_SEARCH_PROVIDER: 'elasticsearch' },
+      { code: 1, script: '/app/docker.cjs' },
+    );
+    expect(result.commands.some((command) => command[1] === '/app/server.js')).toBe(false);
+    expect(result.exits).toEqual([1]);
+  });
 });

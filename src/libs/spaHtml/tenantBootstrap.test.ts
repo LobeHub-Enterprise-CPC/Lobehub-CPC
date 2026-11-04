@@ -20,6 +20,7 @@ const template =
   '<html><head><!--SEO_META--></head><script>window.__SERVER_CONFIG__ = undefined; /* SERVER_CONFIG */</script></html>';
 vi.mock('@/server/modules/Tenant/endpoints', () => ({
   findSlugEndpoint: async () => ({
+    formerSlugs: [],
     name: 'Acme </script> & Co.',
     slug: 'acme',
     tenantId: 'tenant-1',

@@ -3,11 +3,12 @@
  */
 import { render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as AgentSelectorModule from '@/store/agent/selectors';
 
 import AgentDock from '../AgentDock';
+import { loadHomeDockWorkspace } from '../useHomeDockWorkspace';
 
 const resolved = vi.hoisted(() => {
   let agentId: string | undefined = 'agt_selected';
@@ -176,6 +177,13 @@ vi.mock('@/features/ChatInput/ControlBar/DeviceSwitcher', async () => {
 const renderDock = (mode: 'chat' | 'task' = 'chat') => render(<AgentDock mode={mode} />);
 
 describe('AgentDock workspace cluster', () => {
+  // The dock lazy-loads the ChatInput workspace cluster. A cold import of that graph takes
+  // longer than waitFor's default timeout, so the first test would only see the skeleton.
+  // Load it once up front; each render then resolves the import from the module cache.
+  beforeAll(async () => {
+    await loadHomeDockWorkspace();
+  }, 60_000);
+
   beforeEach(() => {
     resolved.set('agt_selected');
     home.inputActiveMode = null;

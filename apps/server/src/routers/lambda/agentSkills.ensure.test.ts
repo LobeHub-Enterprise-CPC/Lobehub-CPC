@@ -9,9 +9,10 @@ import { agentSkillsRouter } from './agentSkills';
 
 const mocks = vi.hoisted(() => ({
   detail: vi.fn(),
+  download: vi.fn(),
   findByIdentifier: vi.fn(),
   importerConstructor: vi.fn(),
-  importFromUrl: vi.fn(),
+  importFromMarketZip: vi.fn(),
   modelConstructor: vi.fn(),
 }));
 vi.mock('@/libs/trpc/lambda', async () => {
@@ -53,6 +54,8 @@ vi.mock('@/database/models/file', () => ({ FileModel: class {} }));
 vi.mock('@/server/services/file', () => ({ FileService: class {} }));
 vi.mock('@/server/services/market', () => ({
   MarketService: class {
+    // Ensure downloads with the request's Market credentials, not the public URL.
+    downloadSkill = mocks.download;
     getSkillDetail = mocks.detail;
     getSkillDownloadUrl = (id: string) => `https://market.example/${id}/download`;
   },
@@ -64,7 +67,7 @@ vi.mock('@/server/services/skill', async () => ({
     constructor(...args: unknown[]) {
       mocks.importerConstructor(...args);
     }
-    importFromUrl = mocks.importFromUrl;
+    importFromMarketZip = mocks.importFromMarketZip;
   },
   SkillResourceService: class {},
 }));
@@ -84,7 +87,10 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.detail.mockResolvedValue({});
   mocks.findByIdentifier.mockResolvedValue(undefined);
-  mocks.importFromUrl.mockResolvedValue({ status: 'created' });
+  mocks.download.mockImplementation(async (id: string) => ({
+    buffer: new TextEncoder().encode(`zip:${id}`).buffer,
+  }));
+  mocks.importFromMarketZip.mockResolvedValue({ status: 'created' });
 });
 
 describe('agentSkills.ensureFromMarket', () => {
@@ -96,10 +102,12 @@ describe('agentSkills.ensureFromMarket', () => {
     expect(mocks.importerConstructor).toHaveBeenLastCalledWith({}, 'user', 'workspace', {
       workspaceRole: 'member',
     });
-    expect(mocks.importFromUrl).toHaveBeenCalledWith(
-      { url: 'https://market.example/a/download' },
-      { identifier: 'a', overwrite: false, source: 'market' },
-    );
+    expect(mocks.download).toHaveBeenCalledWith('a');
+    expect(mocks.importFromMarketZip).toHaveBeenCalledWith(Buffer.from('zip:a'), {
+      identifier: 'a',
+      overwrite: false,
+      sourceUrl: 'https://market.example/a/download',
+    });
   });
 
   it('applies the write gate before any market request or import', async () => {
@@ -107,7 +115,8 @@ describe('agentSkills.ensureFromMarket', () => {
       code: 'FORBIDDEN',
     });
     expect(mocks.detail).not.toHaveBeenCalled();
-    expect(mocks.importFromUrl).not.toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.importFromMarketZip).not.toHaveBeenCalled();
   });
 
   it('rejects more than fifty distinct identifiers without importing', async () => {
@@ -126,7 +135,7 @@ describe('agentSkills.ensureFromMarket', () => {
       if (id === 'forbidden') throw new MarketAPIError(403, 'Forbidden');
       return {};
     });
-    mocks.importFromUrl.mockImplementation(async (_input, options) => {
+    mocks.importFromMarketZip.mockImplementation(async (_zip, options) => {
       if (options.identifier === 'download-404')
         throw new SkillImportError('Download missing', 'NOT_FOUND');
       if (options.identifier === 'conflict')
