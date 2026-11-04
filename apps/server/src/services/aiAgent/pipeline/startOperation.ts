@@ -385,9 +385,22 @@ export const startOperation = async (
       });
     }
 
+    // The run is already scheduled and writes its own outcome into the assistant
+    // row, so a refused ticket must not fall into the startup-failure path below:
+    // that would paint an error onto a reply that still completes. Without a
+    // token the client reconnects through `refreshGatewayToken`.
     const gatewayToken = deps.withholdGatewayToken
       ? undefined
-      : await mintOperationGatewayTicket(deps.userId, operationId, deps.workspaceId);
+      : await mintOperationGatewayTicket(deps.userId, operationId, deps.workspaceId).catch(
+          (error) => {
+            console.error(
+              '[execAgent] gateway ticket refused for scheduled operation %s:',
+              operationId,
+              error,
+            );
+            return undefined;
+          },
+        );
 
     return {
       agentId: resolvedAgentId,
