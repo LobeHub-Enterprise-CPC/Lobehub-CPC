@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConnectorModel } from '@/database/models/connector';
 import { DashboardModel } from '@/database/models/dashboard';
 import { WidgetModel } from '@/database/models/widget';
-import { qstashClient } from '@/libs/qstash';
+import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import type * as KeyVaultsModule from '@/server/modules/KeyVaultsEncrypt';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import widgetWorkflowApp from '@/server/router-hono/workflows/widget';
@@ -68,6 +68,10 @@ vi.mock('@/server/featureFlags', async () => {
 });
 
 const queueMode = vi.hoisted(() => ({ enabled: false }));
+vi.mock('@/server/modules/Hatchet/directDelivery', () => {
+  const client = { publishJSON: async (_request: unknown) => ({ messageId: 'm' }) };
+  return { getDirectDeliveryClient: () => client };
+});
 vi.mock('@/envs/app', async (importOriginal) => {
   const mod = await importOriginal<{ appEnv: object }>();
   return {
@@ -1202,28 +1206,25 @@ describe('widget + dashboard routers integration', () => {
         vi.stubEnv('APP_URL', 'https://app.test/');
         queueMode.enabled = true;
         const publish = vi
-          .spyOn(qstashClient, 'publishJSON')
+          .spyOn(getDirectDeliveryClient(), 'publishJSON')
           .mockResolvedValue({ messageId: 'm1' } as never);
         const { slot, widget } = await dueWidget();
 
         expect(await post('/tick', {})).toMatchObject({ claimed: 0, dispatched: 1, due: 1 });
         expect(publish).toHaveBeenCalledWith({
           body: { slot: slot.toISOString(), widgetId: widget.id },
-          // QStash rejects `:` in a deduplication id, so the logical
-          // `widget:<id>:<slot>` key is encoded before it is published.
-          deduplicationId: expect.stringMatching(/^[a-f0-9]{64}$/),
+          deduplicationId: `widget:${widget.id}:${slot.toISOString()}`,
           url: 'https://app.test/orgs/acme/api/workflows/widget/run-widget',
         });
-        expect(publish.mock.calls[0][0].deduplicationId).not.toContain(':');
         // Not claimed and nothing ran in the tick: the slot is still due.
         expect(await nextRunAt(widget.id)).toEqual(slot);
         expect(runSandbox).not.toHaveBeenCalled();
 
         // A failed publish keeps the slot due, so the next tick retries it.
-        publish.mockRejectedValueOnce(new Error('qstash down'));
+        publish.mockRejectedValueOnce(new Error('queue down'));
         expect(await post('/tick', {})).toMatchObject({
           dispatched: 0,
-          results: [{ error: expect.stringContaining('qstash down'), widgetId: widget.id }],
+          results: [{ error: expect.stringContaining('queue down'), widgetId: widget.id }],
         });
         expect(await nextRunAt(widget.id)).toEqual(slot);
       });
@@ -1236,7 +1237,7 @@ describe('widget + dashboard routers integration', () => {
           status: 'succeeded',
           success: true,
         });
-        // QStash redelivers the same message after a lost response.
+        // A delivery is repeated after a lost response.
         expect(await post('/run-widget', message)).toEqual({
           skipped: 'already-claimed',
           success: true,
@@ -1307,7 +1308,7 @@ describe('widget + dashboard routers integration', () => {
 
         queueMode.enabled = true;
         const publish = vi
-          .spyOn(qstashClient, 'publishJSON')
+          .spyOn(getDirectDeliveryClient(), 'publishJSON')
           .mockResolvedValue({ messageId: 'm1' } as never);
 
         // Still within its lease: the tick does not touch it.
@@ -1321,8 +1322,7 @@ describe('widget + dashboard routers integration', () => {
         const resumeMessage = { leaseStartedAt, runId: reserved.id, widgetId: widget.id };
         expect(publish).toHaveBeenCalledWith({
           body: resumeMessage,
-          // Same QStash-safe encoding as a due slot's publish.
-          deduplicationId: expect.stringMatching(/^[a-f0-9]{64}$/),
+          deduplicationId: expect.stringContaining(reserved.id),
           url: 'https://app.test/orgs/acme/api/workflows/widget/run-widget',
         });
 

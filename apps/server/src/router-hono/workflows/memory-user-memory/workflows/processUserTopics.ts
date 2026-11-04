@@ -1,11 +1,11 @@
 import { MemorySourceType } from '@lobechat/types';
-import { type WorkflowContext } from '@upstash/workflow';
 import { chunk } from 'es-toolkit/compat';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { type ListTopicsForMemoryExtractorCursor } from '@/database/models/topic';
 import { getServerDB } from '@/database/server';
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
+import { type WorkflowContext } from '@/server/modules/Workflow';
 import { type MemoryExtractionPayloadInput } from '@/server/services/memory/userMemory/extract';
 import {
   buildWorkflowPayloadInput,

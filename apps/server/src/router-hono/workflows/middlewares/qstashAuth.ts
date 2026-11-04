@@ -3,33 +3,32 @@ import { errorNameFrom } from '@lobechat/utils';
 import debug from 'debug';
 import type { MiddlewareHandler } from 'hono';
 
-import { verifyQStashSignature } from '@/libs/qstash';
+import { getDeliverySigningKey, verifyDeliveryRequest } from '@/server/modules/Hatchet/signature';
 
 const log = debug('lobe-server:workflows:qstash-auth');
 
 /**
- * Hono middleware that verifies the `Upstash-Signature` header on incoming
- * QStash webhook calls.
+ * Hono middleware that verifies the `Upstash-Signature` header a direct
+ * delivery (Hatchet, or in-process in local mode) signs its request with.
  *
- * - When `QSTASH_CURRENT_SIGNING_KEY` is unset (dev / electron), verification
- *   is skipped — matching the existing `verifyQStashSignature` behavior.
+ * - When `DELIVERY_SIGNING_KEY` is unset (dev / electron), verification
+ *   is skipped, as deliveries then go unsigned.
  * - On signature mismatch, returns `401 Invalid signature` and aborts the
  *   handler chain.
  * - The body is consumed via `c.req.text()` to compute the HMAC; downstream
  *   handlers can still call `c.req.json()` because Hono caches across body
  *   formats (`bodyCache` cross-converts text ↔ json).
  *
- * Use for one-shot QStash webhook receivers. For Upstash *Workflow* endpoints
- * (multi-step `serve()` integrations) use `@upstash/workflow/hono`'s built-in
- * verification instead.
+ * Use for one-shot delivery receivers. Workflow routes (`serve()` from
+ * `@/server/modules/Workflow`) verify the signature themselves.
  */
 export const qstashAuth = (): MiddlewareHandler => async (c, next) => {
-  if (process.env.QSTASH_CURRENT_SIGNING_KEY) {
+  if (getDeliverySigningKey()) {
     const rawBody = await c.req.text();
 
-    const ok = await verifyQStashSignature(c.req.raw, rawBody);
+    const ok = verifyDeliveryRequest(c.req.raw, rawBody);
     if (!ok) {
-      log('Rejected: invalid QStash signature on %s', c.req.path);
+      log('Rejected: invalid delivery signature on %s', c.req.path);
       recordUpstashWorkflowEvent({
         errorType: 'InvalidSignature',
         interface: 'qstash',

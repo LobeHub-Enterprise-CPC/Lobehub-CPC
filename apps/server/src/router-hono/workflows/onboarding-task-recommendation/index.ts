@@ -1,14 +1,12 @@
 import { withOtelMetricsForUpstashWorkflows } from '@lobechat/observability-otel/modules/upstash-workflow';
-import { createWorkflow, serveMany } from '@upstash/workflow/hono';
 import { Hono } from 'hono';
 
+import { createWorkflow, serveMany } from '@/server/modules/Workflow';
 import type { ProcessOnboardingTaskRecommendationPayload } from '@/server/workflows/onboardingTaskRecommendation';
 import {
   processOnboardingTaskRecommendations,
   processOnboardingTaskRecommendationWorkflowOptions,
 } from '@/server/workflows/onboardingTaskRecommendation/process';
-
-import { createWorkflowQstashClient } from '../qstashClient';
 
 const app = new Hono();
 
@@ -34,12 +32,6 @@ export const processTaskRecommendationsWorkflow = createWorkflow<
   processOnboardingTaskRecommendationWorkflowOptions,
 );
 
-app.post(
-  '/:workflowId',
-  serveMany(
-    { process: processTaskRecommendationsWorkflow },
-    { qstashClient: createWorkflowQstashClient() },
-  ),
-);
+app.post('/:workflowId', serveMany({ process: processTaskRecommendationsWorkflow }));
 
 export default app;

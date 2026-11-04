@@ -183,10 +183,10 @@ Email queries share a per-dispatcher cache of up to 1,000 users for five minutes
 
 Dispatch awaits each handler or webhook. Ordinary errors are logged and dispatch continues. Webhooks with `fallback: 'none'` accumulate a `CriticalHookDeliveryError`, which is thrown after sibling hooks have run.
 
-`delivery: 'qstash'` is queued delivery. It publishes through QStash, or through Hatchet when Hatchet delivery is on (`AGENT_RUNTIME_MODE=queue` with `AGENT_RUNTIME_DELIVERY=hatchet`), via `getDirectDeliveryClient()` in `hooks/httpWebhook.ts`. A failed publish defaults to a fetch fallback; use `fallback: 'none'` for endpoints that require the queue's signature. Under Hatchet, only deliveries to the app's own origin are signed; external webhooks arrive unsigned.
+`delivery: 'qstash'` (the name is a stored identifier) is queued delivery. It publishes through Hatchet in queue mode (`AGENT_RUNTIME_MODE=queue`), or through the in-process local publisher otherwise, via `getDirectDeliveryClient()` in `hooks/httpWebhook.ts`. A failed publish defaults to a fetch fallback; use `fallback: 'none'` for endpoints that require the delivery signature. Only deliveries to the app's own origin are signed with `DELIVERY_SIGNING_KEY`; external webhooks arrive unsigned.
 
 ## Queued Delivery Rules
 
-- Publish one-off deliveries (webhooks, callbacks to our own routes) through `getDirectDeliveryClient()` from `apps/server/src/modules/Hatchet/directDelivery.ts`, never through `qstashClient` or a new QStash client. Only that client follows the Hatchet switch. Upstash Workflow triggers keep using QStash.
+- Publish one-off deliveries (webhooks, callbacks to our own routes) through `getDirectDeliveryClient()` from `apps/server/src/modules/Hatchet/directDelivery.ts`, never through `fetch` or a new client. Workflow runs start through `workflowClient.trigger` from `@/server/modules/Workflow`.
 - State that instrumentation and route handlers share (drain participants, pending publishes, after-response work, tenant leases) lives on `globalThis` under a `Symbol.for('lobehub.<name>')` key. The bundles load separate module instances, so a module-level variable is two variables.
 - A new `runStep` payload field needs a decision in `apps/server/src/modules/Hatchet/purpose.ts`, which mirrors `isPlainStepDelivery` in `apps/server/src/router-hono/agent/handlers/runStep.ts` and the watchdogs of `runLockFreeDelivery`. A field left out there is classified as a plain step, and the reaper treats its run as owning the operation's next step.

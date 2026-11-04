@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Imported after the mock so the middleware picks up the stubbed verifier.
 import { qstashAuth } from '../qstashAuth';
 
-const mockVerify = vi.fn<(req: Request, body: string) => Promise<boolean>>();
-vi.mock('@/libs/qstash', () => ({
-  verifyQStashSignature: (req: Request, body: string) => mockVerify(req, body),
+const mockVerify = vi.fn<(req: Request, body: string) => boolean>();
+vi.mock('@/server/modules/Hatchet/signature', () => ({
+  verifyDeliveryRequest: (req: Request, body: string) => mockVerify(req, body),
 }));
 
 function buildContext(rawBody: string) {
@@ -38,8 +38,8 @@ describe('qstashAuth middleware', () => {
     vi.clearAllMocks();
   });
 
-  it('passes the raw body and request to verifyQStashSignature', async () => {
-    mockVerify.mockResolvedValue(true);
+  it('passes the raw body and request to verifyDeliveryRequest', async () => {
+    mockVerify.mockReturnValue(true);
     const next = vi.fn().mockResolvedValue(undefined);
     const { ctx } = buildContext('{"hello":"world"}');
 
@@ -51,7 +51,7 @@ describe('qstashAuth middleware', () => {
   });
 
   it('rejects with 401 when signature is invalid', async () => {
-    mockVerify.mockResolvedValue(false);
+    mockVerify.mockReturnValue(false);
     const next = vi.fn();
     const { ctx, getCaptured } = buildContext('{"hello":"world"}');
 

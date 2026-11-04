@@ -1,7 +1,7 @@
-import type { WorkflowContext } from '@upstash/workflow';
 import { chunk } from 'es-toolkit/compat';
 
 import { getServerDB } from '@/database/server';
+import type { WorkflowContext } from '@/server/modules/Workflow';
 import { createServerNightlyReviewScheduleService } from '@/server/services/agentSignal/services';
 import {
   AgentSignalNightlyReviewWorkflow,

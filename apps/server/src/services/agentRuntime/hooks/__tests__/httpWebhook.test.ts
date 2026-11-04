@@ -1,26 +1,15 @@
 import { inspect } from 'node:util';
 
-import { QstashError } from '@upstash/qstash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { deliverWebhook, executeToolCallWebhook, resolveWebhookHeaders } from '../httpWebhook';
 
-const { directPublish, fetchMock, hatchet, publish } = vi.hoisted(() => ({
-  directPublish: vi.fn(),
+const { fetchMock, publish } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
-  hatchet: { enabled: false },
   publish: vi.fn(),
 }));
-vi.mock('@/libs/qstash', () => ({
-  OtelQstashClient: class {
-    publishJSON = publish;
-  },
-}));
-vi.mock('@/server/modules/Hatchet/config', () => ({
-  isHatchetDeliveryEnabled: () => hatchet.enabled,
-}));
 vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
-  getDirectDeliveryClient: () => ({ publishJSON: directPublish }),
+  getDirectDeliveryClient: () => ({ publishJSON: publish }),
 }));
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
@@ -179,8 +168,7 @@ describe('HTTP hook primitive', () => {
   ])('rejects unsafe headers %#', (headers) => {
     expect(() => resolveWebhookHeaders({ ...config, headers })).toThrow('configuration');
   });
-  it('forwards templates and timeout to QStash; fallback:none never sends unsigned fetch', async () => {
-    vi.stubEnv('QSTASH_TOKEN', 'test-token');
+  it('forwards templates and timeout to the queued delivery; fallback:none never sends unsigned fetch', async () => {
     vi.stubEnv('HOOK_TOKEN', 'secret');
     const webhook = {
       url: config.url,
@@ -192,110 +180,38 @@ describe('HTTP hook primitive', () => {
     };
     await deliverWebhook(webhook, { value: 1 });
     expect(publish.mock.calls[0][0]).toMatchObject({
+      body: { value: 1 },
       headers: { authorization: 'Bearer secret' },
       timeout: 4,
+      url: config.url,
     });
-    publish.mockRejectedValue(new Error('remote secret'));
-    await expect(deliverWebhook(webhook, {})).rejects.toThrow('network_error');
+    publish.mockRejectedValue(new Error('private-response private-header'));
+    const error = await deliverWebhook(webhook, {}).catch((error: unknown) => error);
+    expect(error).toMatchObject({ code: 'network_error' });
+    expect(inspect(error)).not.toMatch(/private-response|private-header/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it('missing QStash token falls back once, never retries a failed fetch', async () => {
-    vi.stubEnv('QSTASH_TOKEN', undefined);
+  it('falls back to fetch once when publishing fails, logging the failure', async () => {
+    publish.mockRejectedValue(new Error('private-response'));
     fetchMock.mockRejectedValue(new Error('offline'));
+    const logger = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(deliverWebhook({ url: config.url, delivery: 'qstash' }, {})).rejects.toThrow(
       'network_error',
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(publish).not.toHaveBeenCalled();
-  });
-  it('preserves the missing-token configuration diagnosis without unsigned fallback', async () => {
-    vi.stubEnv('QSTASH_TOKEN', undefined);
-    await expect(
-      deliverWebhook({ url: config.url, delivery: 'qstash', fallback: 'none' }, {}),
-    ).rejects.toMatchObject({
-      code: 'configuration',
-      message: expect.stringContaining('QSTASH_TOKEN not available'),
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-  it.each([401, 429, 503])(
-    'preserves QStash HTTP %i without exposing SDK response data',
-    async (status) => {
-      vi.stubEnv('QSTASH_TOKEN', 'private-token');
-      const sdkError = new QstashError('private-response private-token private-header', status);
-      Object.assign(sdkError, { headers: { Authorization: 'private-header' } });
-      publish.mockRejectedValue(sdkError);
-      const error = await deliverWebhook(
-        { url: config.url, delivery: 'qstash', fallback: 'none' },
-        {},
-      ).catch((error: unknown) => error);
-      expect(error).toMatchObject({
-        code: 'http_error',
-        status,
-        message: expect.stringContaining(`QStash publish failed (HTTP ${status})`),
-      });
-      expect(inspect(error)).not.toMatch(/private-response|private-token|private-header/);
-      expect(fetchMock).not.toHaveBeenCalled();
-    },
-  );
-  it('logs the QStash failure even when fetch fallback succeeds', async () => {
-    vi.stubEnv('QSTASH_TOKEN', 'private-token');
-    publish.mockRejectedValue(new QstashError('private-response', 503));
-    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
-    const logger = vi.spyOn(console, 'error').mockImplementation(() => {});
-    await expect(
-      deliverWebhook({ url: config.url, delivery: 'qstash' }, {}),
-    ).resolves.toBeUndefined();
     expect(logger).toHaveBeenCalledWith(
-      '[HookDispatcher] QStash delivery failed, falling back to fetch',
-      expect.objectContaining({ code: 'http_error', status: 503 }),
+      '[HookDispatcher] Queued delivery failed, falling back to fetch',
+      expect.objectContaining({ code: 'network_error' }),
     );
     expect(inspect(logger.mock.calls)).not.toContain('private-response');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
-});
-
-describe('Hatchet delivery mode', () => {
-  const dedup = 'op-1:hook-1:onComplete:done';
-
-  beforeEach(() => {
-    hatchet.enabled = true;
-    directPublish.mockReset().mockResolvedValue({ messageId: 'run_1' });
-    publish.mockReset().mockResolvedValue({ messageId: 'msg_1' });
-    fetchMock.mockReset();
-  });
-  afterEach(() => {
-    hatchet.enabled = false;
-    vi.unstubAllEnvs();
-  });
-
-  it('publishes through the direct delivery client without needing a QStash token', async () => {
-    vi.stubEnv('QSTASH_TOKEN', undefined);
-    await deliverWebhook(
-      { delivery: 'qstash', fallback: 'none', timeout: 4, url: config.url },
-      { value: 1 },
-      { deduplicationId: dedup },
-    );
-    await deliverWebhook({ delivery: 'qstash', url: config.url }, {}, { deduplicationId: dedup });
-
-    expect(publish).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-    const [[first], [second]] = directPublish.mock.calls;
-    expect(first).toMatchObject({ body: { value: 1 }, timeout: 4, url: config.url });
-    // One stable, provider-safe key per hook event.
-    expect(first.deduplicationId).toMatch(/^[\da-f]{64}$/);
-    expect(second.deduplicationId).toBe(first.deduplicationId);
-  });
-
-  it('passes the same encoded key to QStash outside Hatchet mode, and none when not asked', async () => {
-    vi.stubEnv('QSTASH_TOKEN', 'test-token');
-    await deliverWebhook({ delivery: 'qstash', url: config.url }, {}, { deduplicationId: dedup });
-    hatchet.enabled = false;
+  it('passes one stable deduplication key per hook event, and none when not asked', async () => {
+    publish.mockResolvedValue({ messageId: 'run_1' });
+    const dedup = 'op-1:hook-1:onComplete:done';
     await deliverWebhook({ delivery: 'qstash', url: config.url }, {}, { deduplicationId: dedup });
     await deliverWebhook({ delivery: 'qstash', url: config.url }, {});
-
-    const [[viaQStash], [plain]] = publish.mock.calls;
-    expect(viaQStash.deduplicationId).toBe(directPublish.mock.calls[0][0].deduplicationId);
+    const [[keyed], [plain]] = publish.mock.calls;
+    expect(keyed.deduplicationId).toBe(dedup);
     expect(plain).not.toHaveProperty('deduplicationId');
   });
 });
@@ -307,7 +223,6 @@ describe('credential and response boundaries', () => {
   });
   it('adds automatic deployment bypass only for the configured application origin', async () => {
     publish.mockReset().mockResolvedValue({ messageId: 'test' });
-    vi.stubEnv('QSTASH_TOKEN', 'test-token');
     vi.stubEnv('APP_URL', 'https://app.example.com');
     vi.stubEnv('INTERNAL_APP_URL', undefined);
     vi.stubEnv('VERCEL_AUTOMATION_BYPASS_SECRET', 'private-bypass');

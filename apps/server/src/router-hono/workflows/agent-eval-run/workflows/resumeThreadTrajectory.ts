@@ -1,7 +1,7 @@
-import { type WorkflowContext } from '@upstash/workflow';
 import debug from 'debug';
 
 import { getServerDB } from '@/database/server';
+import { type WorkflowContext } from '@/server/modules/Workflow';
 import { AgentEvalRunService } from '@/server/services/agentEvalRun';
 import type { ResumeThreadTrajectoryPayload } from '@/server/workflows/agentEvalRun';
 import { resolveAgentEvalRunWorkspace } from '@/server/workflows/agentEvalRun/utils';

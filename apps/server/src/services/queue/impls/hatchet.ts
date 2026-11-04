@@ -13,7 +13,7 @@ import {
 import type { DeliveryInput } from '@/server/modules/Hatchet/types';
 
 import { type HealthCheckResult, type QueueMessage, type QueueStats } from '../types';
-import { fitBodyToQuota } from './qstash';
+import { fitBodyToQuota } from './fitBody';
 import { type QueueServiceImpl } from './type';
 
 const log = debug('lobe-server:service:queue:hatchet');
@@ -63,7 +63,7 @@ export class HatchetQueueServiceImpl implements QueueServiceImpl {
       url: endpoint,
     });
     // The gRPC message carries the whole input with the body escaped once more,
-    // so clamp against what `triggerDelivery` measures, not the QStash quota.
+    // so clamp against what `triggerDelivery` measures.
     const limitBytes = maxInputBytes();
     const { body } = fitBodyToQuota(
       {

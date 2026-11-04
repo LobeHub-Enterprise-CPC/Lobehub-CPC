@@ -1,4 +1,4 @@
-import type { WorkflowContext } from '@upstash/workflow';
+import type { WorkflowContext } from '@/server/modules/Workflow';
 
 /**
  * A step result as it actually arrives on the consuming side of an Upstash Workflow step.

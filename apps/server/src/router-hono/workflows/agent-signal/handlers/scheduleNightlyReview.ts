@@ -133,11 +133,11 @@ export async function scheduleNightlyReview(c: Context) {
       span.setAttributes({
         'agent.signal.cron.publish_duration_ms': Date.now() - startedAt,
         'agent.signal.cron.success': true,
-        'agent.signal.cron.message_id': result.messageId,
+        'agent.signal.cron.workflow_run_id': result.workflowRunId,
       });
       span.setStatus({ code: SpanStatusCode.OK });
 
-      return c.json({ messageId: result.messageId, scheduled: true, success: true }, 202);
+      return c.json({ scheduled: true, success: true, workflowRunId: result.workflowRunId }, 202);
     } catch (error) {
       // This log is the only trace a failed tick leaves behind: a stalled publish used to be
       // killed by Cloudflare at 100s, which produced a 524 with no body and nothing on the server.

@@ -225,7 +225,7 @@ apps/server/src/services/trash/
   index.ts              TrashService — trashXxx() / list / restore / purge / emptyTrash / static sweepExpired
   handlers/<type>.ts    one TrashHandler per TrashResourceType: softDelete cascade, restore, purge (incl. S3, permission grants)
 apps/server/src/routers/lambda/trash.ts        list / countByType / restore / purge / emptyTrash
-apps/server/src/router-hono/workflows/trash/   POST /api/workflows/trash/purge (QStash schedule)
+apps/server/src/router-hono/workflows/trash/   POST /api/workflows/trash/purge (scheduled delivery)
 packages/database/src/models/trash.ts          TrashModel — registry reads/writes, listExpiredRoots, pruneOrphans
 ```
 
@@ -274,7 +274,7 @@ packages/database/src/models/trash.ts          TrashModel — registry reads/wri
 - Migration `0151_recycle_bin`: `CREATE TABLE IF NOT EXISTS trash_items` + `is_deleted` /
   `deleted_at` on all nineteen tables above (metadata-only, no rewrite). No backfill. Phase 2 needs
   no further schema change — only handlers.
-- Register a QStash schedule (e.g. hourly) → `POST /api/workflows/trash/purge`. Until it exists,
+- Register a schedule (e.g. an hourly Hatchet cron, like the jobs in `apps/server/src/modules/Hatchet/schedules.ts`) → `POST /api/workflows/trash/purge`. Until it exists,
   nothing is purged automatically; the bin still works and users can purge manually.
 - Retention is `TRASH_RETENTION_DAYS = 30` in `@lobechat/const`.
 

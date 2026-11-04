@@ -51,7 +51,7 @@ export class ExpertiseHistoryWorkflow {
 
     const baseUrl = getInternalApiUrl();
     if (!baseUrl) throw new Error('INTERNAL_APP_URL or APP_URL is required');
-    const { workflowClient } = await import('@/libs/qstash');
+    const { workflowClient } = await import('@/server/modules/Workflow');
     return workflowClient.trigger({
       body: payload,
       flowControl: {
@@ -65,7 +65,7 @@ export class ExpertiseHistoryWorkflow {
   static async triggerTopic(payload: ExpertiseHistoryTopicWorkflowPayload) {
     const baseUrl = getInternalApiUrl();
     if (!baseUrl) throw new Error('INTERNAL_APP_URL or APP_URL is required');
-    const { workflowClient } = await import('@/libs/qstash');
+    const { workflowClient } = await import('@/server/modules/Workflow');
     return workflowClient.trigger({
       body: payload,
       flowControl: { key: 'expertise-history-topics', parallelism: 5 },

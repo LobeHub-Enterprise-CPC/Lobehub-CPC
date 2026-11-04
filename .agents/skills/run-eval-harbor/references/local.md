@@ -8,15 +8,13 @@ is development-only; Harbor always targets the production server on `3210`.
 Before starting anything, ask the user to confirm that this machine is trusted
 and that LobeHub port `3210` plus all configured eval ports are unreachable from
 the public internet and other untrusted networks. The defaults are PostgreSQL
-`15433`, Redis `6380`, RustFS `9100`, QStash `8080`/`8081`, and the
+`15433`, Redis `6380`, RustFS `9100`, and the
 gateways `8787`/`8788`. Stop if the user cannot confirm this.
 
 PostgreSQL, Redis, and the RustFS API bind only to host loopback. The RustFS
 admin port is not published. Gateways bind to loopback for LobeHub and to
-`EVAL_DOCKER_BRIDGE_ADDRESS` for Harbor containers. QStash is the exception: its
-dev binary has no bind-address option and uses host networking so callbacks to
-the host LobeHub `APP_URL` work; firewall isolation is therefore still required
-for `8080`/`8081`. The stack uses fixed development credentials, including its
+`EVAL_DOCKER_BRIDGE_ADDRESS` for Harbor containers. Agent steps run inside the
+LobeHub server (`AGENT_RUNTIME_MODE=local`), so no queue service is exposed. The stack uses fixed development credentials, including its
 seeded CLI key and gateway service token, so it is not suitable for an
 internet-facing host.
 
@@ -38,7 +36,7 @@ bun --env-file=docker-compose/eval/.env run build
 bash .agents/skills/run-eval-harbor/scripts/server.sh
 ```
 
-`server.sh` is long-running. Bootstrap starts PostgreSQL, Redis, RustFS, QStash,
+`server.sh` is long-running. Bootstrap starts PostgreSQL, Redis, RustFS,
 Device Gateway, and Agent Gateway, migrates the database, then seeds the eval
 user and CLI key. Keep `.records/env/eval-harbor-cli.env` private.
 

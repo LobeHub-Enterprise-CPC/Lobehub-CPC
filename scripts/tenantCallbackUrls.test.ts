@@ -23,13 +23,14 @@ const HELPER_FILE = 'apps/server/src/modules/Tenant/callbackUrl.ts';
 
 /**
  * Publishers that forward a callback URL built by their caller: the queue implementations receive
- * `message.endpoint`, which `QueueService` callers build with `buildTenantCallbackUrl`.
+ * `message.endpoint`, which `QueueService` callers build with `buildTenantCallbackUrl`, and the
+ * workflow client publishes to the `url` its trigger callers built the same way.
  */
 const REVIEWED_PUBLISHERS = new Set([
+  'apps/server/src/modules/Workflow/client.ts',
   'apps/server/src/services/queue/QueueService.ts',
   'apps/server/src/services/queue/impls/hatchet.ts',
   'apps/server/src/services/queue/impls/local.ts',
-  'apps/server/src/services/queue/impls/qstash.ts',
 ]);
 
 /**

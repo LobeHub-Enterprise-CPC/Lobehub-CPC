@@ -8,7 +8,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/database/server', () => ({ getServerDB: vi.fn().mockResolvedValue({}) }));
 vi.mock('@/envs/app', () => ({ appEnv: { enableQueueAgentRuntime: true } }));
-vi.mock('@/libs/qstash', () => ({ qstashClient: { publishJSON: mocks.publishJSON } }));
+vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
+  getDirectDeliveryClient: () => ({ publishJSON: mocks.publishJSON }),
+}));
 vi.mock('@/server/modules/Tenant/callbackUrl');
 vi.mock('@/server/services/widget/sandbox', () => ({ createWidgetSandboxRunner: vi.fn() }));
 vi.mock('@/server/services/widget/scheduler', () => ({

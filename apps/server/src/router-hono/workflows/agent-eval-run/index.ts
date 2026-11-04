@@ -1,8 +1,7 @@
 import { withOtelMetricsForUpstashWorkflows } from '@lobechat/observability-otel/modules/upstash-workflow';
-import { serve } from '@upstash/workflow/hono';
 import { Hono } from 'hono';
 
-import { qstashClient } from '@/libs/qstash';
+import { serve } from '@/server/modules/Workflow';
 
 import { onThreadComplete } from './handlers/onThreadComplete';
 import { onTrajectoryComplete } from './handlers/onTrajectoryComplete';
@@ -41,7 +40,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(runBenchmarkHandler, {
       url: '/api/workflows/agent-eval-run/run-benchmark',
     }),
-    { ...runBenchmarkWorkflowOptions, qstashClient },
+    runBenchmarkWorkflowOptions,
   ),
 );
 
@@ -51,7 +50,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(paginateTestCasesHandler, {
       url: '/api/workflows/agent-eval-run/paginate-test-cases',
     }),
-    { ...paginateTestCasesWorkflowOptions, qstashClient },
+    paginateTestCasesWorkflowOptions,
   ),
 );
 
@@ -61,7 +60,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(executeTestCaseHandler, {
       url: '/api/workflows/agent-eval-run/execute-test-case',
     }),
-    { ...executeTestCaseWorkflowOptions, qstashClient },
+    executeTestCaseWorkflowOptions,
   ),
 );
 
@@ -71,7 +70,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(runAgentTrajectoryHandler, {
       url: '/api/workflows/agent-eval-run/run-agent-trajectory',
     }),
-    { ...runAgentTrajectoryWorkflowOptions, qstashClient },
+    runAgentTrajectoryWorkflowOptions,
   ),
 );
 
@@ -81,7 +80,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(runThreadTrajectoryHandler, {
       url: '/api/workflows/agent-eval-run/run-thread-trajectory',
     }),
-    { ...runThreadTrajectoryWorkflowOptions, qstashClient },
+    runThreadTrajectoryWorkflowOptions,
   ),
 );
 
@@ -91,7 +90,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(resumeAgentTrajectoryHandler, {
       url: '/api/workflows/agent-eval-run/resume-agent-trajectory',
     }),
-    { ...resumeAgentTrajectoryWorkflowOptions, qstashClient },
+    resumeAgentTrajectoryWorkflowOptions,
   ),
 );
 
@@ -101,7 +100,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(resumeThreadTrajectoryHandler, {
       url: '/api/workflows/agent-eval-run/resume-thread-trajectory',
     }),
-    { ...resumeThreadTrajectoryWorkflowOptions, qstashClient },
+    resumeThreadTrajectoryWorkflowOptions,
   ),
 );
 
@@ -111,7 +110,7 @@ app.post(
     withOtelMetricsForUpstashWorkflows(finalizeRunHandler, {
       url: '/api/workflows/agent-eval-run/finalize-run',
     }),
-    { ...finalizeRunWorkflowOptions, qstashClient },
+    finalizeRunWorkflowOptions,
   ),
 );
 

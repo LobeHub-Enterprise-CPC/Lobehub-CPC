@@ -188,7 +188,7 @@ describe('HatchetQueueServiceImpl', () => {
     await expect(impl.scheduleMessage(message({ retries: 19 }))).resolves.toBe('run_run-1');
   });
 
-  it('clamps an oversized body to the QStash budget instead of failing the publish', async () => {
+  it('clamps an oversized body instead of failing the publish', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const runaway = 'x'.repeat(12 * 1024 * 1024);
 
@@ -208,9 +208,9 @@ describe('HatchetQueueServiceImpl', () => {
     );
   });
 
-  it('clamps a body under the QStash quota until the whole input fits the gRPC budget', async () => {
+  it('clamps a body until the whole input fits the gRPC budget', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // 5 MiB in the body, under the 9 MiB QStash quota but over the 4 MiB SDK default
+    // 5 MiB in the body, over the 4 MiB SDK default
     // once the body is a string in the input, where every quote is escaped again.
     const quotes = '"'.repeat(2.5 * 1024 * 1024);
 

@@ -108,6 +108,46 @@ const isNotFound = (error: unknown): boolean =>
   isRecord(error) && isRecord(error.response) && error.response.status === 404;
 
 /**
+ * Validates a direct publish request and turns it into the delivery every
+ * attempt repeats, plus how long to hold it back. Any option this repository
+ * does not use is refused rather than silently dropped.
+ */
+export const toDeliveryInput = (
+  request: DirectPublishRequest,
+  now = Date.now(),
+): { delayMs: number; input: DeliveryInput } => {
+  const unsupported = Object.entries(request)
+    .filter(([key, value]) => value !== undefined && !Object.hasOwn(SUPPORTED_OPTIONS, key))
+    .map(([key]) => key);
+  if (unsupported.length > 0)
+    throw new Error(`Direct delivery does not support ${unsupported.join(', ')}`);
+
+  let target: URL;
+  try {
+    target = new URL(request.url);
+  } catch {
+    throw new Error('Direct delivery needs an absolute URL');
+  }
+
+  const { deduplicationId, retries = 3, retryDelay } = request;
+  assertRetryPolicy(retries, retryDelay);
+  const tenantKey = tenantKeyOf(target);
+  return {
+    delayMs: delayMsOf(request, now),
+    input: {
+      body: JSON.stringify(request.body) ?? '',
+      dedupKey: deliveryDedupKey(tenantKey, deduplicationId),
+      headers: headersOf(request),
+      retries,
+      ...(retryDelay === undefined ? {} : { retryDelay }),
+      tenantKey,
+      timeoutMs: timeoutMsOf(request),
+      url: request.url,
+    },
+  };
+};
+
+/**
  * Direct deliveries through the `cpc-delivery` task, in place of the QStash
  * client: the same request shape, each one signed and delivered by a Hatchet
  * worker like a QStash message would be.
@@ -131,39 +171,13 @@ export class HatchetPublisher {
   };
 
   async publishJSON(request: DirectPublishRequest): Promise<{ messageId: string }> {
-    const unsupported = Object.entries(request)
-      .filter(([key, value]) => value !== undefined && !Object.hasOwn(SUPPORTED_OPTIONS, key))
-      .map(([key]) => key);
-    if (unsupported.length > 0)
-      throw new Error(`HatchetPublisher does not support ${unsupported.join(', ')}`);
-
-    let target: URL;
-    try {
-      target = new URL(request.url);
-    } catch {
-      throw new Error('HatchetPublisher needs an absolute URL');
-    }
-
-    const { deduplicationId, retries = 3, retryDelay } = request;
-    assertRetryPolicy(retries, retryDelay);
-    const tenantKey = tenantKeyOf(target);
-    const input: DeliveryInput = {
-      body: JSON.stringify(request.body) ?? '',
-      dedupKey: deliveryDedupKey(tenantKey, deduplicationId),
-      headers: headersOf(request),
-      retries,
-      ...(retryDelay === undefined ? {} : { retryDelay }),
-      tenantKey,
-      timeoutMs: timeoutMsOf(request),
-      url: request.url,
-    };
-
+    const { delayMs, input } = toDeliveryInput(request);
     const messageId = await triggerDelivery(getDeliveryTask(), input, {
       additionalMetadata: {
         [STEP_METADATA_KEYS.kind]: 'delivery',
-        [STEP_METADATA_KEYS.tenantId]: tenantKey,
+        [STEP_METADATA_KEYS.tenantId]: input.tenantKey,
       },
-      delayMs: delayMsOf(request, Date.now()),
+      delayMs,
     });
     return { messageId };
   }

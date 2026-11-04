@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
 vi.mock('@/server/modules/Tenant/callbackUrl');
@@ -17,22 +17,14 @@ vi.mock('@/envs/app', () => ({
 vi.mock('@/libs/observability/traceparent', () => ({
   injectActiveTraceHeaders: (headers: Headers) => headers.set('traceparent', 'trace-1'),
 }));
-vi.mock('@/libs/qstash', () => ({ workflowClient: { trigger: triggerMock } }));
+vi.mock('@/server/modules/Workflow', () => ({ workflowClient: { trigger: triggerMock } }));
 
 describe('OnboardingUnderstandingWorkflow', () => {
-  const originalToken = process.env.QSTASH_TOKEN;
-
   beforeEach(() => {
-    process.env.QSTASH_TOKEN = 'qstash-test';
     appEnv.APP_URL = 'http://localhost:3011';
     appEnv.INTERNAL_APP_URL = 'http://internal:3011';
     triggerMock.mockReset();
     triggerMock.mockResolvedValue({ workflowRunId: 'workflow-result' });
-  });
-
-  afterEach(() => {
-    if (originalToken === undefined) delete process.env.QSTASH_TOKEN;
-    else process.env.QSTASH_TOKEN = originalToken;
   });
 
   it('triggers provider processing without serializing parallel provider branches', async () => {
@@ -103,7 +95,8 @@ describe('OnboardingUnderstandingWorkflow', () => {
   });
 
   it('rejects triggering when workflow configuration is unavailable', async () => {
-    delete process.env.QSTASH_TOKEN;
+    appEnv.APP_URL = '';
+    appEnv.INTERNAL_APP_URL = '';
     const { OnboardingUnderstandingWorkflow, UnderstandingWorkflowUnavailableError } =
       await import('.');
 

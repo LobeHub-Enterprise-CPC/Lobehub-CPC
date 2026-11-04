@@ -1,8 +1,7 @@
 import { appEnv } from '@/envs/app';
 
-/** Queue-mode deliveries go through Hatchet (AGENT_RUNTIME_MODE=queue + AGENT_RUNTIME_DELIVERY=hatchet). */
-export const isHatchetDeliveryEnabled = (): boolean =>
-  appEnv.enableQueueAgentRuntime === true && appEnv.enableHatchetAgentDelivery === true;
+/** Queue mode (AGENT_RUNTIME_MODE=queue) delivers everything through Hatchet. */
+export const isHatchetDeliveryEnabled = (): boolean => appEnv.enableQueueAgentRuntime === true;
 
 export const AGENT_STEP_TASK = 'cpc-agent-step';
 export const DELIVERY_TASK = 'cpc-delivery';

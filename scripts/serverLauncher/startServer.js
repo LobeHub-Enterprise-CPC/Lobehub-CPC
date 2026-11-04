@@ -171,69 +171,6 @@ const startGateway = async () => {
   console.error('❌ Gateway: Failed to start after retries.');
 };
 
-// Recurring QStash schedules this deployment needs. Each one hits a
-// deployment-wide `/api/cron/*` entry that fans the job out to every tenant
-// (one QStash message per tenant, addressed to `/orgs/{slug}/api/workflows/...`).
-//
-// The goal sweep is not an optimization: a Goal Graph advances on events, so a
-// dropped delivery or a process that dies after dispatch would strand the goal
-// forever with nothing to notice. The sweep is what makes that recoverable.
-const QSTASH_SCHEDULES = [
-  {
-    cron: '*/10 * * * *',
-    id: 'lobe-task-schedule-dispatch',
-    path: '/api/cron/task-schedule-dispatch',
-  },
-  {
-    cron: '*/5 * * * *',
-    id: 'lobe-goal-sweep',
-    path: '/api/cron/goal-sweep',
-  },
-];
-
-// Function to create the recurring QStash schedules the server relies on
-const createQstashSchedule = async () => {
-  const QSTASH_URL = process.env.QSTASH_URL || 'https://qstash-eu-central-1.upstash.io';
-
-  const QSTASH_TOKEN = process.env.QSTASH_TOKEN;
-  if (!QSTASH_TOKEN) {
-    console.warn('⚠️ QStash: QSTASH_TOKEN not set. Skipping schedule creation.');
-    return;
-  }
-
-  const APP_URL = process.env.APP_URL;
-  if (!APP_URL) {
-    console.warn('⚠️ QStash: APP_URL not set. Skipping schedule creation.');
-    return;
-  }
-
-  for (const schedule of QSTASH_SCHEDULES) {
-    const url = `${QSTASH_URL}/v2/schedules/${APP_URL}${schedule.path}`;
-
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${QSTASH_TOKEN}`,
-          'Content-Type': 'application/json',
-          'Upstash-Method': 'POST',
-          'Upstash-Cron': schedule.cron,
-          'Upstash-Schedule-Id': schedule.id,
-        },
-        body: JSON.stringify({}),
-      });
-
-      if (res.ok) {
-        console.log(`✅ QStash: Schedule ${schedule.id} created successfully.`);
-      } else {
-        console.error(`❌ QStash: Failed to create schedule ${schedule.id}. Status ${res.status}`);
-      }
-    } catch (err) {
-      console.error(`❌ QStash: Error creating schedule ${schedule.id}:`, err);
-    }
-  }
-};
-
 // Main function to run the server with optional proxy
 const runServer = async () => {
   const PROXY_URL = process.env.PROXY_URL || ''; // Default empty string to avoid undefined errors
@@ -278,9 +215,6 @@ const runServer = async () => {
 
   // Start gateway in background after server is ready
   startGateway();
-
-  // Create QStash schedule for workflow task dispatching
-  createQstashSchedule();
 
   // Run the server in either database or non-database mode
   await runServer();

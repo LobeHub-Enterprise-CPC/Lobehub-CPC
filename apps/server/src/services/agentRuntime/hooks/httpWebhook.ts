@@ -5,15 +5,8 @@ import {
   parseToolCallHookResponse,
 } from '@lobechat/types';
 import { readBlobWithLimit } from '@lobechat/utils/readBlobWithLimit';
-import { QstashError } from '@upstash/qstash';
 
-import { OtelQstashClient } from '@/libs/qstash';
-import { toQStashDeduplicationId } from '@/libs/qstash/deduplicationId';
-import { isHatchetDeliveryEnabled } from '@/server/modules/Hatchet/config';
-import {
-  type DirectDeliveryClient,
-  getDirectDeliveryClient,
-} from '@/server/modules/Hatchet/directDelivery';
+import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import { tenantCallbackPath } from '@/server/modules/Tenant/callbackUrl';
 
 import type { AgentHookWebhook } from './types';
@@ -153,13 +146,6 @@ async function readControlBody(response: Response, signal: AbortSignal): Promise
   return buffer;
 }
 
-/** The QStash transport builds its client per publish from the current token. */
-function qstashTokenClient(): DirectDeliveryClient {
-  if (!process.env.QSTASH_TOKEN)
-    throw new HookHttpError('configuration', { message: 'QSTASH_TOKEN not available' });
-  return new OtelQstashClient({ token: process.env.QSTASH_TOKEN });
-}
-
 /** Notification transport. A control config must never be sent through a response-ignoring path. */
 export async function deliverWebhook(
   webhook: AgentHookWebhook,
@@ -180,12 +166,9 @@ export async function deliverWebhook(
   const url = resolveUrl(webhook.url);
   const headers = resolveWebhookHeaders(webhook);
   try {
-    const client = isHatchetDeliveryEnabled() ? getDirectDeliveryClient() : qstashTokenClient();
-    await client.publishJSON({
+    await getDirectDeliveryClient().publishJSON({
       body: payload,
-      ...(options?.deduplicationId && {
-        deduplicationId: toQStashDeduplicationId(options.deduplicationId),
-      }),
+      ...(options?.deduplicationId && { deduplicationId: options.deduplicationId }),
       headers: {
         ...headers,
         ...(isApplicationOrigin(url) &&
@@ -197,19 +180,13 @@ export async function deliverWebhook(
       url,
     });
   } catch (error) {
-    // Keep safe diagnostics, never the SDK message/cause, headers or remote response text.
-    const status = error instanceof QstashError ? error.status : undefined;
+    // Keep safe diagnostics, never the publisher's message/cause, headers or remote response text.
     const failure =
       error instanceof HookHttpError
         ? error
-        : status !== undefined
-          ? new HookHttpError('http_error', {
-              message: `QStash publish failed (HTTP ${status})`,
-              status,
-            })
-          : new HookHttpError('network_error', { message: 'QStash publish failed' });
+        : new HookHttpError('network_error', { message: 'Queued delivery publish failed' });
     if (webhook.fallback === 'none') throw failure;
-    console.error('[HookDispatcher] QStash delivery failed, falling back to fetch', failure);
+    console.error('[HookDispatcher] Queued delivery failed, falling back to fetch', failure);
     await fetchWebhook(webhook, payload, discardNotificationBody);
   }
 }

@@ -3,7 +3,7 @@ import { errorNameFrom } from '@lobechat/utils';
 import debug from 'debug';
 import type { MiddlewareHandler } from 'hono';
 
-import { verifyQStashSignature } from '@/libs/qstash';
+import { verifyDeliveryRequest } from '@/server/modules/Hatchet/signature';
 import { isBearerSecret } from '@/server/utils/bearerAuth';
 
 const log = debug('lobe-server:agent:qstash-or-apikey-auth');
@@ -24,7 +24,7 @@ const log = debug('lobe-server:agent:qstash-or-apikey-auth');
  */
 export const qstashOrApiKeyAuth = (): MiddlewareHandler => async (c, next) => {
   const rawBody = await c.req.text();
-  const isValidQStash = await verifyQStashSignature(c.req.raw, rawBody);
+  const isValidQStash = verifyDeliveryRequest(c.req.raw, rawBody);
 
   const apiKey = process.env.AGENT_EXEC_API_KEY;
   let isValidApiKey = false;

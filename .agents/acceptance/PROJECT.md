@@ -101,8 +101,6 @@ stale standalone install: a recently added workspace package fails to resolve �
     `.records/data/agent-testing-s3`. Fixed `S3RVER` credentials are required by
     the emulator's presigned-URL validation. `preflight` does HeadBucket + a real
     Put/Get/Delete round trip; a listening port alone is not "ready".
-  - **QStash** — `init-dev-env.sh qstash` (terminal B). A hard prerequisite for
-    ANY agent-runtime test (see §6).
 
 - **Already-running detection:**
 
@@ -129,7 +127,7 @@ stale standalone install: a recently added workspace package fails to resolve �
   `JWKS_KEY` (persisted at `.records/env/agent-testing-jwks.json`, required by every
   async-task dispatch such as image generation), `SSRF_ALLOW_PRIVATE_IP_ADDRESS=1`
   (the server fetches reference images from the local s3rver on 127.0.0.1), plus
-  local `s3rver` and local QStash vars. Treat the dev-server terminal output as final when the
+  local `s3rver` vars and a local `DELIVERY_SIGNING_KEY`. Treat the dev-server terminal output as final when the
   port is non-standard, then `export SERVER_URL=http://localhost:<port>`.
 
   In the cloud repo (this repo as the `lobehub/` submodule), worktree names map
@@ -384,31 +382,22 @@ support is not implemented. Native Windows is unsupported. See the skill's
 
 ## 6. Known constraints
 
-- **QStash is a hard prerequisite for ANY agent-runtime test.** Any test that
-  runs an agent (`lh agent run`, durable ops, `/api/agent/run`, the server agent
-  runtime) goes through `AGENT_RUNTIME_MODE=queue` (the default here and in
-  production). Creating an agent operation POSTs to local QStash
-  (`127.0.0.1:8080`); if QStash is down the run dies at operation creation with
-  `TypeError: fetch failed` / `ECONNREFUSED 127.0.0.1:8080` **before any LLM
-  call** — no trace is recorded and it reads as unrelated to the env. Start it
-  and gate before the first `agent run`:
+- **Local agent runs use `AGENT_RUNTIME_MODE=local`** (the default here): steps,
+  webhooks and workflows run inside the dev server process and are lost on
+  restart. Production uses `queue`, which dispatches through a Hatchet engine;
+  testing that path needs `HATCHET_CLIENT_*` pointed at an engine. Gate before
+  the first `agent run`:
 
   ```bash
-  .agents/acceptance/scripts/init-dev-env.sh qstash    # terminal B — keep running
-  .agents/acceptance/scripts/init-dev-env.sh preflight # non-zero exit if QStash (or Redis) is down
+  .agents/acceptance/scripts/init-dev-env.sh preflight # non-zero exit if Redis or S3 (or Hatchet in queue mode) is missing
   ```
-
-  Background self-iteration only runs for users who turned on Labs →
-  Self-evolving (off for new users), so a simple chat does not fan out; that
-  does NOT remove QStash from the agent-runtime dispatch path. Treat QStash as required, not an "only-for-workflow"
-  nicety.
 
 - **Verify which runtime actually ran — do not assume.** Some features have two
   execution paths and the UI silently picks one. Group orchestration is the
   concrete example: the chat UI defaults to the **client** runtime, while a fix
   may live in the **server** runtime / `AGENT_RUNTIME_MODE=queue` durable-op path.
   A test that exercises the wrong path passes green without touching the code
-  under test. Prove which ran (a server `agent_operations` row, the QStash
+  under test. Prove which ran (a server `agent_operations` row, the queued
   `/api/agent/run` steps, server-only log lines); if the UI will not take the
   server path, drive it directly (call the server TRPC mutation / endpoint).
 

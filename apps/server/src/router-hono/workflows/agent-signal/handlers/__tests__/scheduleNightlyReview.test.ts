@@ -26,7 +26,7 @@ describe('scheduleNightlyReview', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-03T18:30:00.000Z'));
-    mocks.publishPaginateUsersEntry.mockResolvedValue({ messageId: 'nightly-message-1' });
+    mocks.publishPaginateUsersEntry.mockResolvedValue({ workflowRunId: 'wfr_nightly-1' });
   });
 
   afterEach(() => {
@@ -46,7 +46,7 @@ describe('scheduleNightlyReview', () => {
     await expect(response.json()).resolves.toEqual({
       scheduled: true,
       success: true,
-      messageId: 'nightly-message-1',
+      workflowRunId: 'wfr_nightly-1',
     });
     expect(mocks.publishPaginateUsersEntry).toHaveBeenCalledWith({
       cursor: undefined,
@@ -77,7 +77,7 @@ describe('scheduleNightlyReview', () => {
     await expect(response.json()).resolves.toEqual({
       scheduled: true,
       success: true,
-      messageId: 'nightly-message-1',
+      workflowRunId: 'wfr_nightly-1',
     });
     expect(mocks.publishPaginateUsersEntry).toHaveBeenCalledWith({
       cursor: { createdAt: '2026-05-04T00:00:00.000Z', id: 'user-1' },

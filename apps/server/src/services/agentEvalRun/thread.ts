@@ -16,8 +16,8 @@ import { AiAgentService } from '@/server/services/aiAgent';
 import { AgentEvalRunWorkflow } from '@/server/workflows/agentEvalRun';
 
 import {
-  EVAL_AGENT_RUNTIME_QSTASH_RETRIES,
-  EVAL_AGENT_RUNTIME_QSTASH_RETRY_DELAY,
+  EVAL_AGENT_RUNTIME_QUEUE_RETRIES,
+  EVAL_AGENT_RUNTIME_QUEUE_RETRY_DELAY,
   EVAL_HISTORY_TAIL_METADATA_KEY,
   THREAD_TRIGGER_CONCURRENCY,
 } from './constants';
@@ -195,8 +195,8 @@ export async function executeThreadTrajectory(
       ...getEvalContextParams(envPrompt, environment, caseId),
       maxSteps: run.config?.maxSteps,
       prompt: params.testCase.content.input || '',
-      queueRetries: EVAL_AGENT_RUNTIME_QSTASH_RETRIES,
-      queueRetryDelay: EVAL_AGENT_RUNTIME_QSTASH_RETRY_DELAY,
+      queueRetries: EVAL_AGENT_RUNTIME_QUEUE_RETRIES,
+      queueRetryDelay: EVAL_AGENT_RUNTIME_QUEUE_RETRY_DELAY,
       userInterventionConfig: { approvalMode: 'headless' },
     });
 

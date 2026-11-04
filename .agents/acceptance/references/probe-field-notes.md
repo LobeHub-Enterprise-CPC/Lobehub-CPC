@@ -720,21 +720,29 @@ executionTarget: 'local'` in `agencyConfig`) + one message per case asking CC to
 - **Cause**: a corrupt Turbopack build in `.next/dev` — the route manifest is gone, so every path falls through to `GlobalNotFound`, whose redirect collides with the middleware's.
 - **Works**: `rm -rf .next` then restart. Diagnose it in one step: if `/signin` does not return 200, the routes are not compiled — stop debugging auth.
 
-### E21. ✅ WORKS — a QStash-protected workflow endpoint can't be curl'd; publish through local QStash to get a signed delivery
+### E21. ✅ WORKS — a signature-protected workflow endpoint can't be curl'd; send a signed delivery
 
 - **Situation**: driving a cron-style workflow handler under `/api/workflows/**` (e.g. a dispatcher you want to fire on demand instead of waiting for its schedule).
-- **Doesn't work**: `curl -X POST <app>/api/workflows/<...>` → `{"error":"Invalid signature"}` / HTTP 401. The `qstashAuth` middleware verifies the Upstash signature whenever `QSTASH_CURRENT_SIGNING_KEY` is set — and `init-dev-env.sh` exports it, so the local env DOES verify. (Do not "fix" this by unsetting the key: you would then be testing an unauthenticated path that production doesn't have.)
-- **Works**: start local QStash (`init-dev-env.sh qstash`) and publish to the endpoint with the QStash client — QStash signs the delivery, so the handler sees exactly the production shape:
+- **Doesn't work**: `curl -X POST <app>/api/workflows/<...>` → `{"error":"Invalid signature"}` / HTTP 401. The `qstashAuth` middleware verifies the `Upstash-Signature` header whenever `DELIVERY_SIGNING_KEY` is set — and `init-dev-env.sh` exports it, so the local env DOES verify. (Do not "fix" this by unsetting the key: you would then be testing an unauthenticated path that production doesn't have.)
+- **Works**: sign the body with the same key, so the handler sees exactly the production shape:
   ```ts
-  // must live INSIDE the repo (a script under /tmp cannot resolve @upstash/qstash)
-  import { Client } from '@upstash/qstash';
-  const client = new Client({ baseUrl: process.env.QSTASH_URL!, token: process.env.QSTASH_TOKEN! });
-  await client.publishJSON({
-    body: { dryRun: false },
-    url: `${process.env.APP_URL}/api/workflows/<path>`,
+  // must live INSIDE the repo so the import resolves
+  import { signUpstashRequest } from '@/server/modules/Hatchet/signature';
+  const url = `${process.env.APP_URL}/api/workflows/<path>`;
+  const body = JSON.stringify({ dryRun: false });
+  const signature = signUpstashRequest({
+    body,
+    messageId: 'probe',
+    signingKey: process.env.DELIVERY_SIGNING_KEY!,
+    url,
+  });
+  await fetch(url, {
+    body,
+    headers: { 'Content-Type': 'application/json', 'Upstash-Signature': signature },
+    method: 'POST',
   });
   ```
-  Run it with `eval "$(init-dev-env.sh env)" && bunx tsx ./scripts/<probe>.mts`, then read the outcome from **DB side effects**, not the HTTP body — QStash swallows the response. (A claim/lease row, a status transition, or new message rows are all observable; the handler's JSON return is not.)
+  Run it with `eval "$(init-dev-env.sh env)" && bunx tsx ./scripts/<probe>.mts`. Routes served by the workflow runtime (`serve()`) only accept a workflow envelope; start those with `workflowClient.trigger` from `@/server/modules/Workflow`; in local mode the probe process sends the first delivery itself, so keep it running until that request has been answered. Read the outcome from **DB side effects**. (A claim/lease row, a status transition, or new message rows are all observable; the handler's JSON return is not.)
 - **Time-travel a schedule instead of waiting**: for a "runs at T" feature, `UPDATE ... SET metadata = jsonb_set(metadata, '{...,runAt}', '"<past ISO>"')` and then fire the dispatcher. Cheaper and more deterministic than sleeping until the real due time.
 
 ### E22. Local dev env has no `JWKS_KEY` — every hetero agent run dies at `signHeteroOperationJWT`

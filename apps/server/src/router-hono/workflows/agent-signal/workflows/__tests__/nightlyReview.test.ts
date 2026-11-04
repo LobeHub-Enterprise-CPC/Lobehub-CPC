@@ -1,7 +1,7 @@
-import type { WorkflowContext } from '@upstash/workflow';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LobeChatDatabase } from '@/database/type';
+import type { WorkflowContext } from '@/server/modules/Workflow';
 import type { NightlyReviewScheduleService } from '@/server/services/agentSignal/services';
 import type {
   AgentSignalNightlyReviewWorkflow,

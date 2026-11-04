@@ -5,7 +5,7 @@ import { appEnv } from '@/envs/app';
 import { resolveDeliveryTarget } from './address';
 import { HATCHET_TIMING } from './config';
 import { compileRetryDelay, defaultRetryDelayMs, parseRetryAfter } from './retryDelay';
-import { signUpstashRequest } from './signature';
+import { getDeliverySigningKey, signUpstashRequest } from './signature';
 import type { DeliveryAttempt, DeliveryInput, DeliveryOutcome } from './types';
 
 interface DeliveryDependencies {
@@ -136,8 +136,8 @@ export const deliver = async (
   attempt: DeliveryAttempt,
   deps: DeliveryDependencies = {},
 ): Promise<DeliveryOutcome> => {
-  const signingKey = deps.signingKey ?? process.env.QSTASH_CURRENT_SIGNING_KEY;
-  if (!signingKey) return { kind: 'failed', reason: 'signing key missing' };
+  // Without a key (local dev) deliveries go unsigned, and receivers skip verification.
+  const signingKey = deps.signingKey ?? getDeliverySigningKey();
   const now = deps.now ?? Date.now;
 
   let target: ReturnType<typeof resolveDeliveryTarget>;

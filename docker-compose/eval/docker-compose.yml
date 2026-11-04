@@ -85,21 +85,6 @@ services:
     networks:
       - eval-network
 
-  # Host networking lets local QStash call an APP_URL on localhost without a tunnel.
-  # This eval stack targets the same Linux environment used by Harbor task containers.
-  # qstash dev has no bind-address option, so host firewall isolation remains required.
-  qstash:
-    image: public.ecr.aws/upstash/qstash:2.37.18
-    network_mode: host
-    command:
-      [
-        'qstash',
-        'dev',
-        '-port=${EVAL_QSTASH_PORT:-8080}',
-        '-log-port=${EVAL_QSTASH_LOG_PORT:-8081}',
-      ]
-    restart: unless-stopped
-
   # The unified image runs both gateways. Ports are intentionally swapped from
   # its defaults to preserve the existing eval contract: device=8787, agent=8788.
   gateway:

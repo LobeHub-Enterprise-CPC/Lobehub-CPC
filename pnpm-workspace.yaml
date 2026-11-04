@@ -108,6 +108,5 @@ overrides:
 patchedDependencies:
   '@lobehub/editor@5.0.2': patches/@lobehub__editor@5.0.2.patch
   '@chat-adapter/discord@4.38.1': patches/@chat-adapter__discord@4.38.1.patch
-  '@upstash/qstash': patches/@upstash__qstash.patch
   micromark@4.0.3: patches/micromark@4.0.3.patch
   micromark-extension-gfm-autolink-literal@2.1.0: patches/micromark-extension-gfm-autolink-literal@2.1.0.patch

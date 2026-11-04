@@ -26,10 +26,7 @@ vi.mock('@/libs/observability/traceparent', () => ({
   injectActiveTraceHeaders: mocks.injectActiveTraceHeaders,
 }));
 
-vi.mock('@/libs/qstash', () => ({
-  qstashClient: {
-    publishJSON: mocks.publishJSON,
-  },
+vi.mock('@/server/modules/Workflow', () => ({
   workflowClient: {
     trigger: mocks.trigger,
   },
@@ -38,7 +35,6 @@ vi.mock('@/libs/qstash', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.trigger.mockResolvedValue({ workflowRunId: 'workflow-1' });
-  mocks.publishJSON.mockResolvedValue({ messageId: 'message-1' });
 });
 
 describe('AgentSignalNightlyReviewWorkflow cron entry', () => {
@@ -48,16 +44,16 @@ describe('AgentSignalNightlyReviewWorkflow cron entry', () => {
     targetLimit: 20,
   };
 
-  it('publishes the cron entry through the qstash client', async () => {
+  it('triggers the cron entry with single-run flow control', async () => {
     /**
      * @example
      * expect(publishJSON).toHaveBeenCalledWith(expect.objectContaining({ flowControl }));
      */
     await expect(
       AgentSignalNightlyReviewWorkflow.publishPaginateUsersEntry(payload),
-    ).resolves.toEqual({ messageId: 'message-1' });
+    ).resolves.toEqual({ workflowRunId: 'workflow-1' });
 
-    expect(mocks.publishJSON).toHaveBeenCalledWith({
+    expect(mocks.trigger).toHaveBeenCalledWith({
       body: payload,
       flowControl: {
         key: 'agent-signal.nightly-review.paginate-users',
@@ -77,12 +73,12 @@ describe('AgentSignalNightlyReviewWorkflow cron entry', () => {
      * await expect(publishPaginateUsersEntry(payload)).rejects.toThrow('timed out');
      */
     vi.useFakeTimers();
-    mocks.publishJSON.mockReturnValue(new Promise(() => {}));
+    mocks.trigger.mockReturnValue(new Promise(() => {}));
 
     try {
       const assertion = expect(
         AgentSignalNightlyReviewWorkflow.publishPaginateUsersEntry(payload),
-      ).rejects.toThrow('nightly review cron publish timed out after 10000ms');
+      ).rejects.toThrow('nightly review cron trigger timed out after 10000ms');
 
       await vi.advanceTimersByTimeAsync(10_000);
       await assertion;
@@ -101,7 +97,7 @@ describe('AgentSignalNightlyReviewWorkflow cron entry', () => {
     vi.useFakeTimers();
 
     let rejectPublish: ((error: Error) => void) | undefined;
-    mocks.publishJSON.mockReturnValue(
+    mocks.trigger.mockReturnValue(
       new Promise((_, reject) => {
         rejectPublish = reject;
       }),
@@ -118,7 +114,7 @@ describe('AgentSignalNightlyReviewWorkflow cron entry', () => {
       await vi.advanceTimersByTimeAsync(10_000);
       await assertion;
 
-      rejectPublish?.(new Error('late qstash failure'));
+      rejectPublish?.(new Error('late trigger failure'));
       await vi.advanceTimersByTimeAsync(0);
       await Promise.resolve();
 

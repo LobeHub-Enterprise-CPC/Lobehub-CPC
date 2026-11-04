@@ -10,7 +10,6 @@ const { fetchHook, getEmailsByIds } = vi.hoisted(() => ({
 vi.mock('@/database/models/user', () => ({ UserModel: { getEmailsByIds } }));
 vi.mock('@/database/server', () => ({ getServerDB: async () => ({}) }));
 vi.mock('@/server/services/queue/impls', () => ({ isQueueAgentRuntimeEnabled: () => false }));
-vi.mock('@/libs/qstash', () => ({ OtelQstashClient: class {} }));
 
 const event = {
   apiName: 'write',

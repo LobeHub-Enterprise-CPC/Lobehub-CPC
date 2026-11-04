@@ -3,8 +3,8 @@ import debug from 'debug';
 
 import { getServerDB } from '@/database/server';
 import { appEnv } from '@/envs/app';
-import { workflowClient } from '@/libs/qstash';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { workflowClient } from '@/server/modules/Workflow';
 import { ExpertiseIngestionService } from '@/server/services/expertise/ingestion';
 
 import { runExpertiseRejectionWorkflow } from './run';

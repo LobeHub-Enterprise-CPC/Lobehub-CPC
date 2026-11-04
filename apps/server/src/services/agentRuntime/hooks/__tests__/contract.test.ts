@@ -7,7 +7,6 @@ import type { AgentHook, AgentHookEvent } from '../types';
 
 const { fetchMock, queueMode } = vi.hoisted(() => ({ fetchMock: vi.fn(), queueMode: vi.fn() }));
 vi.mock('@/server/services/queue/impls', () => ({ isQueueAgentRuntimeEnabled: queueMode }));
-vi.mock('@/libs/qstash', () => ({ OtelQstashClient: class {} }));
 vi.mock('@/database/models/user', () => ({
   UserModel: { getEmailsByIds: async () => [{ id: 'user', email: 'user@example.test' }] },
 }));

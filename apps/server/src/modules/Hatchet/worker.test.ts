@@ -47,6 +47,8 @@ vi.mock('./tasks', () => ({
   getDeliveryTask: () => ({ name: 'cpc-delivery' }),
 }));
 
+vi.mock('./schedules', () => ({ getScheduleTasks: () => [{ name: 'cpc-cron-goal-sweep' }] }));
+
 // The SDK registers its own SIGTERM/SIGINT handlers while constructing a worker.
 const require = createRequire(import.meta.url);
 const sdkDir = path.dirname(require.resolve('@hatchet-dev/typescript-sdk/v1'));
@@ -156,6 +158,7 @@ describe('startHatchetWorkers', () => {
     Reflect.deleteProperty(globalThis, Symbol.for('lobehub.agentStepDrain'));
     mocks.probeStatus = [];
     mocks.workers = [];
+    vi.stubEnv('DELIVERY_SIGNING_KEY', 'worker-test-key');
     process.on('SIGTERM', ownSigterm);
   });
 
@@ -164,12 +167,21 @@ describe('startHatchetWorkers', () => {
     await Promise.resolve();
     await Promise.resolve();
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     info.mockRestore();
     process.removeListener('SIGTERM', ownSigterm);
     for (const handler of mocks.sdkHandlers) {
       process.removeListener('SIGTERM', handler);
       process.removeListener('SIGINT', handler);
     }
+  });
+
+  it('refuses to start without a delivery signing key', async () => {
+    const { worker } = await load();
+    vi.stubEnv('DELIVERY_SIGNING_KEY', '');
+
+    expect(() => worker.startHatchetWorkers()).toThrow('DELIVERY_SIGNING_KEY is required');
+    expect(mocks.workers).toHaveLength(0);
   });
 
   it('registers the tasks at once but starts the workers only when the server answers', async () => {

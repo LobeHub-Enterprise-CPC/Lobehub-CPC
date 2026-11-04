@@ -3,23 +3,24 @@ import { errorNameFrom } from '@lobechat/utils';
 import debug from 'debug';
 import type { MiddlewareHandler } from 'hono';
 
-import { verifyQStashSignature } from '@/libs/qstash';
+import { verifyDeliveryRequest } from '@/server/modules/Hatchet/signature';
 
 const log = debug('lobe-server:agent:qstash-auth');
 
 /**
- * Hono middleware that requires a valid QStash signature on the request.
+ * Hono middleware that requires a valid delivery signature on the request;
+ * without `DELIVERY_SIGNING_KEY` every request is rejected.
  *
- * The body is consumed via `c.req.text()` to compute the QStash HMAC;
+ * The body is consumed via `c.req.text()` to compute the HMAC;
  * downstream handlers can still call `c.req.json()` thanks to Hono's
  * bodyCache cross-conversion.
  */
 export const qstashAuth = (): MiddlewareHandler => async (c, next) => {
   const rawBody = await c.req.text();
-  const isValid = await verifyQStashSignature(c.req.raw, rawBody);
+  const isValid = verifyDeliveryRequest(c.req.raw, rawBody);
 
   if (!isValid) {
-    log('Rejected: invalid QStash signature on %s', c.req.path);
+    log('Rejected: invalid delivery signature on %s', c.req.path);
     recordUpstashWorkflowEvent({
       errorType: 'InvalidSignature',
       interface: 'qstash',

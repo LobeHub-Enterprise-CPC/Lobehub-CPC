@@ -6,6 +6,11 @@ import { resumeAbandonedParent } from './resumeAbandonedParent';
 const mockDeliverWebhook = vi.hoisted(() => vi.fn());
 const mockCompleteSubAgentBridge = vi.hoisted(() => vi.fn());
 const mockAiAgentService = vi.hoisted(() => vi.fn());
+const queueMode = vi.hoisted(() => ({ enabled: false }));
+
+vi.mock('@/server/modules/Hatchet/config', () => ({
+  isHatchetDeliveryEnabled: () => queueMode.enabled,
+}));
 
 vi.mock('@/server/services/agentRuntime/hooks/HookDispatcher', () => ({
   deliverWebhook: mockDeliverWebhook,
@@ -50,7 +55,7 @@ describe('resumeAbandonedParent', () => {
   it('queues the durable callback with the visitor marker in queue mode', async () => {
     // The callback may find the child's metadata gone (runStep orphan
     // recovery), so the marker must ride along in the body.
-    vi.stubEnv('QSTASH_TOKEN', 'token');
+    queueMode.enabled = true;
 
     await resumeAbandonedParent(db, 'op-child', resume);
 
@@ -62,7 +67,7 @@ describe('resumeAbandonedParent', () => {
   });
 
   it('runs the bridge inline without a queue', async () => {
-    vi.stubEnv('QSTASH_TOKEN', '');
+    queueMode.enabled = false;
 
     await resumeAbandonedParent(db, 'op-child', resume);
 

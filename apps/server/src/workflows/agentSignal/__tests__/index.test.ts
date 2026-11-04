@@ -34,7 +34,7 @@ vi.mock('@/libs/observability/traceparent', () => ({
   injectActiveTraceHeaders: mocks.injectActiveTraceHeaders,
 }));
 
-vi.mock('@/libs/qstash', () => ({
+vi.mock('@/server/modules/Workflow', () => ({
   workflowClient: {
     trigger: mocks.trigger,
   },
@@ -87,7 +87,7 @@ afterEach(() => {
 });
 
 describe('AgentSignalWorkflow', () => {
-  it('runs locally without contacting QStash when queue runtime is disabled', async () => {
+  it('runs locally without triggering a workflow when queue runtime is disabled', async () => {
     const payload = createPayload();
 
     await expect(AgentSignalWorkflow.triggerRun(payload)).resolves.toEqual({

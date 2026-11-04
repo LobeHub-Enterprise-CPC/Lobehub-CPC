@@ -1,10 +1,9 @@
-import type { FlowControl } from '@upstash/qstash';
 import debug from 'debug';
 
 import { getInternalApiUrl } from '@/envs/app';
 import { injectActiveTraceHeaders } from '@/libs/observability/traceparent';
-import { qstashClient, workflowClient } from '@/libs/qstash';
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
+import { type FlowControl, workflowClient } from '@/server/modules/Workflow';
 
 const log = debug('lobe-server:workflows:agent-signal:nightly-review');
 
@@ -171,10 +170,8 @@ export class AgentSignalNightlyReviewWorkflow {
   /**
    * Starts the pagination tree from the hourly cron entry.
    *
-   * Publishes through `@upstash/qstash` rather than the workflow client's `trigger()`: `serve()`
-   * treats a plain POST as a first invocation, and this is the publish path the task crons have
-   * been running in production without ever landing in the DLQ. The timeout keeps the cron
-   * handler inside Cloudflare's 100s origin budget no matter how the outbound call behaves.
+   * The timeout keeps the cron handler inside Cloudflare's 100s origin budget no matter how the
+   * outbound call behaves.
    */
   static publishPaginateUsersEntry(payload: PaginateNightlyReviewUsersPayload) {
     log('Publishing nightly review cron entry payload=%O', {
@@ -183,7 +180,7 @@ export class AgentSignalNightlyReviewWorkflow {
     });
 
     return withPublishTimeout(
-      qstashClient.publishJSON({
+      workflowClient.trigger({
         body: payload,
         flowControl: {
           key: NIGHTLY_REVIEW_PAGINATE_FLOW_CONTROL_KEY,
@@ -192,7 +189,7 @@ export class AgentSignalNightlyReviewWorkflow {
         headers: getTriggerHeaders(),
         url: getWorkflowUrl(WORKFLOW_PATHS.paginateUsers),
       }),
-      'nightly review cron publish',
+      'nightly review cron trigger',
     );
   }
 

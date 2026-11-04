@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as HatchetTasks from '@/server/modules/Hatchet/tasks';
+
 const mockRunBot = vi.hoisted(() => vi.fn());
 const mockRunMessenger = vi.hoisted(() => vi.fn());
 const mockPublish = vi.hoisted(() => vi.fn().mockResolvedValue({ messageId: 'queued' }));
@@ -25,10 +27,11 @@ vi.mock('../BotMessageRouter', () => ({
 vi.mock('@/server/services/messenger/MessengerRouter', () => ({
   getMessengerRouter: () => ({ replayDeferredMessages: mockRunMessenger }),
 }));
-vi.mock('@/libs/qstash', () => ({
-  OtelQstashClient: class {
-    publishJSON = mockPublish;
-  },
+vi.mock('@/server/modules/Hatchet/tasks', async (importOriginal) => ({
+  ...(await importOriginal<typeof HatchetTasks>()),
+  getAgentStepTask: () => ({ name: 'cpc-agent-step' }),
+  maxInputBytes: () => 4 * 1024 * 1024,
+  triggerDelivery: mockPublish,
 }));
 
 const { runWithTenantScope } = await import('@lobechat/database/tenant');
@@ -72,21 +75,21 @@ describe('independent deferred replay retries', () => {
 
   it('publishes a deduplicated replay-only job with bounded provider retries', async () => {
     config.enableQueueAgentRuntime = true;
-    vi.stubEnv('QSTASH_TOKEN', 'example-token');
     await scheduleDeferredReplay(target, 'op-1');
-    expect(mockPublish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.objectContaining({
-          execution: { sourceAcceptedVersion: 7, tenantId: 'tenant-test' },
-          operationId: 'op-1',
-          payload: target,
-        }),
-        deduplicationId: expect.stringMatching(/^[a-f\d]{64}$/),
-        retries: 8,
-        retryDelay: '60000',
-        url: 'https://example.com/orgs/acme/api/agent/webhooks/bot-replay',
-      }),
-    );
-    expect(mockPublish.mock.calls[0][0].body.payload).not.toHaveProperty('lastAssistantContent');
+    expect(mockPublish).toHaveBeenCalledTimes(1);
+    const [, input] = mockPublish.mock.calls[0];
+    expect(input).toMatchObject({
+      dedupKey: expect.stringMatching(/^[a-f\d]{64}$/),
+      retries: 8,
+      retryDelay: '60000',
+      url: 'https://example.com/orgs/acme/api/agent/webhooks/bot-replay',
+    });
+    const body = JSON.parse(input.body);
+    expect(body).toMatchObject({
+      execution: { sourceAcceptedVersion: 7, tenantId: 'tenant-test' },
+      operationId: 'op-1',
+      payload: target,
+    });
+    expect(body.payload).not.toHaveProperty('lastAssistantContent');
   });
 });

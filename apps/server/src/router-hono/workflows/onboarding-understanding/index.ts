@@ -1,8 +1,8 @@
 import { withOtelMetricsForUpstashWorkflows } from '@lobechat/observability-otel/modules/upstash-workflow';
-import type { WorkflowContext } from '@upstash/workflow';
-import { createWorkflow, serveMany } from '@upstash/workflow/hono';
 import { Hono } from 'hono';
 
+import type { WorkflowContext } from '@/server/modules/Workflow';
+import { createWorkflow, serveMany } from '@/server/modules/Workflow';
 import { OnboardingTaskRecommendationWorkflow } from '@/server/workflows/onboardingTaskRecommendation';
 import {
   OnboardingUnderstandingWorkflow,
@@ -21,8 +21,6 @@ import {
   processProvidersWorkflowOptions,
   processUnderstandingProviders,
 } from '@/server/workflows/onboardingUnderstanding/processProviders';
-
-import { createWorkflowQstashClient } from '../qstashClient';
 
 const app = new Hono();
 
@@ -69,14 +67,11 @@ export const processProvidersWorkflow = createWorkflow<
 
 app.post(
   '/:workflowId',
-  serveMany(
-    {
-      'process-providers': processProvidersWorkflow,
-      'process-collected': processCollectedWorkflow,
-      'process-detailed-persona': processDetailedPersonaWorkflow,
-    },
-    { qstashClient: createWorkflowQstashClient() },
-  ),
+  serveMany({
+    'process-providers': processProvidersWorkflow,
+    'process-collected': processCollectedWorkflow,
+    'process-detailed-persona': processDetailedPersonaWorkflow,
+  }),
 );
 
 export default app;

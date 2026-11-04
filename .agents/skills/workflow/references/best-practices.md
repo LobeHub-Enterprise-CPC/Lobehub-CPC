@@ -19,7 +19,7 @@ Apply these once your scaffold from `implementation.md` is in place.
 ## 1. Error Handling
 
 ```typescript
-export const { POST } = serve<Payload>(
+export const handler = serve<Payload>(
   async (context) => {
     const { itemId } = context.requestPayload ?? {};
 
@@ -44,7 +44,7 @@ export const { POST } = serve<Payload>(
 
 ## 2. Logging
 
-Consistent prefixes make debugging much easier across QStash dashboards and grep:
+Consistent prefixes make debugging much easier across the Hatchet dashboard and grep:
 
 ```typescript
 console.log('[{workflow}:{layer}] Starting with payload:', payload);
@@ -109,7 +109,7 @@ await Promise.all(
   items.map((item) => context.run(`{workflow}:execute:${item.id}`, () => processItem(item))),
 );
 
-// ❌ Same step name — Upstash de-dupes by step name and you'll lose data
+// ❌ Same step name in a loop — results are memoized by position and name, so keep names unique and the order deterministic
 await Promise.all(items.map((item) => context.run(`{workflow}:execute`, () => processItem(item))));
 ```
 
@@ -118,7 +118,7 @@ await Promise.all(items.map((item) => context.run(`{workflow}:execute`, () => pr
 Validate at the top so failures are explicit, not silent `undefined` cascades:
 
 ```typescript
-export const { POST } = serve<Payload>(
+export const handler = serve<Payload>(
   async (context) => {
     const { itemId, configId } = context.requestPayload ?? {};
 
@@ -136,7 +136,7 @@ export const { POST } = serve<Payload>(
 Get the connection once per workflow — `getServerDB()` is async, repeating it inside each step adds latency:
 
 ```typescript
-export const { POST } = serve<Payload>(
+export const handler = serve<Payload>(
   async (context) => {
     const db = await getServerDB();
 
@@ -180,7 +180,7 @@ describe('WorkflowName', () => {
 ### ❌ Reusing `context.run()` step names
 
 ```typescript
-// Bad — Upstash dedupes by step name
+// Bad — a repeated name makes replays hard to read and debug
 await Promise.all(items.map((item) => context.run('process', () => process(item))));
 
 // Good

@@ -7,9 +7,9 @@ import {
   UnderstandingSessionNotFoundError,
 } from '@lobechat/database';
 import { observeOnboardingUnderstandingOperation } from '@lobechat/observability-otel/modules/onboarding-understanding';
-import type { PublicServeOptions, WorkflowContext } from '@upstash/workflow';
 
 import { getServerDB } from '@/database/server';
+import type { ServeOptions, WorkflowContext } from '@/server/modules/Workflow';
 import { publishOnboardingGenerationProgress } from '@/server/services/onboardingProgress';
 import {
   createUnderstandingService,
@@ -175,4 +175,4 @@ export const processCollectedWorkflowOptions = {
   },
   initialPayloadParser: (input: string) =>
     ProcessCollectedUnderstandingPayloadSchema.parse(JSON.parse(input)),
-} satisfies PublicServeOptions<ProcessCollectedUnderstandingPayload>;
+} satisfies ServeOptions<ProcessCollectedUnderstandingPayload>;

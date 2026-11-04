@@ -1,9 +1,9 @@
-import { type WorkflowContext } from '@upstash/workflow';
 import { chunk } from 'es-toolkit/compat';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { getServerDB } from '@/database/server';
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
+import { type WorkflowContext } from '@/server/modules/Workflow';
 import {
   buildWorkflowPayloadInput,
   MemoryExtractionExecutor,
