@@ -1,12 +1,11 @@
 'use client';
 
-import { ActionIcon, Divider, Flexbox, Switch, Tabs, Text } from '@lobehub/ui';
+import { Divider, Flexbox, Switch, Tabs, Text } from '@lobehub/ui';
 import { Images } from 'lucide-react';
 import { memo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { loginRequired } from '@/components/Error/loginRequiredNotification';
-import { ModelIcon } from '@/components/LobeIcons';
 import Action from '@/features/ChatInput/ActionBar/components/Action';
 import ModelSwitchPanel from '@/features/ModelSwitchPanel';
 import PromptTransformAction from '@/features/PromptTransform/PromptTransformAction';
@@ -24,6 +23,7 @@ import {
   InlineImageReference,
   useImageGenerationModelNotice,
 } from '@/routes/(main)/(create)/features/GenerationInput';
+import ModelTrigger from '@/routes/(main)/(create)/features/GenerationInput/ModelTrigger';
 import {
   CfgSliderInput,
   DimensionControlGroup,
@@ -332,13 +332,7 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
                 setModelAndProviderOnSelect(model, provider);
               }}
             >
-              <ActionIcon
-                icon={<ModelIcon model={currentModel ?? ''} size={22} />}
-                size={{
-                  blockSize: 36,
-                  size: 20,
-                }}
-              />
+              <ModelTrigger enabledList={enabledImageModelList} model={currentModel} />
             </ModelSwitchPanel>
             <ConfigAction
               title={t('config.title', { defaultValue: 'Config' })}

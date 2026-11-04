@@ -35,6 +35,7 @@ import {
   InlineVideoFrames,
   useVideoGenerationModelNotice,
 } from '@/routes/(main)/(create)/features/GenerationInput';
+import ModelTrigger from '@/routes/(main)/(create)/features/GenerationInput/ModelTrigger';
 import { AspectRatioSelect } from '@/routes/(main)/(create)/image/features/ConfigPanel';
 import Select from '@/routes/(main)/(create)/image/features/ConfigPanel/components/Select';
 import VideoModelItem from '@/routes/(main)/(create)/video/features/ConfigPanel/components/ModelSelect/VideoModelItem';
@@ -693,13 +694,7 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
                       setModelAndProviderOnSelect(model, provider);
                     }}
                   >
-                    <ActionIcon
-                      icon={<ModelIcon model={currentModel ?? ''} size={22} />}
-                      size={{
-                        blockSize: 36,
-                        size: 20,
-                      }}
-                    />
+                    <ModelTrigger enabledList={enabledVideoModelList} model={currentModel} />
                   </ModelSwitchPanel>
                 )}
                 <ConfigAction

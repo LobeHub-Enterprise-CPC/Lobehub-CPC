@@ -83,6 +83,7 @@ const GenerationPromptInput = memo<GenerationPromptInputProps>(
     return (
       <ChatInput
         className={className}
+        data-brand-slot={'create-prompt'}
         header={header}
         styles={{ body: { padding: 8 } }}
         footer={
