@@ -22,7 +22,8 @@ export const DEFAULT_SUPERVISOR_ID = 'supervisor';
 export const DEFAULT_BACKGROUND_COLOR = undefined;
 export const DEFAULT_AGENT_META: MetaData = {};
 export const DEFAULT_INBOX_TITLE = BRANDING_INBOX_TITLE;
-export const DEFAULT_INBOX_AVATAR = BRANDING_LOGO_URL || '/avatars/lobe-ai.png';
+export const DEFAULT_INBOX_AVATAR =
+  AGENT_AVATAR_GALLERY?.builtinAvatars?.inbox || BRANDING_LOGO_URL || '/avatars/lobe-ai.png';
 export const DEFAULT_USER_AVATAR_URL =
   BRANDED_USER_AVATAR || BRANDING_LOGO_URL || '/app-icons/icon-192x192.png';
 
