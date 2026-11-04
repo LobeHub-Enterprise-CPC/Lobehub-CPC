@@ -19,6 +19,9 @@ import { bindGatewayClientHandlers } from '../gatewayHandlers';
 // The real OpenAPI Bearer parser also shares a module with session helpers.
 // Session lookup is outside this transport test; never mock the parser itself.
 vi.mock('@/auth', () => ({ auth: {} }));
+// Spawning the real `lh hetero exec` child is outside this transport test.
+const spawnHeteroAgentRun = vi.hoisted(() => vi.fn());
+vi.mock('../agentRun', () => ({ spawnHeteroAgentRun }));
 
 const fixture = JSON.parse(
   await readFile(
@@ -239,5 +242,55 @@ describe('CLI gateway transport through local execution', () => {
     await expect(access(path.join(directory, 'effect.txt'))).rejects.toMatchObject({
       code: 'ENOENT',
     });
+  });
+
+  it('acknowledges a dispatched agent run on the attempt it was sent', async () => {
+    spawnHeteroAgentRun.mockResolvedValue({ status: 'accepted' });
+    const socket = await open();
+    const connected = once(client!, 'connected');
+    confirm(socket);
+    await connected;
+    const ack = once(socket, 'message');
+    socket.send(
+      JSON.stringify({
+        type: 'agent_run_request',
+        tenancyProtocol: 1,
+        tenantId: 'tenant-A',
+        sourceAcceptedVersion: 7,
+        connectionGeneration: 1,
+        attemptId: 'attempt-run',
+        requestId: 'run-request',
+        operationId: 'op-run',
+        agentType: 'codex',
+        jwt: 'operation-jwt',
+        prompt: 'hello',
+        topicId: 'topic-run',
+      }),
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const [data] = await Promise.race([
+      ack,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('agent_run_ack never reached the gateway')),
+          2000,
+        );
+      }),
+    ]).finally(() => clearTimeout(timer));
+    // The Go gateway matches the ack by tenancy binding; a frame without it is dropped.
+    expect(JSON.parse(String(data))).toMatchObject({
+      type: 'agent_run_ack',
+      tenancyProtocol: 1,
+      tenantId: 'tenant-A',
+      sourceAcceptedVersion: 7,
+      connectionGeneration: 1,
+      attemptId: 'attempt-run',
+      operationId: 'op-run',
+      status: 'accepted',
+    });
+    expect(spawnHeteroAgentRun).toHaveBeenCalledWith(
+      expect.objectContaining({ operationId: 'op-run', topicId: 'topic-run' }),
+      expect.anything(),
+    );
   });
 });

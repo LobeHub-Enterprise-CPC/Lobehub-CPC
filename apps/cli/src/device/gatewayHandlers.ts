@@ -13,7 +13,7 @@ import type { resolveToken } from '../auth/resolveToken';
 import type { CliMaintenance } from '../daemon/maintenance';
 import { appendLog } from '../daemon/manager';
 import { executeToolCall } from '../tools';
-import { executeComputerUseCall, type ComputerUseDevice } from '../tools/computerUse';
+import { type ComputerUseDevice, executeComputerUseCall } from '../tools/computerUse';
 import { log } from '../utils/logger';
 import { spawnHeteroAgentRun } from './agentRun';
 import { collectSystemInfo } from './systemInfo';
@@ -227,6 +227,7 @@ export function bindGatewayClientHandlers(
       client.sendAgentRunAck({
         attemptId: request.attemptId,
         operationId: request.operationId,
+        requestId: request.requestId,
         ...ack,
       });
     } catch (err) {
@@ -236,6 +237,7 @@ export function bindGatewayClientHandlers(
       client.sendAgentRunAck({
         attemptId: request.attemptId,
         operationId: request.operationId,
+        requestId: request.requestId,
         reason,
         status: 'rejected',
       });

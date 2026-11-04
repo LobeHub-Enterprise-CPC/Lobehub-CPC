@@ -300,6 +300,8 @@ export interface AgentRunRequestMessage extends Partial<GatewayCommandBinding> {
   jwt: string;
   operationId: string;
   prompt: string;
+  /** Key the client admits this command under; the ack must echo it. */
+  requestId: string;
   /**
    * Full system context used only when native resume fails and the device CLI
    * retries with a fresh session. Optional for compatibility with older
@@ -503,6 +505,8 @@ export interface AgentRunAckMessage extends Partial<GatewayCommandBinding> {
   isExecutionCurrent?: () => boolean;
   operationId: string;
   reason?: string;
+  /** The request's `requestId`: the client only sends a response bound to an admitted command. */
+  requestId: string;
   status: 'accepted' | 'rejected';
   type: 'agent_run_ack';
 }

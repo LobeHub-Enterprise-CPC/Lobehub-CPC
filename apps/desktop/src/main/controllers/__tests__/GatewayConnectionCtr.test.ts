@@ -59,6 +59,11 @@ vi.mock('@/modules/tenantAuth/gatewayIdentity', () => ({
 
 const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
   const { EventEmitter } = require('node:events');
+  const admittedCommand = () => ({
+    attemptId: 'attempt-original',
+    executionSignal: new AbortController().signal,
+    isExecutionCurrent: () => true,
+  });
 
   class _MockGatewayClient extends EventEmitter {
     static instances: _MockGatewayClient[] = [];
@@ -112,9 +117,7 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       identifier = 'test-tool',
     ) {
       this.emit('tool_call_request', {
-        attemptId: 'attempt-original',
-        executionSignal: new AbortController().signal,
-        isExecutionCurrent: () => true,
+        ...admittedCommand(),
         requestId,
         toolCall: {
           apiName,
@@ -133,9 +136,7 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       identifier = 'kimi-datasource',
     ) {
       this.emit('tool_call_request', {
-        attemptId: 'attempt-original',
-        executionSignal: new AbortController().signal,
-        isExecutionCurrent: () => true,
+        ...admittedCommand(),
         requestId,
         toolCall: {
           apiName,
@@ -155,9 +156,7 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       requestId = 'msg-req-1',
     ) {
       this.emit('message_api_request', {
-        attemptId: 'attempt-original',
-        executionSignal: new AbortController().signal,
-        isExecutionCurrent: () => true,
+        ...admittedCommand(),
         api: { apiName, payload, platform },
         requestId,
         type: 'message_api_request',
@@ -180,9 +179,8 @@ const { ipcMainHandleMock, MockGatewayClient } = vi.hoisted(() => {
       extra: Record<string, unknown> = {},
     ) {
       this.emit('agent_run_request', {
-        attemptId: 'attempt-original',
-        executionSignal: new AbortController().signal,
-        isExecutionCurrent: () => true,
+        ...admittedCommand(),
+        requestId: 'request-original',
         agentType,
         jwt,
         operationId,
@@ -1651,6 +1649,8 @@ describe('GatewayConnectionCtr', () => {
   // ─── Agent Run Routing ───
 
   describe('agent run routing', () => {
+    // The ack must carry the request's binding back, or the client drops it.
+    const ackBinding = { attemptId: 'attempt-original', requestId: 'request-original' };
     async function connectAndOpen() {
       ctr.afterFirstFrame();
       await vi.advanceTimersByTimeAsync(0);
@@ -1745,7 +1745,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendAgentRunAck).toHaveBeenCalledWith({
-        attemptId: 'attempt-original',
+        ...ackBinding,
         operationId: 'op-xyz',
         status: 'accepted',
       });
@@ -1779,7 +1779,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendAgentRunAck).toHaveBeenCalledWith({
-        attemptId: 'attempt-original',
+        ...ackBinding,
         operationId: 'op-fail',
         reason: 'Remote server URL not configured',
         status: 'rejected',
@@ -1797,7 +1797,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendAgentRunAck).toHaveBeenCalledWith({
-        attemptId: 'attempt-original',
+        ...ackBinding,
         operationId: 'op-fail',
         reason: 'binary not found',
         status: 'rejected',
@@ -1815,7 +1815,7 @@ describe('GatewayConnectionCtr', () => {
       await vi.advanceTimersByTimeAsync(0);
 
       expect(client.sendAgentRunAck).toHaveBeenCalledWith({
-        attemptId: 'attempt-original',
+        ...ackBinding,
         operationId: 'op-spawn-fail',
         reason: 'spawn EACCES',
         status: 'rejected',

@@ -203,6 +203,7 @@ export class GatewayExecutionHandlers {
       client.sendAgentRunAck({
         attemptId: request.attemptId,
         operationId: request.operationId,
+        requestId: request.requestId,
         reason: 'no handler',
         status: 'rejected',
       });
@@ -221,6 +222,7 @@ export class GatewayExecutionHandlers {
     client.sendAgentRunAck({
       attemptId: request.attemptId,
       operationId: request.operationId,
+      requestId: request.requestId,
       ...result,
     });
   };
