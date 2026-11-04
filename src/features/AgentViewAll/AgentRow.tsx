@@ -152,16 +152,18 @@ const AgentRow = memo<AgentRowProps>(
                 <Text
                   ellipsis
                   className={'agent-row-title'}
-                  style={roleTag ? nameBesideRoleStyle : undefined}
+                  style={
+                    roleTag && !AGENT_DIRECTORY_SHOWCASE_LAYOUT ? nameBesideRoleStyle : undefined
+                  }
                   weight={500}
                 >
                   {displayTitle}
                 </Text>
-                {roleTag ? <RoleTag role={roleTag} /> : null}
+                {roleTag && !AGENT_DIRECTORY_SHOWCASE_LAYOUT ? <RoleTag role={roleTag} /> : null}
               </Flexbox>
-              {AGENT_DIRECTORY_SHOWCASE_LAYOUT && description ? (
-                <Text ellipsis fontSize={12} type={'secondary'}>
-                  {description}
+              {AGENT_DIRECTORY_SHOWCASE_LAYOUT && (roleTag || description) ? (
+                <Text ellipsis data-brand-slot={'agent-row-role'} fontSize={12} type={'secondary'}>
+                  {roleTag || description}
                 </Text>
               ) : null}
             </Flexbox>

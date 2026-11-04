@@ -22,7 +22,7 @@ import {
 } from '@lobehub/ui';
 import dayjs from 'dayjs';
 import isEqual from 'fast-deep-equal';
-import { ChevronDownIcon, ChevronRightIcon, PlusIcon } from 'lucide-react';
+import { ArrowDownUpIcon, ChevronDownIcon, ChevronRightIcon, PlusIcon } from 'lucide-react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
@@ -631,6 +631,23 @@ const AgentViewAllPage = memo(() => {
             />
           )}
           <Flexbox horizontal align={'center'} gap={8}>
+            {AGENT_DIRECTORY_SHOWCASE_LAYOUT && (
+              <DropdownMenu
+                items={(['updatedAt', 'title'] as const).map((key) => ({
+                  key,
+                  label: t(`agentViewAll.orderBy.${key}`),
+                  onClick: () => setViewOptions((prev) => ({ ...prev, orderBy: key })),
+                }))}
+              >
+                <Button
+                  data-brand-slot={'agent-directory-sort'}
+                  icon={ArrowDownUpIcon}
+                  type={'text'}
+                >
+                  {t(`agentViewAll.orderBy.${orderBy}`)}
+                </Button>
+              </DropdownMenu>
+            )}
             {(activeWorkspaceId || AGENT_DIRECTORY_SHOWCASE_LAYOUT) && (
               <SearchBar
                 allowClear
