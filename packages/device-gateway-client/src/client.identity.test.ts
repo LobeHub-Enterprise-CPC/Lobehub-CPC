@@ -115,6 +115,24 @@ describe('owning device identity provider lifecycle', () => {
     expect(failed).toHaveBeenCalledWith('GATEWAY_TENANCY_UNSUPPORTED');
     expect(provider).toHaveBeenCalledOnce();
   });
+  // The desktop mints tickets with Electron's net.fetch, which fails offline
+  // (asleep, network not back yet after wake) with Chromium's net::ERR_* text.
+  it.each([
+    'net::ERR_INTERNET_DISCONNECTED',
+    'net::ERR_NAME_NOT_RESOLVED',
+    'net::ERR_CONNECTION_TIMED_OUT',
+  ])('keeps retrying when the provider is offline (%s)', async (message) => {
+    const provider = vi.fn().mockRejectedValue(new Error(message));
+    const client = create(provider);
+    const failed = vi.fn();
+    client.on('auth_failed', failed);
+    await client.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.connectionStatus).toBe('reconnecting');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(failed).not.toHaveBeenCalled();
+    expect(provider.mock.calls.length).toBeGreaterThan(1);
+  });
   it('keeps a temporary provider 503 retryable', async () => {
     const provider = vi
       .fn()

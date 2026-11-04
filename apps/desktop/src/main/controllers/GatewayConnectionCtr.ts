@@ -30,7 +30,6 @@ import { managedProcessEnvironment, spawnManaged } from '@lobechat/utils/managed
 import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 import { app as electronApp } from 'electron';
 
-import { resolveGatewayEnabled } from '@/const/store';
 import { withEmbeddedCliEnv } from '@/modules/cliEmbedding';
 import { createDesktopGatewayIdentityProvider } from '@/modules/tenantAuth/gatewayIdentity';
 import { updaterConfig } from '@/modules/updater/configs';
@@ -46,6 +45,7 @@ import { createLogger } from '@/utils/logger';
 import { setDesktopUserAgentHeader } from '@/utils/user-agent';
 
 import BrowserControlCtr from './BrowserControlCtr';
+import { tryGatewayAutoConnect, watchSystemWake } from './gatewayAutoConnect';
 import HeterogeneousAgentCtr from './HeterogeneousAgentCtr';
 import { ControllerModule, createProtocolHandler, IpcMethod } from './index';
 import LocalFileCtr from './LocalFileCtr';
@@ -276,8 +276,9 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
     this.resolveGatewayReady?.();
 
-    // Auto-connect if already logged in
+    // Auto-connect if already logged in, and again on wake or unlock
     this.tryAutoConnect();
+    watchSystemWake(() => this.service.reconnectAfterWake(), this.tryAutoConnect);
   }
 
   // ─── IPC Methods (Renderer → Main) ───
@@ -373,19 +374,13 @@ export default class GatewayConnectionCtr extends ControllerModule {
     return this.remoteServerConfigCtr.getRemoteServerUrl(config);
   }
 
-  // ─── Auto Connect ───
-
-  private async tryAutoConnect() {
-    if (!resolveGatewayEnabled(this.app.storeManager.get('gatewayEnabled'))) return;
-
-    const isConfigured = await this.remoteServerConfigCtr.isRemoteServerConfigured();
-    if (!isConfigured) return;
-
-    const token = await this.remoteServerConfigCtr.getAccessToken();
-    if (!token) return;
-
-    await this.service.connect();
-  }
+  private tryAutoConnect = () =>
+    tryGatewayAutoConnect({
+      connect: () => this.service.connect(),
+      gatewayEnabled: () => this.app.storeManager.get('gatewayEnabled'),
+      getAccessToken: () => this.remoteServerConfigCtr.getAccessToken(),
+      isRemoteServerConfigured: () => this.remoteServerConfigCtr.isRemoteServerConfigured(),
+    });
 
   // ─── Agent Run Routing ───
 

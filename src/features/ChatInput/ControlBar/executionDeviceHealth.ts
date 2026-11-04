@@ -1,6 +1,8 @@
 import type { GatewayConnectionStatus } from '@lobechat/electron-client-ipc';
 import type { DeviceExecutionTarget, DeviceListItem } from '@lobechat/types';
 
+import { getGatewayConnectionView } from '@/helpers/gatewayConnection';
+
 /**
  * Whether the machine the next run executes on can be reached, as the
  * composer reports it.
@@ -40,11 +42,8 @@ export interface ResolveExecutionDeviceHealthParams {
 const OK: ExecutionDeviceHealth = { kind: 'ok' };
 
 const localHealth = (status: GatewayConnectionStatus | undefined): ExecutionDeviceHealth => {
-  // `connecting` / `authenticating` are an attempt in flight (start-up, a
-  // sign-in or a click on reconnect); the main process already holds a short
-  // drop on `connected`, so only a settled outage reaches the composer.
-  if (status === 'disconnected') return { kind: 'local', reconnecting: false };
-  if (status === 'reconnecting') return { kind: 'local', reconnecting: true };
+  const view = getGatewayConnectionView(status);
+  if (view.isUnavailable) return { kind: 'local', reconnecting: view.isConnecting };
   return OK;
 };
 

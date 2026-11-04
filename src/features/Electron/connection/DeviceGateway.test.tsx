@@ -151,12 +151,12 @@ describe('DeviceGateway', () => {
       ['authenticating', undefined],
       ['disconnected', { code: 'not_signed_in' }],
       ['disconnected', { code: 'invalid_gateway_url' }],
-    ])('stays hidden while %s (%o)', (status, error) => {
+    ])('keeps an unresolved connection visible while %s (%o)', (status, error) => {
       dropTo(status, error);
 
       const { container } = render(<DeviceGateway />);
 
-      expect(container).toBeEmptyDOMElement();
+      expect(container).not.toBeEmptyDOMElement();
     });
 
     it('stays on screen, busy, while the main process retries an outage on its own', () => {
@@ -197,7 +197,7 @@ describe('DeviceGateway', () => {
       act(() => dropTo('connected'));
 
       expect(reconnectButton()).not.toBeInTheDocument();
-      expect(toast.success).toHaveBeenCalledWith('gateway.reconnected');
+      expect(toast.success).not.toHaveBeenCalled();
       expect(toast.error).not.toHaveBeenCalled();
     });
 
@@ -210,7 +210,7 @@ describe('DeviceGateway', () => {
 
       await act(async () => fireEvent.click(reconnectButton()!));
 
-      expect(toast.error).toHaveBeenCalledWith('gateway.error.authRejected');
+      expect(toast.error).not.toHaveBeenCalled();
       expect(toast.success).not.toHaveBeenCalled();
       expect(reconnectButton()).toBeInTheDocument();
     });

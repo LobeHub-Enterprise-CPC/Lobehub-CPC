@@ -1,19 +1,17 @@
 'use client';
 
 import type { DeviceListItem } from '@lobechat/types';
-import { Button, Flexbox, Icon, Popover, Tag, toast, Tooltip } from '@lobehub/ui';
+import { Button, Flexbox, Popover, Tooltip } from '@lobehub/ui';
 import { cssVar } from '@lobehub/ui/stylex/cssVar.stylex';
 import * as stylex from '@stylexjs/stylex';
-import { RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { RefreshCwIcon } from 'lucide-react';
+import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import {
-  GATEWAY_ERROR_MESSAGE_KEYS,
-  isGatewayFailureRetryable,
-} from '@/features/Electron/connection/gatewayFailure';
+import { getGatewayConnectionView } from '@/helpers/gatewayConnection';
 import { useElectronStore } from '@/store/electron';
 
+import { ChatInputWarningTag } from '../../components/ChatInputWarningTag';
 import { useExecutionDeviceHealth } from '../../ControlBar/useExecutionDeviceHealth';
 import { useAgentId } from '../../hooks/useAgentId';
 import { useEffectiveAgentMode } from '../../hooks/useEffectiveAgentMode';
@@ -54,12 +52,6 @@ const styles = stylex.create({
   },
 });
 
-const WarningTag = ({ label }: { label: string }) => (
-  <Tag color={'warning'} icon={<Icon icon={TriangleAlertIcon} />} shape={'round'}>
-    {label}
-  </Tag>
-);
-
 const deviceName = (device?: DeviceListItem) =>
   device ? device.friendlyName || device.hostname || device.deviceId : undefined;
 
@@ -84,7 +76,7 @@ const RemoteDeviceHint = memo<{ device?: DeviceListItem }>(({ device }) => {
         tabIndex={0}
         {...stylex.props(styles.trigger, styles.triggerStatic)}
       >
-        <WarningTag label={t('heteroAgent.executionTarget.hint.remote.label')} />
+        <ChatInputWarningTag label={t('heteroAgent.executionTarget.hint.remote.label')} />
       </span>
     </Tooltip>
   );
@@ -93,17 +85,20 @@ const RemoteDeviceHint = memo<{ device?: DeviceListItem }>(({ device }) => {
 RemoteDeviceHint.displayName = 'RemoteDeviceHint';
 
 interface LocalDeviceHintProps {
-  onReconnect: () => void;
-  pending: boolean;
   reconnecting: boolean;
 }
 
 /** This desktop's own gateway connection is down; it can reconnect right here. */
-const LocalDeviceHint = memo<LocalDeviceHintProps>(({ onReconnect, pending, reconnecting }) => {
+const LocalDeviceHint = memo<LocalDeviceHintProps>(({ reconnecting }) => {
   const { t } = useTranslation(['chat', 'electron']);
   const failure = useElectronStore((s) => s.gatewayConnectionError);
+  const status = useElectronStore((s) => s.gatewayConnectionStatus);
+  const pending = useElectronStore((s) => s.gatewayReconnectPending);
+  const connectGateway = useElectronStore((s) => s.connectGateway);
+  const setConnectionDrawerOpen = useElectronStore((s) => s.setConnectionDrawerOpen);
+  const view = getGatewayConnectionView(status, failure, pending);
+  const needsLogin = !view.isConnecting && failure?.code === 'not_signed_in';
   const [open, setOpen] = useState(false);
-  const shownFailure = pending ? undefined : failure;
 
   const content = (
     <Flexbox gap={12} {...stylex.props(styles.panel)}>
@@ -118,23 +113,30 @@ const LocalDeviceHint = memo<LocalDeviceHintProps>(({ onReconnect, pending, reco
               : 'heteroAgent.executionTarget.hint.local.desc',
           )}
         </span>
-        {shownFailure && (
-          <span title={shownFailure.detail} {...stylex.props(styles.error)}>
-            {t(GATEWAY_ERROR_MESSAGE_KEYS[shownFailure.code], { ns: 'electron' })}
+        {failure && !view.isConnecting && (
+          <span title={failure.detail} {...stylex.props(styles.error)}>
+            {t(view.messageKey, { ns: 'electron' })}
           </span>
         )}
       </Flexbox>
-      {isGatewayFailureRetryable(shownFailure?.code) && (
+      {(view.canReconnect || view.isConnecting || needsLogin) && (
         <Button
           block
           data-testid={'execution-device-reconnect'}
           icon={RefreshCwIcon}
-          loading={pending}
+          loading={view.isConnecting}
           size={'small'}
           type={'primary'}
-          onClick={onReconnect}
+          onClick={() => (needsLogin ? setConnectionDrawerOpen(true) : void connectGateway())}
         >
-          {t('heteroAgent.executionTarget.hint.local.reconnect')}
+          {t(
+            needsLogin
+              ? 'gateway.signIn'
+              : view.isConnecting
+                ? 'gateway.reconnecting'
+                : 'gateway.reconnect',
+            { ns: 'electron' },
+          )}
         </Button>
       )}
     </Flexbox>
@@ -157,7 +159,13 @@ const LocalDeviceHint = memo<LocalDeviceHintProps>(({ onReconnect, pending, reco
         type={'button'}
         {...stylex.props(styles.trigger)}
       >
-        <WarningTag label={t('heteroAgent.executionTarget.hint.local.label')} />
+        <ChatInputWarningTag
+          label={
+            view.isConnecting
+              ? t('gateway.reconnecting', { ns: 'electron' })
+              : t('heteroAgent.executionTarget.hint.local.label')
+          }
+        />
       </button>
     </Popover>
   );
@@ -165,50 +173,15 @@ const LocalDeviceHint = memo<LocalDeviceHintProps>(({ onReconnect, pending, reco
 
 LocalDeviceHint.displayName = 'LocalDeviceHint';
 
-const ExecutionDeviceHint = memo<{ agentId: string }>(({ agentId }) => {
-  const { t } = useTranslation('chat');
+const ExecutionDeviceHint = ({ agentId }: { agentId: string }) => {
   const health = useExecutionDeviceHealth(agentId);
-  const connectGateway = useElectronStore((s) => s.connectGateway);
-  const gatewayStatus = useElectronStore((s) => s.gatewayConnectionStatus);
-  // A reconnect started from the hint keeps it (and its spinner) on screen
-  // while the attempt is `connecting`, which on its own reads as healthy.
-  const [pending, setPending] = useState(false);
-  const wasOffline = useRef(false);
-
-  const showLocal = health.kind === 'local' || pending;
-
-  // Confirm the recovery the hint was reporting, whoever reconnected it.
-  useEffect(() => {
-    if (showLocal) {
-      wasOffline.current = true;
-      return;
-    }
-    if (wasOffline.current && gatewayStatus === 'connected') {
-      toast.success(t('heteroAgent.executionTarget.hint.local.reconnected'));
-    }
-    wasOffline.current = false;
-  }, [showLocal, gatewayStatus, t]);
-
-  const reconnect = async () => {
-    setPending(true);
-    try {
-      await connectGateway();
-    } finally {
-      setPending(false);
-    }
-  };
+  const showLocal = health.kind === 'local';
 
   if (health.kind === 'remote') return <RemoteDeviceHint device={health.device} />;
   if (!showLocal) return null;
 
-  return (
-    <LocalDeviceHint
-      pending={pending}
-      reconnecting={health.kind === 'local' && health.reconnecting}
-      onReconnect={() => void reconnect()}
-    />
-  );
-});
+  return <LocalDeviceHint reconnecting={health.kind === 'local' && health.reconnecting} />;
+};
 
 ExecutionDeviceHint.displayName = 'ExecutionDeviceHint';
 
@@ -218,14 +191,14 @@ ExecutionDeviceHint.displayName = 'ExecutionDeviceHint';
  * Tool execution only exists in the Agent runtime, so a chat-only model shows
  * nothing.
  */
-const DeviceStatus = memo(() => {
+const DeviceStatus = () => {
   const agentId = useAgentId();
   const { isAgentRuntimeMode } = useEffectiveAgentMode(agentId);
 
   if (!agentId || !isAgentRuntimeMode) return null;
 
   return <ExecutionDeviceHint agentId={agentId} />;
-});
+};
 
 DeviceStatus.displayName = 'DeviceStatusAction';
 

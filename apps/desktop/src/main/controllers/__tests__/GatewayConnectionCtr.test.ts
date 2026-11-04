@@ -211,6 +211,7 @@ vi.mock('electron', () => ({
     getVersion: vi.fn(() => '1.2.3'),
   },
   ipcMain: { handle: ipcMainHandleMock },
+  powerMonitor: { on: vi.fn() },
   powerSaveBlocker: {
     start: vi.fn(() => 1),
     stop: vi.fn(),
@@ -817,10 +818,14 @@ describe('GatewayConnectionCtr', () => {
         await startCtr();
 
         expect(MockGatewayClient.instances).toHaveLength(0);
-        expect(lastBroadcast()).toMatchObject({
-          error: { code: 'config_unavailable' },
-          status: 'disconnected',
-        });
+        expect(lastBroadcast()).toMatchObject(
+          _label === 'an HTTP error' || _label === 'a network failure'
+            ? { status: 'reconnecting' }
+            : {
+                error: { code: 'config_unavailable' },
+                status: 'disconnected',
+              },
+        );
       },
     );
 
@@ -833,7 +838,7 @@ describe('GatewayConnectionCtr', () => {
       await startCtr();
 
       expect(MockGatewayClient.instances).toHaveLength(0);
-      expect(lastBroadcast()?.error?.code).toBe('config_unavailable');
+      expect(lastBroadcast()?.status).toBe('reconnecting');
     });
 
     it.each([
@@ -913,14 +918,18 @@ describe('GatewayConnectionCtr', () => {
       await startCtr();
       const first = MockGatewayClient.lastInstance!;
 
-      // A rejected tenant ticket is final (FR-GW-02): no token refresh, no new socket.
+      // One rebuild with a fresh provider, then final (FR-GW-02); never a token refresh.
       first.emit('auth_failed', 'crypto/rsa: verification error');
-      first.simulateStatusChanged('disconnected');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(first.disconnect).toHaveBeenCalled();
+      const second = MockGatewayClient.instances[1]!;
+      second.emit('auth_failed', 'crypto/rsa: verification error');
+      second.simulateStatusChanged('disconnected');
       await vi.advanceTimersByTimeAsync(0);
 
       expect(mockRemoteServerConfigCtr.refreshAccessToken).not.toHaveBeenCalled();
-      expect(first.disconnect).toHaveBeenCalled();
-      expect(MockGatewayClient.instances).toHaveLength(1);
+      expect(second.disconnect).toHaveBeenCalled();
+      expect(MockGatewayClient.instances).toHaveLength(2);
       expect(lastBroadcast()).toEqual({
         error: { code: 'auth_failed', detail: 'crypto/rsa: verification error' },
         status: 'disconnected',
@@ -1178,66 +1187,6 @@ describe('GatewayConnectionCtr', () => {
 
       expect(MockGatewayClient.lastInstance).not.toBeNull();
       expect(MockGatewayClient.lastInstance!.connect).toHaveBeenCalled();
-    });
-
-    it('should skip auto-connect when gatewayEnabled is false', async () => {
-      mockStoreGet.mockImplementation((key: string) => {
-        if (key === 'gatewayEnabled') return false;
-        return undefined;
-      });
-
-      ctr = new GatewayConnectionCtr(mockApp);
-      ctr.afterFirstFrame();
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(MockGatewayClient.lastInstance).toBeNull();
-    });
-
-    it('still auto-connects when the gateway is always on and gatewayEnabled is false', async () => {
-      gatewayAlwaysOn.value = true;
-      mockStoreGet.mockImplementation((key: string) => {
-        if (key === 'gatewayEnabled') return false;
-        return undefined;
-      });
-
-      ctr = new GatewayConnectionCtr(mockApp);
-      ctr.afterFirstFrame();
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(MockGatewayClient.lastInstance).not.toBeNull();
-      expect(MockGatewayClient.lastInstance!.connect).toHaveBeenCalled();
-    });
-
-    it('keeps skipping auto-connect when the gateway is not always on and gatewayEnabled is false', async () => {
-      gatewayAlwaysOn.value = false;
-      mockStoreGet.mockImplementation((key: string) => {
-        if (key === 'gatewayEnabled') return false;
-        return undefined;
-      });
-
-      ctr = new GatewayConnectionCtr(mockApp);
-      ctr.afterFirstFrame();
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(MockGatewayClient.lastInstance).toBeNull();
-    });
-
-    it('should skip auto-connect when remote server not configured', async () => {
-      vi.mocked(mockRemoteServerConfigCtr.isRemoteServerConfigured).mockResolvedValueOnce(false);
-
-      ctr.afterFirstFrame();
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(MockGatewayClient.lastInstance).toBeNull();
-    });
-
-    it('should skip auto-connect when no access token', async () => {
-      vi.mocked(mockRemoteServerConfigCtr.getAccessToken).mockResolvedValueOnce(null);
-
-      ctr.afterFirstFrame();
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(MockGatewayClient.lastInstance).toBeNull();
     });
 
     it('should create device ID on first launch and persist it', () => {

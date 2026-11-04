@@ -8,6 +8,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncBoundary from '@/components/AsyncBoundary';
+import { DEVICE_PRESENCE_REFRESH_INTERVAL_MS } from '@/const/device';
 import { useDeviceList } from '@/store/device';
 import { useElectronStore } from '@/store/electron';
 
@@ -42,7 +43,7 @@ interface DeviceDetailPageProps {
  */
 const DeviceDetailPage = memo<DeviceDetailPageProps>(({ deviceId, onBack, scope }) => {
   const { t } = useTranslation('setting');
-  const deviceList = useDeviceList();
+  const deviceList = useDeviceList({ refreshInterval: DEVICE_PRESENCE_REFRESH_INTERVAL_MS });
   const { data, error, isConfirmed, mutate } = deviceList;
   const device = data?.find((d) => d.deviceId === deviceId && d.scope === scope);
   // A persisted copy missing this device may just be stale: only the server

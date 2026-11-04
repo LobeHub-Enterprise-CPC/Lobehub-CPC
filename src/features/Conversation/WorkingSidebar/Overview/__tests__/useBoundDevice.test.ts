@@ -1,7 +1,9 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PRESENCE_REFRESH_INTERVAL_MS, useBoundDevice } from '../useBoundDevice';
+import { DEVICE_PRESENCE_REFRESH_INTERVAL_MS } from '@/const/device';
+
+import { useBoundDevice } from '../useBoundDevice';
 
 const useDeviceList = vi.fn();
 const mutate = vi.fn();
@@ -27,7 +29,9 @@ describe('useBoundDevice', () => {
   it('polls device presence while the Overview is on screen', () => {
     renderHook(() => useBoundDevice('dev-1', true));
 
-    expect(useDeviceList).toHaveBeenCalledWith({ refreshInterval: PRESENCE_REFRESH_INTERVAL_MS });
+    expect(useDeviceList).toHaveBeenCalledWith({
+      refreshInterval: DEVICE_PRESENCE_REFRESH_INTERVAL_MS,
+    });
   });
 
   it('stops polling device presence while the Overview is hidden', () => {

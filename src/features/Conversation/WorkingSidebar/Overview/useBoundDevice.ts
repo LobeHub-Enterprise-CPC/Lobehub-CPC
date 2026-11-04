@@ -1,9 +1,8 @@
 import type { DeviceListItem } from '@lobechat/types';
 
-import { useDeviceList } from '@/store/device';
-
 /** Re-reads presence so a device that drops or reconnects shows it without a refocus. */
-export const PRESENCE_REFRESH_INTERVAL_MS = 30_000;
+import { DEVICE_PRESENCE_REFRESH_INTERVAL_MS } from '@/const/device';
+import { useDeviceList } from '@/store/device';
 
 export type BoundDeviceState =
   | { status: 'loading' }
@@ -31,7 +30,7 @@ export const useBoundDevice = (deviceId: string, active: boolean): BoundDeviceSt
     isLoading,
     mutate,
   } = useDeviceList({
-    refreshInterval: active ? PRESENCE_REFRESH_INTERVAL_MS : 0,
+    refreshInterval: active ? DEVICE_PRESENCE_REFRESH_INTERVAL_MS : 0,
   });
 
   const device = devices?.find((item) => item.deviceId === deviceId);

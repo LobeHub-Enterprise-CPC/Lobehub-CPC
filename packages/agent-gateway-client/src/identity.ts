@@ -3,6 +3,15 @@ import { toRecord } from '@lobechat/utils/object';
 import protocol from '../../../contracts/gateway-tenancy/v1/protocol.json';
 import type { GatewayIdentityResponse, GatewayPrincipal } from '../../types/src/gateway';
 
+/** Chromium failures where the request itself is invalid, so a retry sends the same thing. */
+const CHROMIUM_CONFIGURATION_ERRORS = new Set([
+  'ERR_INVALID_URL',
+  'ERR_UNSAFE_REDIRECT',
+  'ERR_UNSAFE_PORT',
+  'ERR_DISALLOWED_URL_SCHEME',
+  'ERR_UNKNOWN_URL_SCHEME',
+]);
+
 /** Normalize provider failures to the frozen error catalog, never a parallel protocol enum. */
 export const gatewayIdentityFailure = (
   error: unknown,
@@ -21,13 +30,21 @@ export const gatewayIdentityFailure = (
       toRecord(detail.response)?.status ??
       /unexpected server response:\s*(\d{3})/i.exec(message)?.[1],
   );
+  // Electron's net.fetch (the desktop's ticket requests) fails with Chromium's
+  // net::ERR_* text. Only a request that can never be sent as configured is
+  // final; anything else (offline, DNS, timeouts, resets, a captive portal's
+  // certificate) clears up by itself, and giving up would leave the device
+  // disconnected until the app restarts.
+  const chromium = /\bnet::(ERR_[A-Z_]+)/.exec(message)?.[1];
   if (
     [404, 405, 426, 501].includes(status) ||
     detail.code === 'ERR_INVALID_URL' ||
-    /invalid url/i.test(message)
+    /invalid url/i.test(message) ||
+    (chromium !== undefined && CHROMIUM_CONFIGURATION_ERRORS.has(chromium))
   )
     return { code: 'GATEWAY_TENANCY_UNSUPPORTED', retryable: false };
   if (
+    chromium !== undefined ||
     status >= 500 ||
     status === 408 ||
     /^(?:ECONN|ENET|EHOST|ETIMEDOUT|EAI_AGAIN|ENOTFOUND)/.test(String(detail.code)) ||

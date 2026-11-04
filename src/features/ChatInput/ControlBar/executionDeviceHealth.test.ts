@@ -61,12 +61,19 @@ describe('resolveExecutionDeviceHealth', () => {
       });
     });
 
-    it.each(['connected', 'connecting', 'authenticating'] as const)(
-      'stays quiet while the gateway is %s',
+    it.each(['connecting', 'authenticating'] as const)(
+      'keeps the local warning visible while the gateway is %s',
       (gatewayStatus) => {
-        expect(resolveExecutionDeviceHealth(local({ gatewayStatus }))).toEqual({ kind: 'ok' });
+        expect(resolveExecutionDeviceHealth(local({ gatewayStatus }))).toEqual({
+          kind: 'local',
+          reconnecting: true,
+        });
       },
     );
+
+    it.each(['connected'] as const)('stays quiet while the gateway is %s', (gatewayStatus) => {
+      expect(resolveExecutionDeviceHealth(local({ gatewayStatus }))).toEqual({ kind: 'ok' });
+    });
 
     it('stays quiet before the first status read lands', () => {
       expect(resolveExecutionDeviceHealth(local({ gatewayStatus: undefined }))).toEqual({

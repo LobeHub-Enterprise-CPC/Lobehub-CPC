@@ -19,6 +19,7 @@ import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncBoundary from '@/components/AsyncBoundary';
+import { DEVICE_PRESENCE_REFRESH_INTERVAL_MS } from '@/const/device';
 import { useDesktopDownload } from '@/features/Downloads/useDesktopDownload';
 import { useDeviceList } from '@/store/device';
 import { useElectronStore } from '@/store/electron';
@@ -251,7 +252,7 @@ const DeviceManager = memo<DeviceManagerProps>((props) => {
 
   // The device replica every device-listing surface reads (see `useDeviceList`):
   // a reload paints the persisted cards first, presence pending.
-  const deviceList = useDeviceList();
+  const deviceList = useDeviceList({ refreshInterval: DEVICE_PRESENCE_REFRESH_INTERVAL_MS });
   const { data, isValidating, error, mutate } = deviceList;
   // `listDevices` is workspace-aware and returns both pools — keep each surface
   // to its own scope (and visibility tab). Ghost rows (`visibility: null`,

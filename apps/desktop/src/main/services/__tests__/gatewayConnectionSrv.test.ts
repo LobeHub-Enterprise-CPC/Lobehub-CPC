@@ -159,7 +159,7 @@ describe('GatewayConnectionService system_info_request', () => {
     });
     execFileMock.mockRejectedValueOnce(new Error('bundled CLI unavailable or timed out'));
     // Only the status transition matters here; keep-awake and broadcasting are out of scope.
-    vi.spyOn(service as any, 'syncPowerSaveBlocker').mockImplementation(() => {});
+    vi.spyOn(service['keepAwake'], 'sync').mockImplementation(() => {});
     vi.spyOn(service as any, 'scheduleStatusBroadcast').mockImplementation(() => {});
     service['setStatus']('reconnecting');
     service['setStatus']('connected');
