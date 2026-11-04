@@ -1,5 +1,5 @@
 diff --git a/es/plugins/slash/plugin/index.js b/es/plugins/slash/plugin/index.js
-index 2cc5dc5..66ba994 100644
+index 2cc5dc5..684948e 100644
 --- a/es/plugins/slash/plugin/index.js
 +++ b/es/plugins/slash/plugin/index.js
 @@ -87,10 +87,30 @@ const SlashPlugin = class extends KernelPlugin {
@@ -34,7 +34,18 @@ index 2cc5dc5..66ba994 100644
  				this.suppressOpen = false;
  				this.manualOpen = false;
  			}
-@@ -127,7 +147,7 @@ const SlashPlugin = class extends KernelPlugin {
+@@ -109,7 +129,9 @@ const SlashPlugin = class extends KernelPlugin {
+ 				const range = editorWindow.document.createRange();
+ 				const selection = $getSelection();
+ 				const text = getQueryTextForSearch(editor);
+-				if (!$isRangeSelection(selection) || !selection.isCollapsed() || selection.hasFormat("code") || text === null || range === null) {
++				// ReactCodePlugin wraps inline code in a codeInline element without a code
++				// format flag, so the format check alone would open the menu inside code.
++				if (!$isRangeSelection(selection) || !selection.isCollapsed() || selection.hasFormat("code") || selection.anchor.getNode().getParents().some((parent) => parent.getType() === "codeInline") || text === null || range === null) {
+ 					this.triggerClose();
+ 					return;
+ 				}
+@@ -127,7 +149,7 @@ const SlashPlugin = class extends KernelPlugin {
  					triggerText = resolution.trigger;
  					this.currentSlashTriggerIndex = resolution.leadOffset;
  				}
