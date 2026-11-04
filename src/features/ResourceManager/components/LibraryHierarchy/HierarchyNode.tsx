@@ -37,6 +37,7 @@ import { useFileItemClick } from '../Explorer/hooks/useFileItemClick';
 import { useFileItemDropdown } from '../Explorer/ItemDropdown/useFileItemDropdown';
 import FolderAddButton from './FolderAddButton';
 import HierarchyNodeMenuButton from './HierarchyNodeMenuButton';
+import HierarchyNodeName from './HierarchyNodeName';
 import { isHierarchyNodeActive, resolveDeletedFolderRedirect } from './selection';
 import { styles } from './styles';
 
@@ -379,16 +380,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
                   }}
                 />
               ) : (
-                <span
-                  style={{
-                    flex: 1,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {item.name}
-                </span>
+                <HierarchyNodeName name={item.name} />
               )}
             </Flexbox>
             <Flexbox horizontal align={'center'}>
@@ -448,16 +440,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
             ) : (
               <FileIcon fileName={item.name} fileType={item.fileType} size={18} />
             )}
-            <span
-              style={{
-                flex: 1,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {item.name}
-            </span>
+            <HierarchyNodeName name={item.name} />
           </Flexbox>
           <HierarchyNodeMenuButton menuItems={menuItems} />
         </Block>

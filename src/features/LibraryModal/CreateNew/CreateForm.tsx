@@ -80,6 +80,8 @@ const CreateForm = memo<CreateFormProps>(({ id, initialValues, onClose, onSucces
     <Flexbox gap={16}>
       <Input
         autoFocus
+        required
+        aria-label={t('createNew.name.placeholder')}
         placeholder={t('createNew.name.placeholder')}
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -93,7 +95,13 @@ const CreateForm = memo<CreateFormProps>(({ id, initialValues, onClose, onSucces
           onChange={(e) => setDescription(e.target.value)}
         />
       </Flexbox>
-      <Button block loading={loading} type={'primary'} onClick={handleSubmit}>
+      <Button
+        block
+        disabled={!name.trim()}
+        loading={loading}
+        type={'primary'}
+        onClick={handleSubmit}
+      >
         {isEditMode ? t('createNew.edit.confirm') : t('createNew.confirm')}
       </Button>
     </Flexbox>

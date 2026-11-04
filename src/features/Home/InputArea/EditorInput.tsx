@@ -1,7 +1,7 @@
 import { COMPOSER_AGENT_ONLY_LAYOUT } from '@lobechat/business-const';
 import { ActionIcon, Flexbox } from '@lobehub/ui';
 import { PlusIcon } from 'lucide-react';
-import { memo, type ReactNode, useMemo } from 'react';
+import { memo, type ReactNode, useCallback, useMemo } from 'react';
 
 import {
   type ActionKeys,
@@ -12,6 +12,8 @@ import {
 import ActionBar from '@/features/ChatInput/ActionBar';
 import FileUpload from '@/features/ChatInput/ActionBar/Upload';
 import { useChatStore } from '@/store/chat';
+import { useFileStore } from '@/store/file';
+import { fileChatSelectors } from '@/store/file/selectors';
 
 import type { HomeMode } from '../types';
 import { HOME_INPUT_BODY_HEIGHT } from './constants';
@@ -66,6 +68,30 @@ const HomeEditorInput = memo<HomeEditorInputProps>(
       [],
     );
 
+    const hasFiles = useFileStore((s) => fileChatSelectors.chatUploadFileList(s).length > 0);
+    const hasContextSelections = useFileStore(
+      (s) => fileChatSelectors.chatContextSelections(contextSelectionKey)(s).length > 0,
+    );
+    const isInputEmpty = !initialValue.trim() && !hasFiles && !hasContextSelections;
+    const notReady = loading || isAgentConfigLoading;
+
+    // `initialValue` mirrors the editor through a debounced onChange, so a fast
+    // type→Enter arrives while it still reads empty. Enter and click decide on
+    // the live editor instead; the button above only sets the visual state.
+    const resolveSendBlocked = useCallback(() => {
+      if (notReady) return true;
+
+      const fileStore = useFileStore.getState();
+      const editor = useChatStore.getState().mainInputEditor;
+      const hasText = String(editor?.getMarkdownContent?.() || '').trim().length > 0;
+
+      return (
+        !hasText &&
+        fileChatSelectors.chatUploadFileList(fileStore).length === 0 &&
+        fileChatSelectors.chatContextSelections(contextSelectionKey)(fileStore).length === 0
+      );
+    }, [contextSelectionKey, notReady]);
+
     const actionBarStyle = useMemo(
       () => ({
         paddingBlockEnd: ACTION_BAR_INSET,
@@ -80,6 +106,7 @@ const HomeEditorInput = memo<HomeEditorInputProps>(
         allowExpand={false}
         contextSelectionKey={contextSelectionKey}
         leftActions={leftActions}
+        resolveSendBlocked={resolveSendBlocked}
         rightActions={rightActions}
         slashPlacement="bottom"
         chatInputEditorRef={(instance) => {
@@ -87,7 +114,7 @@ const HomeEditorInput = memo<HomeEditorInputProps>(
           useChatStore.setState({ mainInputEditor: instance });
         }}
         sendButtonProps={{
-          disabled: loading || isAgentConfigLoading,
+          disabled: notReady || isInputEmpty,
           generating: loading,
           onStop: () => {},
           shape: 'round',

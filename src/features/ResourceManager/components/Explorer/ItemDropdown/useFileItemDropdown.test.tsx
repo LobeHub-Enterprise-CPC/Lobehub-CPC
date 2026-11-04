@@ -157,6 +157,31 @@ describe('useFileItemDropdown — copy link', () => {
   });
 });
 
+describe('useFileItemDropdown — delete confirmation', () => {
+  const openConfirm = async (params: Record<string, unknown> = {}) => {
+    const { result } = renderHook(() => useFileItemDropdown({ ...baseParams, ...params } as any));
+    const item = result.current.menuItems().find((entry) => entry?.key === 'delete') as any;
+    await item.onClick({ domEvent: { stopPropagation: vi.fn() } });
+    return mocks.confirmModal.mock.calls.at(-1)![0];
+  };
+
+  it('localizes both buttons, which otherwise fall back to Cancel / OK', async () => {
+    const options = await openConfirm();
+
+    expect(options.cancelText).toBeTruthy();
+    expect(options.okText).toBeTruthy();
+    expect(options.okButtonProps).toEqual({ danger: true });
+  });
+
+  it('asks about a file by a different message than a folder', async () => {
+    const file = await openConfirm({ fileType: 'text/plain', filename: '设计验收-01.txt' });
+    const folder = await openConfirm({ fileType: 'custom/folder', filename: '设计验收' });
+
+    expect(file.content).not.toBe(folder.content);
+    expect(file.okText).not.toBe(folder.okText);
+  });
+});
+
 describe('useFileItemDropdown — visibility toggles', () => {
   const ownFile = (visibility: 'private' | 'public') =>
     renderHook(() => useFileItemDropdown({ ...baseParams, userId: 'user-1', visibility } as any));

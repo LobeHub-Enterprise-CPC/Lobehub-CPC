@@ -481,10 +481,14 @@ export const useFileItemDropdown = ({
           onClick: async ({ domEvent }) => {
             domEvent.stopPropagation();
             confirmModal({
+              cancelText: t('cancel', { ns: 'common' }),
               content: isFolder
                 ? t('FileManager.actions.confirmDeleteFolder')
-                : t('FileManager.actions.confirmDelete'),
+                : t('FileManager.actions.confirmDeleteNamedFile', { name: filename }),
               okButtonProps: { danger: true },
+              okText: isFolder
+                ? t('delete', { ns: 'common' })
+                : t('FileManager.actions.deleteFile'),
               title: t('delete', { ns: 'common' }),
               onOk: () => {
                 // The store removes the row optimistically. Do not hold the

@@ -30,6 +30,9 @@ export default {
   'FileManager.actions.chunkingUnsupported': 'This file does not support chunking.',
   'FileManager.actions.confirmDelete':
     'You are about to delete this file. Once deleted, it cannot be recovered. Please confirm your action.',
+  'FileManager.actions.confirmDeleteNamedFile':
+    'You are about to delete “{{name}}”. Once deleted, it cannot be recovered. Please confirm your action.',
+  'FileManager.actions.deleteFile': 'Delete file',
   'FileManager.actions.confirmDeleteFolder':
     'You are about to delete this folder and all of its contents. This action cannot be undone. Please confirm your decision.',
   'FileManager.actions.confirmDeleteAllFiles':
