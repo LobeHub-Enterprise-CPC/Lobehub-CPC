@@ -167,6 +167,7 @@ export async function getTopicsForUser(
     endDate: job.to,
     ignoreExtracted: job.forceAll || job.forceTopics,
     limit: pageSize,
+    skipFailedWithoutNewMessages: !(job.forceAll || job.forceTopics || job.userInitiated),
     startDate: job.from,
   });
   if (!rows?.length) {

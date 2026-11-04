@@ -76,6 +76,8 @@ export interface TopicPaginationJob {
   from?: Date;
   to?: Date;
   userId: string;
+  /** A user asked for this run, so topics that failed before are retried. */
+  userInitiated?: boolean;
   workspaceId?: string;
 }
 

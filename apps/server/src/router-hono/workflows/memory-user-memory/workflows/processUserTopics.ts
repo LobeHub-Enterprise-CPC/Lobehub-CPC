@@ -170,6 +170,7 @@ export const processUserTopicsHandler = async (
               from: params.from,
               to: params.to,
               userId,
+              userInitiated: params.userInitiated,
               workspaceId: params.workspaceId,
             },
             TOPIC_PAGE_SIZE,

@@ -1,6 +1,6 @@
 import { and, count, eq, gt, gte, lte, ne, or, sql } from 'drizzle-orm';
 
-import { topics } from '../../schemas';
+import { messages, topics } from '../../schemas';
 import type { TopicModelContext } from './context';
 import type { ListTopicsForMemoryExtractorCursor } from './types';
 
@@ -11,6 +11,13 @@ export const listTopicsForMemoryExtractor = async (
     endDate?: Date;
     ignoreExtracted?: boolean;
     limit?: number;
+    /**
+     * Leave out a topic whose last extraction failed unless a message arrived after
+     * that run. Unattended runs set this so a deterministic failure (an oversized
+     * conversation, a model that keeps returning invalid output) is not paid for
+     * again every hour; a user-initiated run still retries it.
+     */
+    skipFailedWithoutNewMessages?: boolean;
     startDate?: Date;
   } = {},
 ) => {
@@ -46,10 +53,28 @@ export const listTopicsForMemoryExtractor = async (
           // expression crashes the production engine (see the note on the class).
           // A null `metadata` extracts to '' here too, so this covers it.
           sql`COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') <> 'completed'`,
+      options.skipFailedWithoutNewMessages ? retryableAfterFailure : undefined,
       cursorCondition,
     ),
   });
 };
+
+// The relational query builder renders column refs unqualified, so the subquery
+// names its columns through an alias. No null tests on computed expressions (see
+// the note on TopicModel): a failed run
+// without a recorded time compares against 'infinity', so it counts as having no
+// newer message.
+const retryableAfterFailure = sql`NOT (
+  COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') = 'failed'
+  AND NOT EXISTS (
+    SELECT 1 FROM ${messages} AS m
+    WHERE m.topic_id = ${topics.id}
+      AND m.created_at > COALESCE(
+        (${topics.metadata} #>> '{userMemoryExtractRunState,lastRunAt}')::timestamptz,
+        'infinity'::timestamptz
+      )
+  )
+)`;
 
 export const countTopicsForMemoryExtractor = async (
   ctx: TopicModelContext,
