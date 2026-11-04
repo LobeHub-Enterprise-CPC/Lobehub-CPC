@@ -11,11 +11,11 @@ import {
   getWorkspaceConnectionState,
 } from '@/features/DeviceManager/connectionCount';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
+import { GATEWAY_ERROR_MESSAGE_KEYS, isGatewayFailureRetryable } from '@/helpers/gatewayConnection';
 import { useDeviceList } from '@/store/device';
 import { useElectronStore } from '@/store/electron';
 import { electronSyncSelectors } from '@/store/electron/selectors';
 
-import { GATEWAY_ERROR_MESSAGE_KEYS, isGatewayFailureRetryable } from './gatewayFailure';
 import GatewayReconnectButton from './GatewayReconnectButton';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
@@ -46,7 +46,7 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     border: 1.5px solid ${cssVar.colorBgContainer};
     border-radius: 50%;
 
-    background: #52c41a;
+    background: ${cssVar.colorSuccess};
   `,
   popoverContent: css`
     width: 250px;

@@ -372,7 +372,7 @@ export class GatewayClient extends EventEmitter {
         this.emit('auth_failed', failure.code);
         return;
       }
-      this.setStatus('disconnected');
+      this.setStatus(this.autoReconnect ? 'reconnecting' : 'disconnected');
       if (this.listenerCount('error')) this.emit('error', new Error(failure.code));
       if (this.autoReconnect) this.scheduleReconnect();
       else this.emit('disconnected');

@@ -1,10 +1,14 @@
 import { isDesktop } from '@lobechat/const';
 import type { GatewayConnectionState } from '@lobechat/electron-client-ipc';
+import { toast } from '@lobehub/ui';
+import { t } from 'i18next';
 import { type SWRResponse } from 'swr';
 import useSWR from 'swr';
 
+import { GATEWAY_ERROR_MESSAGE_KEYS } from '@/helpers/gatewayConnection';
 import { electronKeys } from '@/libs/swr/keys';
 import { gatewayConnectionService } from '@/services/electron/gatewayConnection';
+import { getDeviceStoreState } from '@/store/device/store';
 import { type StoreSetter } from '@/store/types';
 
 import { type ElectronStore } from '../store';
@@ -22,6 +26,7 @@ export interface GatewayDeviceInfo {
 export class ElectronGatewayActionImpl {
   readonly #get: () => ElectronStore;
   readonly #set: Setter;
+  #connectAttempt = 0;
 
   constructor(set: Setter, get: () => ElectronStore, _api?: unknown) {
     void _api;
@@ -30,35 +35,73 @@ export class ElectronGatewayActionImpl {
   }
 
   connectGateway = async (): Promise<void> => {
-    this.#set({ gatewayConnectionError: undefined, gatewayConnectionStatus: 'connecting' });
+    if (this.#get().gatewayReconnectPending) return;
+    const attempt = ++this.#connectAttempt;
+    this.#set({
+      gatewayConnectionError: undefined,
+      gatewayConnectionStatus: 'connecting',
+      gatewayReconnectPending: true,
+    });
     try {
-      const result = await gatewayConnectionService.connect();
-      if (!result.success) {
-        // The main process owns the outcome (and its reason); a superseded
-        // attempt may already be connecting again, so take its state as is.
-        this.setGatewayConnectionState(await gatewayConnectionService.getConnectionStatus());
+      await gatewayConnectionService.connect();
+      // IPC success only means the attempt started. Authentication and the
+      // main process' retries decide when every surface can report recovery.
+      if (attempt === this.#connectAttempt && this.#get().gatewayReconnectPending) {
+        const state = await gatewayConnectionService.getConnectionStatus();
+        if (attempt === this.#connectAttempt && this.#get().gatewayReconnectPending)
+          this.setGatewayConnectionState(state);
       }
     } catch (error) {
+      if (attempt !== this.#connectAttempt || !this.#get().gatewayReconnectPending) return;
       console.error('Gateway connect failed:', error);
-      this.#set({ gatewayConnectionStatus: 'disconnected' });
+      this.setGatewayConnectionState({
+        status: 'disconnected',
+        error: { code: 'config_unavailable' },
+      });
     }
   };
 
   disconnectGateway = async (): Promise<void> => {
+    this.#connectAttempt++;
+    this.#set({ gatewayReconnectPending: false });
     try {
       await gatewayConnectionService.disconnect();
-      this.#set({ gatewayConnectionError: undefined, gatewayConnectionStatus: 'disconnected' });
+      this.#set({
+        gatewayConnectionError: undefined,
+        gatewayConnectionStatus: 'disconnected',
+        gatewayReconnectPending: false,
+      });
+      void getDeviceStoreState().refreshDevices().catch(console.error);
     } catch (error) {
       console.error('Gateway disconnect failed:', error);
     }
   };
 
   setGatewayConnectionState = ({ error, status }: GatewayConnectionState): void => {
+    const previous = this.#get();
+    const settled = status === 'connected' || status === 'disconnected';
+    const pending = previous.gatewayReconnectPending;
+    const presenceChanged =
+      previous.gatewayConnectionStatus !== status &&
+      (status === 'connected' || previous.gatewayConnectionStatus === 'connected');
     this.#set(
-      { gatewayConnectionError: error, gatewayConnectionStatus: status },
+      {
+        gatewayConnectionError: error,
+        gatewayConnectionStatus: status,
+        gatewayReconnectPending: pending && !settled,
+      },
       false,
       'setGatewayConnectionState',
     );
+    if (presenceChanged) void getDeviceStoreState().refreshDevices().catch(console.error);
+    if (!pending || !settled) return;
+    if (status === 'connected') toast.success(t('gateway.reconnected', { ns: 'electron' }));
+    else
+      toast.error(
+        t(error ? GATEWAY_ERROR_MESSAGE_KEYS[error.code] : 'gateway.statusDisconnected', {
+          ns: 'electron',
+        }),
+      );
   };
 
   /**

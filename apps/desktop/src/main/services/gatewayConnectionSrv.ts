@@ -36,7 +36,7 @@ import type {
   GatewayEndpointInfo,
 } from '@lobechat/electron-client-ipc';
 import { createRuntimeProbeCache } from '@lobechat/heterogeneous-agents/runtimeProbeCache';
-import { app, powerSaveBlocker } from 'electron';
+import { app } from 'electron';
 
 import { isDev } from '@/const/env';
 import { getDesktopEnv } from '@/env';
@@ -44,8 +44,15 @@ import { createLogger } from '@/utils/logger';
 import { getDesktopUserAgent } from '@/utils/user-agent';
 import { safeGetPath } from '@/utils/user-path';
 
+import { userIdFromAccessToken } from './gatewayAccessToken';
+import {
+  describeIdentityFailure,
+  describeResolutionFailure,
+  isDiscoveryFailureRetryable,
+} from './gatewayConnectionFailure';
 import { discoverDeviceGateway } from './gatewayDiscovery';
 import { GatewayExecutionHandlers } from './gatewayExecutionHandlers';
+import { GatewayKeepAwake } from './gatewayKeepAwake';
 import { collectBundledCliAgentRuntimes } from './gatewaySystemInfo';
 import { ServiceModule } from './index';
 
@@ -130,21 +137,6 @@ const CANCELLED: GatewayConnectResult = {
   success: false,
 };
 
-const describeResolutionFailure = (
-  resolution: Extract<DeviceGatewayResolutionWithDefault, { ok: false }>,
-): GatewayConnectionError => {
-  switch (resolution.reason) {
-    case 'discovery_failed': {
-      return { code: 'config_unavailable', detail: resolution.detail };
-    }
-    case 'invalid_advertised_url':
-    case 'invalid_manual':
-    case 'invalid_override': {
-      return { code: 'invalid_gateway_url', detail: resolution.detail };
-    }
-  }
-};
-
 /**
  * GatewayConnectionService
  *
@@ -155,7 +147,7 @@ export default class GatewayConnectionService extends ServiceModule {
   private client: GatewayClient | null = null;
   private status: GatewayConnectionStatus = 'disconnected';
   private deviceId: string | null = null;
-  private powerSaveBlockerId: number | null = null;
+  private readonly keepAwake = new GatewayKeepAwake(() => this.app.storeManager);
   /** Status last pushed to renderers; lags `status` during a transient drop. */
   private displayedStatus: GatewayConnectionStatus = 'disconnected';
   private displayedError: GatewayConnectionError | null = null;
@@ -217,6 +209,10 @@ export default class GatewayConnectionService extends ServiceModule {
    * authentication, or by a user-initiated connect.
    */
   private authRecoveryAttempted = false;
+  /** Retries a tenant connect whose first ticket failed offline; no socket exists to back off yet. */
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Consecutive offline retries, for the backoff; reset by an authenticated socket. */
+  private recoveryAttempts = 0;
   /**
    * Workspace clients that already spent their single `auth_failed` retry. A
    * weak set on purpose: the retry budget is per client instance (a re-enroll
@@ -264,7 +260,7 @@ export default class GatewayConnectionService extends ServiceModule {
   updatePersonalToken(token: string) {
     const session = this.session;
     if (!this.client || !session) return;
-    if (this.extractUserIdFromToken(token) !== session.userId) return;
+    if (userIdFromAccessToken(token) !== session.userId) return;
     this.client.updateToken(token);
   }
 
@@ -375,7 +371,7 @@ export default class GatewayConnectionService extends ServiceModule {
   /** Signed-in user's stable device id, derived locally; none while signed out. */
   async resolveCurrentDeviceId(): Promise<string | undefined> {
     const token = await this.tokenProvider?.();
-    const userId = token ? this.extractUserIdFromToken(token) : undefined;
+    const userId = token ? userIdFromAccessToken(token) : undefined;
     return userId ? (await this.resolveDeviceIdentity(userId)).deviceId : undefined;
   }
 
@@ -436,7 +432,7 @@ export default class GatewayConnectionService extends ServiceModule {
       this.serverUrlProvider?.(),
       this.tokenProvider?.(),
     ]);
-    const userId = token ? this.extractUserIdFromToken(token) : undefined;
+    const userId = token ? userIdFromAccessToken(token) : undefined;
     if (userId) {
       const identity = await this.resolveDeviceIdentity(userId);
       if (identity.deviceId === deviceId) return true;
@@ -472,6 +468,7 @@ export default class GatewayConnectionService extends ServiceModule {
     // A user-initiated connect always gets a fresh retry budget — only the
     // automatic recoveries are rationed by the guard.
     this.authRecoveryAttempted = false;
+    this.recoveryAttempts = 0;
     return this.startConnect();
   }
 
@@ -514,6 +511,19 @@ export default class GatewayConnectionService extends ServiceModule {
     return { success: true };
   }
 
+  /**
+   * After sleep a socket can look open for ~2 minutes of missed heartbeats and
+   * a backoff may be mid-delay: reconnect every live connection now. Returns
+   * false when there is none, leaving the caller to decide whether to connect.
+   */
+  reconnectAfterWake(): boolean {
+    if (!this.client) return false;
+    logger.info('System resumed, reconnecting the device gateway');
+    void this.client.reconnect();
+    for (const share of this.workspaceClients.values()) void share.reconnect();
+    return true;
+  }
+
   private startConnect(options?: { reuse?: GatewaySession }): Promise<GatewayConnectResult> {
     const attempt = this.doConnect(options).finally(() => {
       if (this.pendingConnect === attempt) this.pendingConnect = null;
@@ -524,6 +534,8 @@ export default class GatewayConnectionService extends ServiceModule {
 
   private invalidateAttempts(): number {
     this.generation += 1;
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null;
     this.discoveryAbort?.abort();
     this.discoveryAbort = null;
     this.pendingConnect = null;
@@ -580,7 +592,7 @@ export default class GatewayConnectionService extends ServiceModule {
       return this.failConnect(generation, { code: 'not_signed_in' }, 'No remote server configured');
     }
 
-    let userId = this.extractUserIdFromToken(token);
+    let userId = userIdFromAccessToken(token);
 
     // Tenant login: the socket authenticates with a ticket from the committed
     // login's provider, which also names the account the device identity derives
@@ -592,9 +604,7 @@ export default class GatewayConnectionService extends ServiceModule {
       try {
         provider = await this.identityProviderFactory();
       } catch (error) {
-        const message = (error as Error).message;
-        logger.warn(`Cannot connect: ${message}`);
-        return this.failConnect(generation, { code: 'not_signed_in' }, message);
+        return this.handleConnectFailure(generation, error);
       }
       if (this.isStale(generation)) return CANCELLED;
       if (!provider.subject) {
@@ -621,9 +631,7 @@ export default class GatewayConnectionService extends ServiceModule {
           signal: controller.signal,
         });
       } catch (error) {
-        const message = (error as Error).message;
-        logger.warn(`Cannot connect: ${message}`);
-        return this.failConnect(generation, { code: 'not_signed_in' }, message);
+        return this.handleConnectFailure(generation, error);
       } finally {
         if (this.discoveryAbort === controller) this.discoveryAbort = null;
       }
@@ -658,7 +666,9 @@ export default class GatewayConnectionService extends ServiceModule {
       logger.warn(
         `Cannot connect: device gateway for ${serverUrl} unresolved (${endpoint.reason}${endpoint.detail ? `: ${endpoint.detail}` : ''})`,
       );
-      return this.failConnect(generation, error, `Device gateway unavailable: ${endpoint.reason}`);
+      return endpoint.reason === 'discovery_failed' && isDiscoveryFailureRetryable(endpoint.detail)
+        ? this.retryConnectLater(generation, error.detail ?? endpoint.reason)
+        : this.failConnect(generation, error, `Device gateway unavailable: ${endpoint.reason}`);
     }
 
     const { url: gatewayUrl, source } = endpoint.endpoint;
@@ -741,6 +751,30 @@ export default class GatewayConnectionService extends ServiceModule {
     return { success: true };
   }
 
+  private handleConnectFailure(generation: number, cause: unknown): GatewayConnectResult {
+    const { error, retryable } = describeIdentityFailure(cause);
+    logger.warn(`Cannot connect: ${error.detail}`);
+    return retryable
+      ? this.retryConnectLater(generation, error.detail!)
+      : this.failConnect(generation, error, error.detail!);
+  }
+
+  /** A temporary startup failure: stay reconnecting, retry 5s doubling to 60s. */
+  private retryConnectLater(generation: number, message: string): GatewayConnectResult {
+    if (this.isStale(generation)) return CANCELLED;
+    const delay = Math.min(60_000, 5000 * 2 ** this.recoveryAttempts);
+    this.recoveryAttempts += 1;
+    logger.info(`Retrying the device gateway connect in ${delay}ms`);
+    this.connectionError = null;
+    this.setStatus('reconnecting');
+    this.scheduleStatusBroadcast(this.status);
+    this.recoveryTimer = setTimeout(() => {
+      this.recoveryTimer = null;
+      if (!this.isStale(generation)) void this.startConnect();
+    }, delay);
+    return { error: message, success: false };
+  }
+
   private failConnect(
     generation: number,
     error: GatewayConnectionError,
@@ -770,8 +804,16 @@ export default class GatewayConnectionService extends ServiceModule {
     } else {
       // A replaced client still reports its own teardown; only the current one
       // speaks for the device.
+      let latestStatus: GatewayConnectionStatus;
       client.on('status_changed', (status) => {
-        if (this.client === client) this.setStatus(status);
+        latestStatus = status;
+        const publish = () => {
+          if (this.client === client && latestStatus === status) this.setStatus(status);
+        };
+        // Some auth verdicts await disconnect first. Let that continuation
+        // replace the client before declaring a final outage on the next turn.
+        if (status === 'disconnected') setTimeout(publish, 0);
+        else publish();
       });
     }
 
@@ -821,6 +863,7 @@ export default class GatewayConnectionService extends ServiceModule {
         this.workspaceAuthRetried.delete(client);
       } else if (this.client === client) {
         this.authRecoveryAttempted = false;
+        this.recoveryAttempts = 0;
       }
     });
 
@@ -1318,8 +1361,18 @@ export default class GatewayConnectionService extends ServiceModule {
     if (this.client !== client) return;
     logger.warn(`Device gateway rejected the credential: ${reason}`);
 
-    // A rejected tenant ticket is final (FR-GW-02): no refresh loop. Shares
-    // ride on the same login, so they stop with it; the next connect retries.
+    // The provider keeps the token it was built with, which may just be stale:
+    // rebuild the login once. Rejected again before authenticating is final
+    // (FR-GW-02). Shares ride on the same login and stop with it.
+    if (this.identityProviderFactory && !this.authRecoveryAttempted) {
+      this.authRecoveryAttempted = true;
+      logger.warn('Rebuilding the tenant login once after the rejection');
+      this.client = null;
+      this.setStatus('reconnecting');
+      await client.disconnect();
+      await this.startConnect({ reuse: this.session ?? undefined });
+      return;
+    }
     if (this.identityProviderFactory) {
       this.connectionError = { code: 'auth_failed', detail: reason };
       await this.closeAllWorkspaceClients();
@@ -1389,51 +1442,14 @@ export default class GatewayConnectionService extends ServiceModule {
     return this.execution.handleMessageApiRequest(request, client);
   }
 
-  // ─── Power Save Blocker ───
+  // ─── Keep Awake ───
 
   getKeepAwake(): boolean {
-    return this.app.storeManager.get('gatewayKeepAwake', true);
+    return this.keepAwake.isEnabled();
   }
 
   setKeepAwake(enabled: boolean) {
-    this.app.storeManager.set('gatewayKeepAwake', enabled);
-    logger.info(`Keep awake while connected: ${enabled}`);
-    this.syncPowerSaveBlocker();
-  }
-
-  /**
-   * Hold the blocker for as long as the device is meant to be online — not
-   * just while the socket is `connected`. Releasing it on every transient drop
-   * (the socket blips every few tens of minutes) hands macOS a window to idle
-   * sleep: with the default "sleep 1 minute after the display turns off" the
-   * idle timer has long expired, so the machine sleeps before the ~2s reconnect
-   * lands and stays offline until the user comes back. Only an explicit
-   * disconnect (status settles on `disconnected`) or the user opting out lets
-   * the system sleep again.
-   */
-  private syncPowerSaveBlocker() {
-    if (this.status !== 'disconnected' && this.getKeepAwake()) {
-      this.startPowerSaveBlocker();
-    } else {
-      this.stopPowerSaveBlocker();
-    }
-  }
-
-  /**
-   * 'prevent-app-suspension' keeps the system from idle-sleeping (and App Nap
-   * from suspending the process) while still letting the display sleep.
-   */
-  private startPowerSaveBlocker() {
-    if (this.powerSaveBlockerId !== null) return;
-    this.powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
-    logger.info(`Power save blocker started (id=${this.powerSaveBlockerId})`);
-  }
-
-  private stopPowerSaveBlocker() {
-    if (this.powerSaveBlockerId === null) return;
-    powerSaveBlocker.stop(this.powerSaveBlockerId);
-    logger.info(`Power save blocker stopped (id=${this.powerSaveBlockerId})`);
-    this.powerSaveBlockerId = null;
+    this.keepAwake.setEnabled(enabled, this.status !== 'disconnected');
   }
 
   // ─── Device Metrics ───
@@ -1488,28 +1504,25 @@ export default class GatewayConnectionService extends ServiceModule {
       this.agentRuntimes.invalidate();
       void this.agentRuntimes.get();
     }
-    this.syncPowerSaveBlocker();
+    this.keepAwake.sync(this.status !== 'disconnected');
     this.scheduleStatusBroadcast(status);
   }
 
   private scheduleStatusBroadcast(status: GatewayConnectionStatus) {
-    if (this.statusBroadcastTimer) {
-      clearTimeout(this.statusBroadcastTimer);
-      this.statusBroadcastTimer = null;
-    }
-
     // Leaving `connected` for a reconnect: hold the UI on `connected` for a
     // grace period. An explicit `disconnected` is always shown immediately.
     const isTransientDrop =
       this.displayedStatus === 'connected' && status !== 'connected' && status !== 'disconnected';
     if (isTransientDrop) {
-      this.statusBroadcastTimer = setTimeout(() => {
+      this.statusBroadcastTimer ??= setTimeout(() => {
         this.statusBroadcastTimer = null;
         this.broadcastStatus(this.status);
       }, RECONNECT_UI_GRACE_MS);
       return;
     }
 
+    if (this.statusBroadcastTimer) clearTimeout(this.statusBroadcastTimer);
+    this.statusBroadcastTimer = null;
     this.broadcastStatus(status);
   }
 
@@ -1577,24 +1590,5 @@ export default class GatewayConnectionService extends ServiceModule {
       manualUrl: this.getSavedGatewayUrl(),
       serverUrl,
     };
-  }
-
-  // ─── Token Helpers ───
-
-  /**
-   * Extract userId (sub claim) from JWT without verification.
-   * The token will be verified server-side; we just need the userId for routing.
-   */
-  private extractUserIdFromToken(token: string): string | null {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) return null;
-
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-      return payload.sub || null;
-    } catch {
-      logger.warn('Failed to extract userId from JWT token');
-      return null;
-    }
   }
 }

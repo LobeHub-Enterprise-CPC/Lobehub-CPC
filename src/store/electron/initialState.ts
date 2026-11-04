@@ -42,6 +42,8 @@ export interface ElectronState extends CurrentRouteMetaState, RecentPagesState, 
   gatewayConnectionError?: GatewayConnectionError;
   gatewayConnectionStatus: GatewayConnectionStatus;
   gatewayDeviceInfo?: GatewayDeviceInfo;
+  /** A manual connect awaits authentication or a terminal failure, shared by every entry. */
+  gatewayReconnectPending: boolean;
   isAppStateInit?: boolean;
   isConnectingServer?: boolean;
   isConnectionDrawerOpen?: boolean;
@@ -70,6 +72,7 @@ export const initialState: ElectronState = {
   dataSyncConfig: { storageMode: 'cloud' },
   desktopHotkeys: {},
   gatewayConnectionStatus: 'disconnected',
+  gatewayReconnectPending: false,
   isAppStateInit: false,
   isConnectingServer: false,
   isConnectionDrawerOpen: false,

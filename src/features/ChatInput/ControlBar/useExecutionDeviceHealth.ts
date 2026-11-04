@@ -3,8 +3,8 @@
 import { isDesktop } from '@lobechat/const';
 import { isRemoteHeterogeneousType } from '@lobechat/heterogeneous-agents';
 
+import { DEVICE_PRESENCE_REFRESH_INTERVAL_MS } from '@/const/device';
 import { useChatInputResourceAccess } from '@/features/ChatInput/hooks/useChatInputResourceAccess';
-import { PRESENCE_REFRESH_INTERVAL_MS } from '@/features/Conversation/WorkingSidebar/Overview/useBoundDevice';
 import { resolveExecutionTarget } from '@/helpers/executionTarget';
 import { useIsGatewayModeEnabled } from '@/helpers/gatewayMode';
 import { useEffectiveAgencyConfig } from '@/hooks/useEffectiveAgencyConfig';
@@ -46,7 +46,7 @@ export const useExecutionDeviceHealth = (agentId: string): ExecutionDeviceHealth
   // A remote machine's presence only changes on the server, so the hint
   // re-reads it the way the bound-device panel does.
   const { data: devices, isConfirmed } = useDeviceList({
-    refreshInterval: executionTarget === 'device' ? PRESENCE_REFRESH_INTERVAL_MS : 0,
+    refreshInterval: executionTarget === 'device' ? DEVICE_PRESENCE_REFRESH_INTERVAL_MS : 0,
   });
 
   // Reads this desktop's status once; broadcasts keep the store current

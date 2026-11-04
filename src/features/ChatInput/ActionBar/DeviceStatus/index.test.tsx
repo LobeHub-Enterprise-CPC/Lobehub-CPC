@@ -112,18 +112,19 @@ describe('DeviceStatus', () => {
     fireEvent.click(await screen.findByTestId('execution-device-reconnect'));
     expect(state.connectGateway).toHaveBeenCalledTimes(1);
 
-    // `connecting` alone reads as healthy; the hint stays while the attempt runs.
-    state.health = { kind: 'ok' };
+    // The shared health decision keeps connecting visible until authentication.
+    state.health = { kind: 'local', reconnecting: true };
     state.gatewayConnectionStatus = 'connecting';
     view.rerender(<DeviceStatus />);
     expect(hint()).toBeInTheDocument();
 
     state.gatewayConnectionStatus = 'connected';
+    state.health = { kind: 'ok' };
     await act(async () => finish());
     view.rerender(<DeviceStatus />);
 
     expect(hint()).not.toBeInTheDocument();
-    expect(toastSuccess).toHaveBeenCalledWith('heteroAgent.executionTarget.hint.local.reconnected');
+    expect(toastSuccess).not.toHaveBeenCalled();
   });
 
   it('explains a failure that a reconnect cannot fix', async () => {
@@ -134,7 +135,7 @@ describe('DeviceStatus', () => {
     fireEvent.click(hint()!);
 
     expect(await screen.findByText('gateway.error.notSignedIn')).toBeInTheDocument();
-    expect(screen.queryByTestId('execution-device-reconnect')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('execution-device-reconnect')).toHaveTextContent('gateway.signIn');
   });
 
   it('tells the person a dropped connection is already retrying', async () => {
