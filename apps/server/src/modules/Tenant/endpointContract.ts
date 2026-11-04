@@ -1,8 +1,8 @@
 import { isIP } from 'node:net';
 import { domainToASCII } from 'node:url';
 
-import { withTenantPath } from '@lobechat/utils/tenantPath';
 import { isTenantId } from '@lobechat/database/tenant';
+import { withTenantPath } from '@lobechat/utils/tenantPath';
 import { z } from 'zod';
 
 const identifier = z
