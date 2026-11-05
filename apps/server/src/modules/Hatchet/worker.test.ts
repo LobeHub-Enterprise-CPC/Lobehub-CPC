@@ -92,7 +92,8 @@ vi.mock('./client', () => ({
         },
         pause: vi.fn(async () => {}),
         start: vi.fn(() => stopped),
-        stop: vi.fn(async () => {}),
+        // SDK stop() unregisters last: that closes the action stream and ends start().
+        stop: vi.fn(async () => finish()),
       };
       mocks.workers.push(worker);
       return worker;
@@ -367,40 +368,63 @@ describe('startHatchetWorkers', () => {
     expect(mocks.workers).toHaveLength(2);
     for (const w of mocks.workers) expect(w.stop).toHaveBeenCalledTimes(1);
   });
-  it('finishes an action arriving during stop before unregistering the worker', async () => {
+  it('keeps the action stream and heartbeat open until accepted actions finish', async () => {
     const { drain, worker } = await load();
     worker.startHatchetWorkers();
     await flush(10);
     const target = mocks.workers[0];
     let finishAction!: () => void;
-    const action = new Promise<void>((resolve) => {
-      finishAction = resolve;
+    mocks.actionWork.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishAction = resolve;
+      }),
+    );
+    void target._internal.handleAction({});
+    let done = false;
+    const drained = drain.drainAgentSteps().then(() => {
+      done = true;
     });
-    mocks.actionWork.mockReturnValue(action);
-    // A buffered action is delivered while the listener is being closed, after
-    // pause succeeds. The receive loop ends before its action handler finishes.
-    let delivered = false;
-    const deliverBufferedAction = () => {
-      if (!delivered) {
-        delivered = true;
-        void target._internal.handleAction({});
-      }
+    // Hours of a model call: closing the stream now makes the engine reject the
+    // heartbeat, declare the worker dead after 30s and hand the task to another pod.
+    await flush(60_000);
+    expect(done).toBe(false);
+    expect(target.pause).toHaveBeenCalledTimes(1);
+    expect(target._internal.killing).toBe(true);
+    expect(target._internal.listener.stopStream).not.toHaveBeenCalled();
+    expect(target.stop).not.toHaveBeenCalled();
+    finishAction();
+    await drained;
+    expect(target.stop).toHaveBeenCalledOnce();
+    for (const w of mocks.workers) expect(w._internal.listener.stopStream).not.toHaveBeenCalled();
+  });
+
+  it('waits for an action delivered while the SDK unregisters the worker', async () => {
+    const { drain, worker } = await load();
+    worker.startHatchetWorkers();
+    await flush(10);
+    const target = mocks.workers[0];
+    let finishAction!: () => void;
+    mocks.actionWork.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishAction = resolve;
+      }),
+    );
+    // Assigned just before pause took effect, it reaches the receive loop after
+    // the SDK snapshotted its in-flight tasks: the process must not exit under it.
+    target.stop.mockImplementation(async () => {
+      void target._internal.handleAction({});
       mocks.finishWorkers[0]();
-    };
-    target._internal.listener.stopStream.mockImplementation(() => {
-      setTimeout(deliverBufferedAction, 0);
     });
-    target.stop.mockImplementation(async () => deliverBufferedAction());
     let done = false;
     const drained = drain.drainAgentSteps().then(() => {
       done = true;
     });
     await flush(10);
+    expect(target.stop).toHaveBeenCalledOnce();
     expect(done).toBe(false);
-    expect(target.stop).not.toHaveBeenCalled();
     finishAction();
     await drained;
-    expect(target.stop).toHaveBeenCalledOnce();
+    expect(done).toBe(true);
   });
 
   it('pauses both workers before stopping them', async () => {
@@ -449,6 +473,12 @@ describe('startHatchetWorkers', () => {
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({ event: 'hatchet.worker.pause_failed' }),
     );
+    // Without pause the engine keeps assigning: only closing the stream stops admission.
+    expect(target._internal.listener.stopStream).toHaveBeenCalledOnce();
+    expect(target._internal.listener.stopStream.mock.invocationCallOrder[0]).toBeLessThan(
+      target.stop.mock.invocationCallOrder[0],
+    );
+    expect(mocks.workers[1]._internal.listener.stopStream).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 
@@ -544,7 +574,7 @@ describe('startHatchetWorkers', () => {
     await flush(10);
     expect(mocks.workers).toHaveLength(2);
     // The receive loop errors out as shutdown closes it.
-    mocks.workers[0]._internal.listener.stopStream.mockImplementation(() =>
+    mocks.workers[0].stop.mockImplementation(async () =>
       mocks.failWorkers[0](new Error('Could not run worker: stream reset')),
     );
 
