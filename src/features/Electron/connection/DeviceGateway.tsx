@@ -16,8 +16,6 @@ import { useDeviceList } from '@/store/device';
 import { useElectronStore } from '@/store/electron';
 import { electronSyncSelectors } from '@/store/electron/selectors';
 
-import GatewayReconnectButton from './GatewayReconnectButton';
-
 const styles = createStaticStyles(({ css, cssVar }) => ({
   errorDot: css`
     position: absolute;
@@ -74,24 +72,21 @@ interface DeviceGatewayProps {
  * computer, and the composer's device hint reads the status to offer a
  * reconnect, so this runs app-wide even when the title-bar entry is hidden.
  *
- * @returns Whether the first status read has landed.
  */
 const useGatewayStateSync = () => {
   const setGatewayConnectionState = useElectronStore((s) => s.setGatewayConnectionState);
 
-  const { data: fetchedState } = useElectronStore((s) => s.useFetchGatewayStatus)();
+  useElectronStore((s) => s.useFetchGatewayStatus)();
   useElectronStore((s) => s.useFetchGatewayDeviceInfo)();
   useWatchBroadcast('gatewayConnectionStatusChanged', setGatewayConnectionState);
-
-  return !!fetchedState;
 };
 
-/** Always-on builds: no entry, only a reconnect button while the connection is down. */
-const AlwaysOnDeviceGateway = memo(() => {
-  const statusLoaded = useGatewayStateSync();
+/** Always-on builds report connection health in the composer, with app-wide state sync. */
+const AlwaysOnDeviceGateway = () => {
+  useGatewayStateSync();
 
-  return <GatewayReconnectButton statusLoaded={statusLoaded} />;
-});
+  return null;
+};
 
 const DeviceGateway = memo<DeviceGatewayProps>(({ workspaceScoped }) => {
   const { t } = useTranslation('electron');
@@ -231,9 +226,8 @@ const DeviceGatewayWithAuth = memo(() => {
 
   if (!isSyncActive) return null;
 
-  // Always-on builds keep the connection without a title-bar control; an
-  // outage brings up a reconnect button here, and the composer's device hint
-  // offers the same while a run targets this desktop.
+  // Keep status broadcasts active across pages; recovery feedback lives in
+  // the composer while a run targets this desktop.
   if (DESKTOP_DEVICE_GATEWAY_ALWAYS_ON) return <AlwaysOnDeviceGateway />;
 
   return <DeviceGateway workspaceScoped={!!activeWorkspaceSlug} />;
