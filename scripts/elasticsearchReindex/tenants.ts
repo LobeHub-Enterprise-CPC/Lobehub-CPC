@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import * as dotenv from 'dotenv';
@@ -26,6 +26,14 @@ dotenvExpand.expand(dotenv.config({ override: true, path: `.env.${env}.local` })
  * namespace and checkpoint directory (`$ES_REINDEX_STATE_DIR/<h24>`). The
  * remaining arguments pass through. Tenants run one at a time; a failing
  * tenant does not stop the others, and the command fails afterwards.
+ *
+ * `--new-tenants-only` (with `--apply --fresh-run --yes`) onboards tenants that
+ * were provisioned after the initial backfill: it picks the tenants with no
+ * checkpoint in their state directory, installs the capture triggers as the
+ * tenant owner (the reindex runs as the runtime role, which cannot create
+ * them), then runs the fresh backfill. Tenants that already have a checkpoint
+ * are left alone; `--fresh-run` itself still refuses a target whose aliases
+ * already exist.
  */
 
 const sslQuery = async (ssl: ClientConfig['ssl'], stateDirectory: string | undefined) => {
@@ -81,9 +89,22 @@ const runChild = (args: string[], childEnv: NodeJS.ProcessEnv) =>
     child.on('close', (code) => resolve(code ?? 1));
   });
 
+const NEW_TENANTS_ONLY = '--new-tenants-only';
+
+/** A checkpoint file (see `checkpointRepository`) means the tenant was backfilled before. */
+const hasCheckpoint = async (stateDirectory: string) => {
+  const files = await readdir(stateDirectory).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  });
+  return files.some((file) => file.startsWith('reindex-') && file.endsWith('.json'));
+};
+
 export interface RunTenantReindexOptions {
   argv: string[];
   environment: NodeJS.ProcessEnv;
+  /** Installs the capture triggers in one tenant as its owner (`--new-tenants-only`). */
+  installCapture?: (tenantId: string) => Promise<void>;
   listTargets: (tenantIds: string[]) => Promise<TenantDatabaseTarget[]>;
   log?: (...values: unknown[]) => void;
   parseTenants: (argv: string[]) => string[];
@@ -93,6 +114,7 @@ export interface RunTenantReindexOptions {
 export const runTenantReindex = async ({
   argv,
   environment,
+  installCapture = installTenantCapture,
   listTargets,
   log = console.log,
   parseTenants,
@@ -100,21 +122,48 @@ export const runTenantReindex = async ({
 }: RunTenantReindexOptions): Promise<number> => {
   const namespace = environment.ES_INDEX_NAMESPACE;
   if (!namespace) throw new Error('ES_INDEX_NAMESPACE is required');
+  const newTenantsOnly = argv.includes(NEW_TENANTS_ONLY);
+  if (
+    newTenantsOnly &&
+    !(environment.ES_REINDEX_STATE_DIR && argv.includes('--apply') && argv.includes('--fresh-run'))
+  )
+    throw new Error(`${NEW_TENANTS_ONLY} requires ES_REINDEX_STATE_DIR, --apply and --fresh-run`);
   const passthrough = argv.filter(
     (argument, index) =>
       !argument.startsWith('--tenant=') &&
       argument !== '--tenant' &&
+      argument !== NEW_TENANTS_ONLY &&
       argv[index - 1] !== '--tenant',
   );
 
   const targets = await listTargets(parseTenants(argv));
   const failed: string[] = [];
+  let processed = 0;
   for (const target of targets) {
     const stateDirectory = environment.ES_REINDEX_STATE_DIR
       ? path.join(environment.ES_REINDEX_STATE_DIR, target.h24)
       : undefined;
+    if (newTenantsOnly) {
+      if (await hasCheckpoint(stateDirectory!)) continue;
+      log('🆕 Installing full-text search capture for new tenant %s', target.tenantId);
+      try {
+        await installCapture(target.tenantId);
+      } catch (error) {
+        console.error(
+          '❌ Capture installation failed for tenant %s:',
+          target.tenantId,
+          // The installer names the tenant; its cause is the actual failure.
+          summarizeFtsSearchReindexError(
+            error instanceof Error && error.cause !== undefined ? error.cause : error,
+          ),
+        );
+        failed.push(target.tenantId);
+        continue;
+      }
+    }
     if (stateDirectory) await mkdir(stateDirectory, { mode: 0o700, recursive: true });
 
+    processed += 1;
     log('🔎 Elasticsearch reindex for tenant %s', target.tenantId);
     const code = await run(passthrough, {
       ...environment,
@@ -129,8 +178,14 @@ export const runTenantReindex = async ({
     console.error('❌ Elasticsearch reindex failed for tenants: %s', failed.join(', '));
     return 1;
   }
-  log('✅ Elasticsearch reindex finished for %d tenant(s)', targets.length);
+  log('✅ Elasticsearch reindex finished for %d tenant(s)', processed);
   return 0;
+};
+
+const installTenantCapture = async (tenantId: string) => {
+  const { installFtsSearchSyncCapture, listOwnerTenants } =
+    await import('../installFtsSearchSyncCapture');
+  await installFtsSearchSyncCapture({ listTenants: () => listOwnerTenants([tenantId]) });
 };
 
 const listTargets = async (tenantIds: string[]) => {

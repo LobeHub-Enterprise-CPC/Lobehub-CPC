@@ -47,20 +47,16 @@ export type FtsSearchSyncCaptureCliOptions = InstallFtsSearchSyncCaptureOptions 
 };
 
 /**
- * Every active tenant (or the `--tenant` ones) from the platform directory
- * (`DATABASE_URL`). Capture functions and triggers live in each tenant schema
- * and are created by its owner; the connection pins the tenant schema first on
- * the search path.
+ * The given tenants (every active tenant when empty) from the platform
+ * directory (`DATABASE_URL`). Capture functions and triggers live in each
+ * tenant schema and are created by its owner; the connection pins the tenant
+ * schema first on the search path.
  */
-const listTenants: ListTenants = async () => {
+export const listOwnerTenants = async (
+  tenantIds: string[],
+): Promise<FtsSearchSyncCaptureTenant[]> => {
   // Keep database initialization out of the module graph until the required environment is set.
-  const [
-    { getPlatformDB },
-    { listTenantDatabases, parseTenantArguments },
-    { drizzle },
-    pg,
-    outbox,
-  ] = await Promise.all([
+  const [{ getPlatformDB }, { listTenantDatabases }, { drizzle }, pg, outbox] = await Promise.all([
     import('../../packages/database/src/platform'),
     import('../../apps/server/src/services/tenantControlPlane/tenantDatabases'),
     import('drizzle-orm/node-postgres'),
@@ -69,7 +65,7 @@ const listTenants: ListTenants = async () => {
   ]);
   const { missing, targets } = await listTenantDatabases(getPlatformDB(), {
     role: 'owner',
-    tenantIds: parseTenantArguments(process.argv.slice(2)),
+    tenantIds,
   });
   if (missing.length > 0) throw new Error(`Unknown tenants: ${missing.join(', ')}`);
 
@@ -83,6 +79,13 @@ const listTenants: ListTenants = async () => {
     },
     tenantId: target.tenantId,
   }));
+};
+
+/** Every active tenant, or the `--tenant` ones. */
+const listTenants: ListTenants = async () => {
+  const { parseTenantArguments } =
+    await import('../../apps/server/src/services/tenantControlPlane/tenantDatabases');
+  return listOwnerTenants(parseTenantArguments(process.argv.slice(2)));
 };
 
 /**

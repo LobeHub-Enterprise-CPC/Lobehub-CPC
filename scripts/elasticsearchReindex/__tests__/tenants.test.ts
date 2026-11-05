@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -83,6 +83,99 @@ describe('runTenantReindex', () => {
     expect(run).toHaveBeenCalledTimes(2);
     expect(error).toHaveBeenCalledWith('❌ Elasticsearch reindex failed for tenants: %s', 'a');
     error.mockRestore();
+  });
+
+  describe('--new-tenants-only', () => {
+    const argv = ['--apply', '--fresh-run', '--yes', '--new-tenants-only'];
+
+    it('installs capture and backfills only tenants that have no checkpoint yet', async () => {
+      const state = await tempDirectory();
+      // Already backfilled: a checkpoint exists.
+      await mkdir(path.join(state, 'aaa'));
+      await writeFile(path.join(state, 'aaa', 'reindex-cpc-mt-a-0123456789ab-v1.json'), '{}');
+      // Only the database CA left by an earlier attempt: still a new tenant.
+      await mkdir(path.join(state, 'ccc'));
+      await writeFile(path.join(state, 'ccc', 'database-ca.pem'), 'CA');
+      const run = vi.fn().mockResolvedValue(0);
+      const installCapture = vi.fn().mockResolvedValue(undefined);
+
+      await expect(
+        runTenantReindex({
+          argv,
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: state,
+          },
+          installCapture,
+          listTargets: vi
+            .fn()
+            .mockResolvedValue([target('a', 'aaa'), target('b', 'bbb'), target('c', 'ccc')]),
+          log: vi.fn(),
+          parseTenants: () => [],
+          run,
+        }),
+      ).resolves.toBe(0);
+
+      expect(installCapture.mock.calls).toEqual([['b'], ['c']]);
+      expect(run.mock.calls.map(([, childEnv]) => childEnv.ES_INDEX_NAMESPACE)).toEqual([
+        tenantFtsSearchNamespace('cpc-mt', 'b'),
+        tenantFtsSearchNamespace('cpc-mt', 'c'),
+      ]);
+      expect(run.mock.calls[0][0]).toEqual(['--apply', '--fresh-run', '--yes']);
+    });
+
+    it('does not backfill a tenant whose capture installation failed', async () => {
+      const state = await tempDirectory();
+      const run = vi.fn().mockResolvedValue(0);
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      await expect(
+        runTenantReindex({
+          argv,
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: state,
+          },
+          installCapture: vi
+            .fn()
+            .mockRejectedValueOnce(new Error('lock timeout'))
+            .mockResolvedValueOnce(undefined),
+          listTargets: vi.fn().mockResolvedValue([target('a', 'aaa'), target('b', 'bbb')]),
+          log: vi.fn(),
+          parseTenants: () => [],
+          run,
+        }),
+      ).resolves.toBe(1);
+
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(run.mock.calls[0][1].ES_INDEX_NAMESPACE).toBe(tenantFtsSearchNamespace('cpc-mt', 'b'));
+      expect(error).toHaveBeenCalledWith('❌ Elasticsearch reindex failed for tenants: %s', 'a');
+      error.mockRestore();
+    });
+
+    it.each([
+      ['without the checkpoint directory', argv, undefined],
+      ['without --fresh-run', ['--apply', '--yes', '--new-tenants-only'], 'state'],
+    ])('refuses to run %s', async (_name, args, stateDirectory) => {
+      const run = vi.fn();
+      await expect(
+        runTenantReindex({
+          argv: args,
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: stateDirectory && (await tempDirectory()),
+          },
+          installCapture: vi.fn(),
+          listTargets: vi.fn().mockResolvedValue([target('a', 'aaa')]),
+          parseTenants: () => [],
+          run,
+        }),
+      ).rejects.toThrow('--new-tenants-only');
+      expect(run).not.toHaveBeenCalled();
+    });
   });
 
   it('requires the base index namespace', async () => {

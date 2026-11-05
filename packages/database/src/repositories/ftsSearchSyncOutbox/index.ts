@@ -283,6 +283,12 @@ const readCaptureInfrastructureState = async (
 
 const assertCaptureDefinitions = async (db: FtsSearchSyncExecutor): Promise<void> => {
   const state = await readCaptureInfrastructureState(db);
+  if (state.absent) {
+    // A tenant provisioned after the initial backfill has none until it is onboarded.
+    throw new Error(
+      'FTS search sync capture infrastructure is not installed; install it as the schema owner and backfill this target',
+    );
+  }
   if (
     !state.persisted ||
     state.version !== CURRENT_CAPTURE_VERSION ||
