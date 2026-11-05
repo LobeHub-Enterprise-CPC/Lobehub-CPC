@@ -7,17 +7,16 @@ import {
   cssVar,
   cx,
   Flexbox,
-  Icon,
   Popover,
   Text,
   Tooltip,
 } from '@lobehub/ui';
-import { AlertTriangle } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
 
+import { ChatInputWarningTag } from '../components/ChatInputWarningTag';
 import type { ChatInputNotice } from './useChatInputNotice';
 
 const styles = createStaticStyles(({ css }) => ({
@@ -50,21 +49,16 @@ const styles = createStaticStyles(({ css }) => ({
     padding-block: 6px !important;
   `,
   summary: css`
-    min-width: 36px;
-    height: 26px;
-    padding-inline: 6px;
+    cursor: pointer;
 
-    && {
-      color: ${cssVar.colorWarning};
-      background: color-mix(in srgb, ${cssVar.colorWarning} 12%, ${cssVar.colorBgContainer});
-    }
+    display: inline-flex;
+    align-items: center;
 
-    &&:hover,
-    &&:active,
-    &&[data-popup-open] {
-      color: ${cssVar.colorWarning};
-      background: color-mix(in srgb, ${cssVar.colorWarning} 18%, ${cssVar.colorBgContainer});
-    }
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+
+    background: transparent;
   `,
   title: css`
     min-width: 0;
@@ -140,6 +134,8 @@ export const ChatInputNoticeContent = memo(({ notices }: { notices: ChatInputNot
   if (notices.length === 0) return null;
 
   const summary = t('input.notice.summary', { count: notices.length });
+  const modelDisabled = notices.length === 1 && notices[0].key === 'input.modelDisabled';
+  const label = modelDisabled ? t('input.modelDisabled.label') : String(notices.length);
 
   return (
     <Popover
@@ -161,15 +157,13 @@ export const ChatInputNoticeContent = memo(({ notices }: { notices: ChatInputNot
         </Flexbox>
       }
     >
-      <Button
-        aria-label={summary}
+      <button
+        aria-label={modelDisabled ? label : summary}
         className={styles.summary}
-        icon={<Icon icon={AlertTriangle} size={14} />}
-        size={'small'}
-        type={'text'}
+        type={'button'}
       >
-        {notices.length}
-      </Button>
+        <ChatInputWarningTag label={label} />
+      </button>
     </Popover>
   );
 });
