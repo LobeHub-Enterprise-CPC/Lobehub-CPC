@@ -1,3 +1,4 @@
+import { verifyPassword } from 'better-auth/crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -8,7 +9,7 @@ import {
   TENANT,
 } from './__tests__/service.testUtils';
 import { tenantDbNames } from './datasource';
-import { TenantControlPlaneService } from './service';
+import { TenantControlPlaneService, type TenantDatabaseExecutor } from './service';
 
 let repo: ReturnType<typeof resetService>['repo'];
 let db: ReturnType<typeof resetService>['db'];
@@ -140,6 +141,60 @@ describe('executeProvision', () => {
     await expect(
       service.receiveProvision(provision({ memberBudget: { budgetDuration: null, maxBudget: 2 } })),
     ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+  });
+
+  describe('initial Owner', () => {
+    const bootstrapOwner = { email: 'owner@acme.com', name: 'Owner', password: 'Aa1!aaaaaaaa' };
+
+    it('keeps only a hash of the Owner password, outside the operation record', async () => {
+      await service.receiveProvision(provision({ bootstrapOwner }));
+
+      const pending = repo.operationOwners.get('root-1:lobehub')!;
+      expect(pending).toMatchObject({ email: 'owner@acme.com', name: 'Owner' });
+      expect(pending.passwordHash).not.toContain(bootstrapOwner.password);
+      expect(
+        await verifyPassword({ hash: pending.passwordHash, password: bootstrapOwner.password }),
+      ).toBe(true);
+      expect(JSON.stringify([...repo.operations.values()])).not.toContain('owner@acme.com');
+    });
+
+    it('seeds the Owner, also when resumed, and drops it once applied', async () => {
+      db.seed.mockRejectedValueOnce(new Error('boom'));
+      await provisionApplied(provision({ bootstrapOwner }));
+      const result = await provisionApplied(provision({ bootstrapOwner }));
+
+      expect(result.status).toBe('applied');
+      expect(db.seed).toHaveBeenCalledTimes(2);
+      for (const [ctx] of db.seed.mock.calls)
+        expect(ctx.bootstrapOwner).toMatchObject({ email: 'owner@acme.com', name: 'Owner' });
+      expect(repo.operationOwners.size).toBe(0);
+    });
+
+    it('is not part of the operation identity: a retry may carry a corrected Owner', async () => {
+      db.seed.mockRejectedValueOnce(new Error('boom'));
+      await provisionApplied(provision({ bootstrapOwner }));
+      await provisionApplied(provision({ bootstrapOwner: { ...bootstrapOwner, name: 'Fixed' } }));
+
+      expect(db.seed.mock.calls[1][0].bootstrapOwner).toMatchObject({ name: 'Fixed' });
+    });
+
+    it('keeps the received Owner when a retry carries none', async () => {
+      db.seed.mockRejectedValueOnce(new Error('boom'));
+      await provisionApplied(provision({ bootstrapOwner }));
+      await provisionApplied();
+
+      expect(db.seed.mock.calls[1][0].bootstrapOwner).toMatchObject({ name: 'Owner' });
+    });
+
+    it('seeds no Owner when the request has none', async () => {
+      await provisionApplied();
+      expect(db.seed.mock.calls[0][0]).toMatchObject({ bootstrapOwner: null });
+    });
+
+    it('stores no Owner for a request that fails validation', async () => {
+      await service.receiveProvision(provision({ bootstrapOwner, slug: 'admin' }));
+      expect(repo.operationOwners.size).toBe(0);
+    });
   });
 
   it('never puts the database error into the result', async () => {

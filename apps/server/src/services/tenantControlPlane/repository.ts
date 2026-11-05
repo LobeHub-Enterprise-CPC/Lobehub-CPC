@@ -57,6 +57,17 @@ export interface ProvisionOperationRecord {
   tenantId: string;
 }
 
+/**
+ * The initial Owner a provision request carried, kept sealed apart from the operation record
+ * (which stays secret-free) until the `seed` step creates the account. Only the password hash is
+ * kept: the plaintext never leaves the request that carried it.
+ */
+export interface PendingOwner {
+  email: string;
+  name: string;
+  passwordHash: string;
+}
+
 /** `public.tenant_directory` without its encrypted secrets. */
 export interface TenantDirectoryRecord {
   connectionVersion: number;
@@ -145,6 +156,8 @@ export interface ControlPlaneTx {
   getOperation: (operationId: string) => Promise<ProvisionOperationRecord | null>;
   /** The bundle a provision operation was received with, until the operation applies. */
   getOperationBundle: (operationId: string) => Promise<DatasourceBundle | null>;
+  /** The initial Owner a provision operation was received with, until the operation applies. */
+  getOperationOwner: (operationId: string) => Promise<PendingOwner | null>;
   /** The directory's name, slug and profile revision, without opening the sealed credentials. */
   getProfile: (tenantId: string) => Promise<TenantProfileRecord | null>;
   listOpenEvents: (tenantId: string) => Promise<LifecycleEventRecord[]>;
@@ -163,6 +176,8 @@ export interface ControlPlaneTx {
   putOperation: (record: ProvisionOperationRecord) => Promise<void>;
   /** Stores (`bundle`) or drops (`null`) the operation's pending bundle. */
   putOperationBundle: (operationId: string, bundle: DatasourceBundle | null) => Promise<void>;
+  /** Stores (`owner`) or drops (`null`) the operation's pending initial Owner. */
+  putOperationOwner: (operationId: string, owner: PendingOwner | null) => Promise<void>;
   /**
    * Stores a newer profile: name, slug and revision on the directory row, and the alias set replaced
    * by `formerSlugs`. The only writer that changes a directory slug.

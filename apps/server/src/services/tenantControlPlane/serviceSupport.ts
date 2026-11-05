@@ -1,8 +1,21 @@
 import { createHash } from 'node:crypto';
 
 import type { TenantMemberBudget } from '@lobechat/database/tenant';
+import { hashPassword } from 'better-auth/crypto';
 
-import type { DatasourceBundle } from './contracts';
+import type { BootstrapOwner, DatasourceBundle } from './contracts';
+import type { PendingOwner } from './repository';
+
+/** What an operation keeps of a received Owner: the password only as Better Auth's hash. */
+export const pendingOwnerOf = async ({
+  email,
+  name,
+  password,
+}: BootstrapOwner): Promise<PendingOwner> => ({
+  email,
+  name,
+  passwordHash: await hashPassword(password),
+});
 
 /** Stable digest of a request, so a retry with the same input is recognised. */
 export const hashInput = (value: unknown): string => {
@@ -39,6 +52,8 @@ export interface LifecycleHooks {
 }
 
 export interface ProvisionStepContext {
+  /** The initial Owner the `seed` step creates; absent when the request carried none. */
+  bootstrapOwner?: PendingOwner | null;
   bundle: DatasourceBundle;
   /** Only the provision `seed` step reads it; a lifecycle restore never seeds. */
   memberBudget?: TenantMemberBudget | null;

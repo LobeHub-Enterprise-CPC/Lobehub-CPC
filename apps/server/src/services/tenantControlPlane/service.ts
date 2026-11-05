@@ -42,6 +42,7 @@ import {
 import {
   hashInput,
   type LifecycleHooks,
+  pendingOwnerOf,
   type ProvisionStepContext,
   type TenantDatabaseExecutor,
 } from './serviceSupport';
@@ -148,11 +149,15 @@ export class TenantControlPlaneService {
 
   async receiveProvision(request: ProvisionRequest): Promise<ProvisionResult> {
     // Passwords are left out: a password change alone is a rotation
-    // (tenant-datasource), not a different provision request.
+    // (tenant-datasource), not a different provision request. The initial Owner is not part of
+    // the operation's identity either: a retry of a failed operation may carry a corrected one.
+    const { bootstrapOwner, ...identity } = request;
     const inputHash = hashInput({
-      ...request,
+      ...identity,
       datasource: redactDatasourceBundle(request.datasource),
     });
+    // Hashed before anything is stored: the plaintext never leaves this request.
+    const owner = bootstrapOwner ? await pendingOwnerOf(bootstrapOwner) : null;
 
     return this.repository.transaction(request.tenantId, async (tx) => {
       const existing = await tx.getOperation(request.operationId);
@@ -190,6 +195,8 @@ export class TenantControlPlaneService {
           await tx.putOperation(existing);
           // Same digest, so same bundle versions; keep the latest secrets.
           await tx.putOperationBundle(existing.operationId, request.datasource);
+          // The newest Owner submission replaces the one the failed attempt carried.
+          if (owner) await tx.putOperationOwner(existing.operationId, owner);
         }
         return toProvisionResult(existing);
       }
@@ -230,6 +237,7 @@ export class TenantControlPlaneService {
       await tx.putOperation(record);
       // An invalid bundle is not kept: nothing will ever run with it.
       if (!code) await tx.putOperationBundle(record.operationId, request.datasource);
+      if (!code && owner) await tx.putOperationOwner(record.operationId, owner);
       if (!(await tx.getLifecycle(request.tenantId)))
         await tx.putLifecycle(initialLifecycle(request.tenantId));
       return toProvisionResult(record);
@@ -270,15 +278,17 @@ export class TenantControlPlaneService {
       op.leaseToken = randomUUID();
       op.leaseUntil = this.leaseUntil();
       await tx.putOperation(op);
-      return { bundle, op, run: true as const };
+      const owner = await tx.getOperationOwner(operationId);
+      return { bundle, op, owner, run: true as const };
     });
     if (!claimed.run) return toProvisionResult(claimed.op);
 
-    const { bundle, op } = claimed;
+    const { bundle, op, owner } = claimed;
     const token = op.leaseToken!;
     const owns = (current: ProvisionOperationRecord) =>
       current.status === 'applying' && current.leaseToken === token;
     const ctx: ProvisionStepContext = {
+      bootstrapOwner: owner,
       bundle,
       memberBudget: op.memberBudget ?? null,
       name: op.name,
@@ -337,8 +347,9 @@ export class TenantControlPlaneService {
         leaseUntil: null,
       } satisfies Partial<ProvisionOperationRecord>);
       await tx.putOperation(current);
-      // The directory now holds the bundle; drop the operation's copy.
+      // The directory now holds the bundle; drop the operation's copy, and the Owner's hash with it.
       await tx.putOperationBundle(operationId, null);
+      await tx.putOperationOwner(operationId, null);
       return toProvisionResult(current);
     });
   }

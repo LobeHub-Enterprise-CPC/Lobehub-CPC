@@ -1,0 +1,1 @@
+ALTER TABLE "tenant_provision_operation" ADD COLUMN "pending_owner" text;

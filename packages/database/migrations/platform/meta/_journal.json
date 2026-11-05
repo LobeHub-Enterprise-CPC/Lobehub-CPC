@@ -57,6 +57,13 @@
       "when": 1793279630230,
       "tag": "0007_provision_member_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793852433355,
+      "tag": "0008_provision_pending_owner",
+      "breakpoints": true
     }
   ]
 }

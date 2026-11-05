@@ -141,8 +141,28 @@ export const memberBudgetSchema = z
   })
   .strict();
 
+/**
+ * The tenant's initial Owner (Console `ownerSchema`): Console sends the same email and password
+ * to Admin, so the Owner signs in to both applications with one account.
+ */
+export const bootstrapOwnerSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(256),
+    name: z.string().trim().min(1).max(256),
+    password: z
+      .string()
+      .min(8)
+      .max(128)
+      .refine(
+        (v) => /[A-Z]/.test(v) && /[a-z]/.test(v) && /\d/.test(v) && /[^\p{L}\p{N}\s]/u.test(v),
+      ),
+  })
+  .strict();
+export type BootstrapOwner = z.infer<typeof bootstrapOwnerSchema>;
+
 export const provisionRequestSchema = z
   .object({
+    bootstrapOwner: bootstrapOwnerSchema.optional(),
     datasource: datasourceBundleSchema,
     memberBudget: memberBudgetSchema.optional(),
     name: z.string().trim().min(1).max(256),

@@ -106,6 +106,7 @@ When acceptance is required, put its published `https://app.lobehub.com/acceptan
 ### Code Style
 
 - Source and test files stay at or below 1200 lines; a file already over the limit must not grow. Before adding, moving, or splitting files, read the `source-layout` skill for placement, naming, test location, and how a large file becomes a directory.
+- Modules the migration CLI loads (`scripts/migrateServerDB` imports `services/tenantControlPlane/postgresExecutor` and `upgrade`) must not statically import from `export *` barrels such as `@lobechat/database` or `@lobechat/database/schemas`: under its tsx module graph, named and namespace imports of their re-exports come back missing (`does not provide an export named …` / `undefined`), while vitest and Next resolve them fine. Import such barrels lazily (`await import(...)`) inside the code path that needs them. Verify with `pnpm db:migrate` (or the enterprise shell's), not only with tests.
 
 ### Code Review
 

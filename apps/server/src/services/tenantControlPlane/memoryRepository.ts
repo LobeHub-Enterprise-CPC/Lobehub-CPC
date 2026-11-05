@@ -6,6 +6,7 @@ import type {
   ControlPlaneTx,
   DrainObservation,
   LifecycleEventRecord,
+  PendingOwner,
   ProvisionOperationRecord,
   TenantDirectoryRecord,
   TenantLifecycleRecord,
@@ -38,6 +39,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
   events = new Map<string, LifecycleEventRecord>();
   lifecycles = new Map<string, TenantLifecycleRecord>();
   operationBundles = new Map<string, DatasourceBundle>();
+  operationOwners = new Map<string, PendingOwner>();
   operations = new Map<string, ProvisionOperationRecord>();
 
   private queue: Promise<unknown> = Promise.resolve();
@@ -63,6 +65,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
       const events = cloneMap(this.events);
       const lifecycles = cloneMap(this.lifecycles);
       const operationBundles = cloneMap(this.operationBundles);
+      const operationOwners = cloneMap(this.operationOwners);
       const operations = cloneMap(this.operations);
       const tx: ControlPlaneTx = {
         createDestruction: async (id, destroyOperationId, terminalEstablishedAt) => {
@@ -119,6 +122,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
           for (const op of ownOperations) {
             operations.delete(op.operationId);
             operationBundles.delete(op.operationId);
+            operationOwners.delete(op.operationId);
           }
           for (const event of ownEvents) events.delete(event.eventId);
           const hadEndpoints = endpointRecords.delete(id);
@@ -164,6 +168,10 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
         getOperationBundle: async (operationId) => {
           const bundle = operationBundles.get(operationId);
           return bundle ? clone(bundle) : null;
+        },
+        getOperationOwner: async (operationId) => {
+          const owner = operationOwners.get(operationId);
+          return owner ? clone(owner) : null;
         },
         listOpenEvents: async (tenantId) =>
           [...events.values()].filter(
@@ -220,6 +228,10 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
           void (bundle
             ? operationBundles.set(operationId, clone(bundle))
             : operationBundles.delete(operationId)),
+        putOperationOwner: async (operationId, owner) =>
+          void (owner
+            ? operationOwners.set(operationId, clone(owner))
+            : operationOwners.delete(operationId)),
       };
       const result = await fn(tx);
       this.destructions = destructions;
@@ -230,6 +242,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
       this.events = events;
       this.lifecycles = lifecycles;
       this.operationBundles = operationBundles;
+      this.operationOwners = operationOwners;
       this.operations = operations;
       return result;
     };

@@ -149,6 +149,12 @@ export const tenantProvisionOperation = pgTable(
      * key, until the operation applies and the directory holds it.
      */
     pendingBundle: text('pending_bundle'),
+    /**
+     * The initial Owner (email, name, password hash) the operation was received with, sealed
+     * with the directory key, until the `seed` step has created the account and the operation
+     * applies.
+     */
+    pendingOwner: text('pending_owner'),
     schemaName: text('schema_name'),
     schemaVersion: integer('schema_version'),
     slug: text('slug').notNull(),

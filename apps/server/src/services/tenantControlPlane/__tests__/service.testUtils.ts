@@ -5,6 +5,7 @@ import { tenantDbNames } from '../datasource';
 import { MemoryControlPlaneRepository } from '../memoryRepository';
 import {
   type LifecycleHooks,
+  type ProvisionStepContext,
   TenantControlPlaneService,
   type TenantDatabaseExecutor,
 } from '../service';
@@ -73,7 +74,7 @@ export const database = () =>
   ({
     checkOwnership: vi.fn(async () => {}),
     migrate: vi.fn(async () => {}),
-    seed: vi.fn(async () => {}),
+    seed: vi.fn(async (_ctx: ProvisionStepContext) => {}),
     verify: vi.fn(async () => {}),
     verifyDiscovery: vi.fn(async () => {}),
   }) satisfies TenantDatabaseExecutor;

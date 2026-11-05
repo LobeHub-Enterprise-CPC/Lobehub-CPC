@@ -35,6 +35,7 @@ import type {
   ControlPlaneRepository,
   ControlPlaneTx,
   LifecycleEventRecord,
+  PendingOwner,
   ProvisionOperationRecord,
   ProvisionStep,
   TenantDirectoryRecord,
@@ -48,7 +49,7 @@ export { directorySecretAad } from '@/server/modules/Tenant/directorySecrets';
  * The control plane's state in the platform database (spec FR-CP-09).
  *
  * Passwords never sit in a column in clear: the two directory passwords and
- * an operation's pending bundle are sealed with the directory key derived from
+ * an operation's pending bundle and initial Owner are sealed with the directory key derived from
  * `KEY_VAULTS_SECRET` (spec A18). The AAD binds each ciphertext to its tenant,
  * bundle version and role, so a sealed value cannot be moved onto another row.
  */
@@ -61,6 +62,8 @@ const lockSlugNamespace = (tx: Tx) =>
 
 const pendingBundleAad = (tenantId: string, operationId: string) =>
   `${tenantId}|lobehub|operation|${operationId}`;
+const pendingOwnerAad = (tenantId: string, operationId: string) =>
+  `${tenantId}|lobehub|operation-owner|${operationId}`;
 
 type DirectoryRow = typeof tenantDirectory.$inferSelect;
 
@@ -445,6 +448,21 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
     ) as DatasourceBundle;
   },
 
+  getOperationOwner: async (operationId) => {
+    const [row] = await tx
+      .select({
+        pendingOwner: tenantProvisionOperation.pendingOwner,
+        tenantId: tenantProvisionOperation.tenantId,
+      })
+      .from(tenantProvisionOperation)
+      .where(eq(tenantProvisionOperation.operationId, operationId))
+      .limit(1);
+    if (!row?.pendingOwner) return null;
+    return JSON.parse(
+      openDirectoryData(row.pendingOwner, pendingOwnerAad(row.tenantId, operationId)),
+    ) as PendingOwner;
+  },
+
   listOpenEvents: async (tenantId) => {
     const rows = await tx
       .select()
@@ -642,6 +660,23 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       .set({
         pendingBundle: bundle
           ? sealDirectoryData(JSON.stringify(bundle), pendingBundleAad(row.tenantId, operationId))
+          : null,
+      })
+      .where(eq(tenantProvisionOperation.operationId, operationId));
+  },
+
+  putOperationOwner: async (operationId, owner) => {
+    const [row] = await tx
+      .select({ tenantId: tenantProvisionOperation.tenantId })
+      .from(tenantProvisionOperation)
+      .where(eq(tenantProvisionOperation.operationId, operationId))
+      .limit(1);
+    if (!row) throw new Error('OPERATION_NOT_FOUND');
+    await tx
+      .update(tenantProvisionOperation)
+      .set({
+        pendingOwner: owner
+          ? sealDirectoryData(JSON.stringify(owner), pendingOwnerAad(row.tenantId, operationId))
           : null,
       })
       .where(eq(tenantProvisionOperation.operationId, operationId));
