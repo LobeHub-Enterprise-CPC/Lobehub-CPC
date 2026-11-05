@@ -13,6 +13,7 @@ import { waitForTenantClaims } from '@/server/modules/Tenant/postgresClaims';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
 import { isAuthorized, parseControlPlaneToken } from '@/server/services/tenantControlPlane/auth';
 import {
+  bootstrapOwnerRequestSchema,
   ControlPlaneError,
   datasourceReadinessRequestSchema,
   datasourceRequestSchema,
@@ -250,6 +251,12 @@ export const createControlPlaneApp = (deps: ControlPlaneAppDeps) => {
         tenantId: input.tenantId,
       });
     return reply(c, result, false);
+  });
+
+  /** The Owner Console is about to give Admin: the provisioned tenant's initial account takes it. */
+  app.post('/tenant-bootstrap-owner', async (c) => {
+    const { input, service } = await prepare(c, bootstrapOwnerRequestSchema, 'body');
+    return c.json(await service.syncBootstrapOwner(input));
   });
 
   app.post('/tenant-readiness', async (c) => {

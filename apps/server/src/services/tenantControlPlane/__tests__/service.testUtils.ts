@@ -75,6 +75,9 @@ export const database = () =>
     checkOwnership: vi.fn(async () => {}),
     migrate: vi.fn(async () => {}),
     seed: vi.fn(async (_ctx: ProvisionStepContext) => {}),
+    syncBootstrapOwner: vi.fn(
+      async (_ctx: Parameters<TenantDatabaseExecutor['syncBootstrapOwner']>[0]) => {},
+    ),
     verify: vi.fn(async () => {}),
     verifyDiscovery: vi.fn(async () => {}),
   }) satisfies TenantDatabaseExecutor;

@@ -10,6 +10,8 @@ import {
 import { effectiveTenantState } from '@/server/modules/Tenant/lifecycleState';
 
 import {
+  type BootstrapOwnerRequest,
+  type BootstrapOwnerResult,
   ControlPlaneError,
   type DatasourceBundle,
   type DatasourceReadinessRequest,
@@ -242,6 +244,27 @@ export class TenantControlPlaneService {
         await tx.putLifecycle(initialLifecycle(request.tenantId));
       return toProvisionResult(record);
     });
+  }
+
+  /**
+   * `tenant-bootstrap-owner`: the provisioned tenant's initial account takes this Owner, through
+   * the schema owner of the bundle the directory holds. Console sends it only until Admin accepts
+   * the Owner, so before the tenant first opens; an open tenant's Owner is the customer's own.
+   */
+  async syncBootstrapOwner({
+    bootstrapOwner,
+    tenantId,
+  }: BootstrapOwnerRequest): Promise<BootstrapOwnerResult> {
+    const owner = await pendingOwnerOf(bootstrapOwner);
+    const bundle = await this.repository.transaction(tenantId, async (tx) => {
+      const directory = await tx.getDirectory(tenantId);
+      if (!directory) throw new ControlPlaneError(404, 'TENANT_NOT_FOUND');
+      if ((await tx.getLifecycle(tenantId))?.desiredState === 'active')
+        throw new ControlPlaneError(409, 'TENANT_INVALID');
+      return directory.bundle;
+    });
+    await this.options.database.syncBootstrapOwner({ bundle, owner, tenantId });
+    return { bootstrapOwnerReady: true, tenantId };
   }
 
   async getProvision(tenantId: string, operationId: string): Promise<ProvisionResult> {

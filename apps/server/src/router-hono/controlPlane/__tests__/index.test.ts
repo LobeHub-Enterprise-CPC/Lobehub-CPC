@@ -36,6 +36,7 @@ const endpoints = [
   { method: 'POST', path: '/tenant-destruction' },
   { method: 'GET', path: '/tenant-destruction' },
   { method: 'POST', path: '/tenant-profile' },
+  { method: 'POST', path: '/tenant-bootstrap-owner' },
 ];
 
 const setup = (configured = true) => {
@@ -45,6 +46,7 @@ const setup = (configured = true) => {
       checkOwnership: async () => {},
       migrate: async () => {},
       seed: async () => {},
+      syncBootstrapOwner: async () => {},
       verify: async () => {},
       verifyDiscovery: async () => {},
     },
@@ -318,6 +320,50 @@ describe('control-plane router', () => {
         method: 'POST',
       });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe('tenant-bootstrap-owner', () => {
+    const body = {
+      bootstrapOwner: { email: 'owner@acme.com', name: 'Owner', password: 'Aa1!aaaaaaaa' },
+      tenantId: TENANT,
+    };
+
+    it('answers 404 TENANT_NOT_FOUND for a tenant not provisioned', async () => {
+      const { call } = setup();
+      const res = await call('/tenant-bootstrap-owner', {
+        body: JSON.stringify(body),
+        method: 'POST',
+      });
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ code: 'TENANT_NOT_FOUND' });
+    });
+
+    it('answers 200 once the initial account took the Owner', async () => {
+      const { call, service } = setup();
+      await call('/tenant-provision', { body: JSON.stringify(provisionBody), method: 'POST' });
+      await service.executeProvision(TENANT, 'root-1:lobehub');
+
+      const res = await call('/tenant-bootstrap-owner', {
+        body: JSON.stringify(body),
+        method: 'POST',
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ bootstrapOwnerReady: true, tenantId: TENANT });
+    });
+
+    it('rejects a weak password and unknown fields', async () => {
+      const { call } = setup();
+      for (const bad of [
+        { ...body, bootstrapOwner: { ...body.bootstrapOwner, password: 'weak' } },
+        { ...body, datasource },
+      ]) {
+        const res = await call('/tenant-bootstrap-owner', {
+          body: JSON.stringify(bad),
+          method: 'POST',
+        });
+        expect(res.status).toBe(400);
+      }
     });
   });
 

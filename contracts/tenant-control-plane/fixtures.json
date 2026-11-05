@@ -700,6 +700,62 @@
     },
     {
       "accepts": true,
+      "id": "lobehub-bootstrap-owner",
+      "note": "the Owner Admin is about to receive, for TITU Work's initial account",
+      "schema": "lobehubBootstrapOwnerRequest",
+      "value": {
+        "bootstrapOwner": {
+          "email": "owner@acme.example",
+          "name": "Acme Owner",
+          "password": "Fixture-Pass-1!"
+        },
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-bootstrap-owner-weak-password",
+      "note": "the password must have upper and lower case letters, a digit and a symbol",
+      "schema": "lobehubBootstrapOwnerRequest",
+      "value": {
+        "bootstrapOwner": {
+          "email": "owner@acme.example",
+          "name": "Acme Owner",
+          "password": "alllowercase"
+        },
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-bootstrap-owner-no-password",
+      "note": "TITU Work gets the password Admin gets, never an Owner without one",
+      "schema": "lobehubBootstrapOwnerRequest",
+      "value": {
+        "bootstrapOwner": {
+          "email": "owner@acme.example",
+          "name": "Acme Owner"
+        },
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-bootstrap-owner-extra-field",
+      "note": "no datasource: TITU Work uses the bundle its directory holds",
+      "schema": "lobehubBootstrapOwnerRequest",
+      "value": {
+        "bootstrapOwner": {
+          "email": "owner@acme.example",
+          "name": "Acme Owner",
+          "password": "Fixture-Pass-1!"
+        },
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": true,
       "id": "admin-provision",
       "note": "Admin gets its own bundle with the owner password and the TITU Work bundle without it",
       "schema": "adminProvisionRequest",
@@ -1690,6 +1746,26 @@
         "status": "applied",
         "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
         "version": 2
+      }
+    },
+    {
+      "accepts": true,
+      "id": "lobehub-bootstrap-owner-result",
+      "note": "TITU Work's initial account signs in with the Owner sent",
+      "schema": "lobehubBootstrapOwnerResult",
+      "value": {
+        "bootstrapOwnerReady": true,
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-bootstrap-owner-result-not-ready",
+      "note": "a refusal is an error answer, never a result that is not ready",
+      "schema": "lobehubBootstrapOwnerResult",
+      "value": {
+        "bootstrapOwnerReady": false,
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a"
       }
     },
     {

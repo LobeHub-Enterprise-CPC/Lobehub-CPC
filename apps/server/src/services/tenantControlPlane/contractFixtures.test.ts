@@ -15,6 +15,7 @@ import {
   TENANT,
 } from './__tests__/service.testUtils';
 import {
+  bootstrapOwnerRequestSchema,
   datasourceRequestSchema,
   lifecycleRequestSchema,
   profileRequestSchema,
@@ -50,6 +51,7 @@ const published = read('schemas.json') as {
  * the wire schema (a 400), then the derivation against the tenant (a recorded DATASOURCE_INVALID).
  */
 const takes: Record<string, (value: any) => boolean> = {
+  lobehubBootstrapOwnerRequest: (value) => bootstrapOwnerRequestSchema.safeParse(value).success,
   profileRequest: (value) => profileRequestSchema.safeParse(value).success,
   lifecycleRequest: (value) => lifecycleRequestSchema.safeParse(value).success,
   lobehubDatasourceRequest: (value) => {
@@ -107,6 +109,17 @@ describe('what TITU Work answers is what Console parses', () => {
     conforms('provisionResult', await service.receiveProvision(provision()));
     await service.executeProvision(TENANT, 'root-1:lobehub');
     conforms('provisionResult', await service.getProvision(TENANT, 'root-1:lobehub'));
+  });
+
+  it('answers tenant-bootstrap-owner', async () => {
+    await provisionApplied();
+    conforms(
+      'lobehubBootstrapOwnerResult',
+      await service.syncBootstrapOwner({
+        bootstrapOwner: { email: 'owner@acme.com', name: 'Owner', password: 'Aa1!aaaaaaaa' },
+        tenantId: TENANT,
+      }),
+    );
   });
 
   it('answers a failed provision with its code', async () => {

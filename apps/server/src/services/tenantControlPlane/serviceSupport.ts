@@ -81,6 +81,12 @@ export interface TenantDatabaseExecutor {
   migrate: (ctx: ProvisionStepContext) => Promise<void>;
   /** Copies the default config templates (`runtime_configs`, …) into the tenant. */
   seed: (ctx: ProvisionStepContext) => Promise<void>;
+  /** As the owner: the tenant's initial account takes this Owner (`seedBootstrapOwner`). */
+  syncBootstrapOwner: (ctx: {
+    bundle: DatasourceBundle;
+    owner: PendingOwner;
+    tenantId: string;
+  }) => Promise<void>;
   /**
    * As the runtime user: verifies schema/history and asserts no cross-schema USAGE
    * beyond the extension schemas, no public table access, DML but no CREATE.
