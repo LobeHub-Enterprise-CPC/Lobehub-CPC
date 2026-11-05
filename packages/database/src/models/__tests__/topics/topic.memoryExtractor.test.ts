@@ -38,9 +38,30 @@ describe('TopicModel - countTopicsForMemoryExtractor', () => {
       { id: 't4-empty', createdAt: new Date('2023-03-02'), metadata: {}, userId },
     ]);
     await serverDB.insert(messages).values([
-      { createdAt: new Date('2023-01-02'), id: 'm1', role: 'user', topicId: 't1', userId },
-      { createdAt: new Date('2023-02-02'), id: 'm2', role: 'user', topicId: 't2', userId },
-      { createdAt: new Date('2023-03-02'), id: 'm3', role: 'assistant', topicId: 't3', userId },
+      {
+        content: 'hi',
+        createdAt: new Date('2023-01-02'),
+        id: 'm1',
+        role: 'user',
+        topicId: 't1',
+        userId,
+      },
+      {
+        content: 'hi',
+        createdAt: new Date('2023-02-02'),
+        id: 'm2',
+        role: 'user',
+        topicId: 't2',
+        userId,
+      },
+      {
+        content: 'hi',
+        createdAt: new Date('2023-03-02'),
+        id: 'm3',
+        role: 'assistant',
+        topicId: 't3',
+        userId,
+      },
     ]);
 
     const total = await topicModel.countTopicsForMemoryExtractor({
@@ -172,6 +193,7 @@ describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages
     ]);
     await serverDB.insert(messages).values([
       {
+        content: 'hi',
         createdAt: new Date('2023-01-10'),
         id: 'm-pending',
         role: 'user',
@@ -179,6 +201,7 @@ describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages
         userId,
       },
       {
+        content: 'hi',
         createdAt: new Date('2023-01-10'),
         id: 'm-no-run-time',
         role: 'user',
@@ -186,6 +209,7 @@ describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages
         userId,
       },
       {
+        content: 'hi',
         createdAt: new Date('2023-01-15'),
         id: 'm-stale',
         role: 'user',
@@ -193,6 +217,7 @@ describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages
         userId,
       },
       {
+        content: 'hi',
         createdAt: new Date('2023-01-15'),
         id: 'm-active-old',
         role: 'user',
@@ -200,6 +225,7 @@ describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages
         userId,
       },
       {
+        content: 'hi',
         createdAt: new Date('2023-02-02'),
         id: 'm-active-new',
         role: 'user',
@@ -277,6 +303,7 @@ describe('TopicModel - listTopicsForMemoryExtractor incremental extraction', () 
     ]);
     await serverDB.insert(messages).values([
       {
+        content: 'hi',
         createdAt: new Date('2023-01-09'),
         id: 'a1',
         role: 'user',
@@ -284,6 +311,7 @@ describe('TopicModel - listTopicsForMemoryExtractor incremental extraction', () 
         userId,
       },
       {
+        content: 'hi',
         createdAt: new Date('2023-01-11'),
         id: 'a2',
         role: 'user',
@@ -298,14 +326,23 @@ describe('TopicModel - listTopicsForMemoryExtractor incremental extraction', () 
         userId,
       },
       {
+        content: 'hi',
         createdAt: new Date('2023-01-09'),
         id: 'c1',
         role: 'assistant',
         topicId: 'up-to-date',
         userId,
       },
-      { createdAt: new Date('2023-01-10'), id: 'c2', role: 'user', topicId: 'up-to-date', userId },
       {
+        content: 'hi',
+        createdAt: new Date('2023-01-10'),
+        id: 'c2',
+        role: 'user',
+        topicId: 'up-to-date',
+        userId,
+      },
+      {
+        content: 'hi',
         createdAt: new Date('2023-01-10'),
         id: 'd1',
         role: 'user',
@@ -313,6 +350,7 @@ describe('TopicModel - listTopicsForMemoryExtractor incremental extraction', () 
         userId,
       },
       {
+        content: 'hi',
         createdAt: new Date('2023-01-12'),
         id: 'd2',
         role: 'assistant',
@@ -320,6 +358,7 @@ describe('TopicModel - listTopicsForMemoryExtractor incremental extraction', () 
         userId,
       },
       {
+        content: 'hi',
         createdAt: new Date('2023-01-20'),
         id: 'e1',
         role: 'user',
@@ -359,6 +398,7 @@ describe('TopicModel - listTopicsForMemoryExtractor incremental extraction', () 
       userId,
     });
     await serverDB.insert(messages).values({
+      content: 'hi',
       createdAt: new Date('2023-01-10T00:00:00.123Z'),
       id: 'f1',
       role: 'user',
@@ -374,6 +414,41 @@ describe('TopicModel - listTopicsForMemoryExtractor incremental extraction', () 
     });
 
     expect(result.map((topic) => topic.id)).not.toContain('microseconds');
+  });
+
+  it('does not count a newer message without text, which extraction skips', async () => {
+    // Assistant turns that only called tools have empty content. Extraction drops them, so a
+    // topic with nothing else new would be listed every hour without its watermark ever moving.
+    await serverDB.insert(topics).values({
+      createdAt: new Date('2023-01-06'),
+      id: 'blank-only',
+      metadata: completed({ extractedThrough: '2023-01-10T00:00:00.000Z' }),
+      userId,
+    });
+    await serverDB.insert(messages).values([
+      {
+        content: '',
+        createdAt: new Date('2023-01-11'),
+        id: 'g1',
+        role: 'assistant',
+        topicId: 'blank-only',
+        userId,
+      },
+      {
+        content: '  \n',
+        createdAt: new Date('2023-01-12'),
+        id: 'g2',
+        role: 'assistant',
+        topicId: 'blank-only',
+        userId,
+      },
+    ]);
+
+    const result = await topicModel.listTopicsForMemoryExtractor({
+      settledBefore: new Date('2023-01-15'),
+    });
+
+    expect(result.map((topic) => topic.id)).not.toContain('blank-only');
   });
 
   it('waits until a message settles before treating it as new', async () => {

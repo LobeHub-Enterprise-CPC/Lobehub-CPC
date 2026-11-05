@@ -74,6 +74,8 @@ const hasConversationToExtract = (settledBefore?: Date) => sql`EXISTS (
   SELECT 1 FROM ${messages} AS m
   WHERE m.topic_id = ${topics.id}
     AND m.role IN ('user', 'assistant')
+    -- Extraction reads only messages with text; a tool-only turn must not keep the topic due.
+    AND COALESCE(m.content, '') ~ '[^[:space:]]'
     AND date_trunc('milliseconds', m.created_at) > COALESCE(
       (${topics.metadata} #>> '{userMemoryExtractRunState,extractedThrough}')::timestamptz,
       CASE WHEN COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') = 'completed'
