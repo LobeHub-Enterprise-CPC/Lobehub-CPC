@@ -128,4 +128,26 @@ describe('LobeChatTopicResultRecorder watermark', () => {
 
     expect(written().extractedThrough).toBe('2024-03-01T10:00:00.000Z');
   });
+
+  it('clears the error of an earlier failed run once a run succeeds', async () => {
+    const set = vi.fn(() => ({ where: vi.fn() }));
+    const recorder = new LobeChatTopicResultRecorder({
+      currentMetadata: {
+        userMemoryExtractRunState: { error: 'model returned invalid output' },
+        userMemoryExtractStatus: 'failed',
+      },
+      database: { update: () => ({ set }) } as any,
+      topicId: 'topic-1',
+    });
+
+    await recorder.recordComplete(job, {
+      createdIds: [],
+      layers: {},
+      processedMemoryCount: 2,
+    } as any);
+
+    const { metadata } = (set.mock.calls[0] as any)[0];
+    expect(metadata.userMemoryExtractStatus).toBe('completed');
+    expect(metadata.userMemoryExtractRunState).not.toHaveProperty('error');
+  });
 });

@@ -35,13 +35,7 @@ import { AsyncTaskStatus } from '@/types/asyncTask';
 
 import { resolveMemoryServiceModelConfig } from '../systemAgent';
 import type { MemoryExtractionExecutorContext } from './context';
-import type { MemoryExtractionTaskErrorItem } from './errors';
-import {
-  buildAsyncTaskErrorFrom,
-  makeTaskErrorItem,
-  MemoryExtractionAggregateError,
-  serializeError,
-} from './errors';
+import { buildAsyncTaskErrorFrom, serializeError } from './errors';
 import type { TopicExtractionJob } from './types';
 import { MEMORY_EXTRACTION_WINDOW, selectExtractionWindow } from './window';
 
@@ -254,7 +248,6 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           traceId: span.spanContext().traceId,
         });
 
-        const retrievalErrors: MemoryExtractionTaskErrorItem[] = [];
         let searchResult: UserMemoryHybridSearchAggregatedResult = {
           activities: [],
           contexts: [],
@@ -286,11 +279,15 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
             embeddingContextLimit,
           );
         } catch (error) {
-          retrievalErrors.push(
-            makeTaskErrorItem('retrieval', error, {
-              preview: embeddingConversations.map((item) => item.content).join('\n\n'),
-              sourceId: extractionJob.sourceId,
-              sourceType: extractionJob.source,
+          // Retrieval only lends the extractor the user's existing memories, to update rather
+          // than repeat them. Without it the extraction still stands, so the topic completes; the
+          // failure is logged rather than failing a topic whose memories were saved.
+          console.warn(
+            JSON.stringify({
+              error: serializeError(error).message?.slice(0, 300),
+              event: 'memory.retrieval.failed',
+              topicId: topic.id,
+              userId: job.userId,
             }),
           );
         }
@@ -453,12 +450,6 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           memoryServiceConfig,
           db,
         );
-        if (retrievalErrors.length > 0) {
-          throw new MemoryExtractionAggregateError(
-            'Memory extraction completed with retrieval errors',
-            retrievalErrors,
-          );
-        }
         if (tracePayload) {
           tracePayload.result = { extraction, persisted: persistedRes };
         }

@@ -172,6 +172,8 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
       traceId: this.options.traceId,
     };
 
+    // An earlier failed run left its error behind; a completed topic no longer has one.
+    delete memoryExtraction.error;
     memoryExtraction.extractedThrough = this.options.extractedThrough;
     memoryExtraction.lastMessageAt = this.options.lastMessageAt;
     memoryExtraction.lastRunAt = now;
