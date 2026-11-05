@@ -15,6 +15,7 @@ import {
   type TenantSeeder,
   verifyTenantRuntime,
 } from '@lobechat/database/tenant';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { Client, type ClientConfig } from 'pg';
 
 import { tenantPgConnection } from '@/server/modules/Tenant/directoryConnection';
@@ -24,6 +25,7 @@ import {
   requireLookupRole,
   verifyLookupPermissions,
 } from '../tenantDiscovery/permissions';
+import { seedBootstrapOwner } from './bootstrapOwner';
 import type { DatasourceBundle } from './contracts';
 import { validateDatasourceBundle } from './datasource';
 import type { ProvisionStepContext, TenantDatabaseExecutor } from './service';
@@ -253,7 +255,8 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
 
   async seed(ctx: ProvisionStepContext): Promise<void> {
     const seeders = this.options.seeders ?? businessTenantSeeders;
-    if (seeders.length === 0) return;
+    const owner = ctx.bootstrapOwner ?? null;
+    if (seeders.length === 0 && !owner) return;
     const { schemaName } = tenantDbNames(ctx.tenantId);
     await withClient(ctx.bundle, 'owner', async (client) => {
       await client.query('BEGIN');
@@ -269,6 +272,8 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
             slug: ctx.slug,
             tenantId: ctx.tenantId,
           });
+        // After the seeders, so the account joins the default department they create.
+        if (owner) await seedBootstrapOwner(drizzle(client), owner);
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => undefined);

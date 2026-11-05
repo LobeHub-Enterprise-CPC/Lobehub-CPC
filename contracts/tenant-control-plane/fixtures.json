@@ -225,6 +225,94 @@
       }
     },
     {
+      "accepts": true,
+      "id": "lobehub-provision-owner",
+      "note": "the initial Owner TITU Work creates with the email and password Admin receives",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "titu_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "titu_e0bab8abe103e646d8c0907b_owner",
+            "username": "titu_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "bootstrapOwner": {
+          "email": "owner@acme.example",
+          "name": "Acme Owner",
+          "password": "Fixture-Pass-1!"
+        }
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-owner-weak-password",
+      "note": "Owner passwords are strong",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "titu_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "titu_e0bab8abe103e646d8c0907b_owner",
+            "username": "titu_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "bootstrapOwner": {
+          "email": "owner@acme.example",
+          "name": "Acme Owner",
+          "password": "weak"
+        }
+      }
+    },
+    {
       "accepts": false,
       "id": "lobehub-provision-tenant-not-uuid",
       "note": "tenantId is a lower-case UUID",
@@ -677,7 +765,7 @@
     {
       "accepts": true,
       "id": "admin-provision-owner",
-      "note": "bootstrap Owner is created in Admin only",
+      "note": "the initial Owner, the same account TITU Work receives",
       "schema": "adminProvisionRequest",
       "value": {
         "datasource": {
