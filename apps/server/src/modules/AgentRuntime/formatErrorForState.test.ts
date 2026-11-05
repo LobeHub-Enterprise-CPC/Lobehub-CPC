@@ -1,10 +1,19 @@
 import { ModelEmptyError, ModelRefusalError } from '@lobechat/model-runtime';
 import { AgentRuntimeErrorType, ChatErrorType } from '@lobechat/types';
-import { describe, expect, it } from 'vitest';
+import { DATABASE_ERROR_PUBLIC_MESSAGE } from '@lobechat/utils/queryError';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { formatErrorForState, readErrorBudgetContext } from './formatErrorForState';
 
 describe('formatErrorForState', () => {
+  let consoleError: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
   it('classifies an already-wrapped error using its nested provider message', () => {
     const error = {
       body: { error: { message: 'insufficient quota' }, provider: 'openai' },
@@ -69,13 +78,18 @@ describe('formatErrorForState', () => {
       expect(result.body).toMatchObject({ name: 'TypeError' });
     });
 
-    it('persists the stack of an unclassified Error so the throw site is locatable', () => {
-      // `name` + `message` alone are useless for a recurring harness 500 — the
-      // only thing that identifies where it blew up is the stack.
-      const result = formatErrorForState(new Error('some opaque internal failure'));
+    it('keeps the stack out of the stored error and logs it once instead', () => {
+      // The stored error is rendered in the message's error details, so server
+      // file paths must not be in it; the throw site goes to the server log.
+      const error = new Error('some opaque internal failure');
+
+      const result = formatErrorForState(error);
+      formatErrorForState(error);
 
       expect(result.type).toBe(ChatErrorType.InternalServerError);
-      expect((result.body as { stack?: string }).stack).toContain('formatErrorForState.test');
+      expect(JSON.stringify(result)).not.toContain('formatErrorForState.test');
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      expect(String(consoleError.mock.calls[0][0])).toContain('formatErrorForState.test');
     });
 
     it('classifies a harness JSON.parse throw instead of leaving a bare 500', () => {
@@ -94,26 +108,8 @@ describe('formatErrorForState', () => {
       // Deterministic — the same corrupt payload re-parses to the same failure,
       // so a transport retry would only re-burn the run's tokens.
       expect(result.retryable).toBe(false);
-      // Classification must not cost us the throw site.
       expect((result.body as { name?: string; stack?: string }).name).toBe('SyntaxError');
-      expect((result.body as { stack?: string }).stack).toContain('formatErrorForState.test');
-    });
-
-    it('truncates an oversized stack instead of storing it whole', () => {
-      const error = new Error('boom');
-      error.stack = 'x'.repeat(10_000);
-
-      const stack = (formatErrorForState(error).body as { stack?: string }).stack;
-
-      expect(stack).toHaveLength(1001);
-      expect(stack?.endsWith('…')).toBe(true);
-    });
-
-    it('omits `stack` when the thrown Error carries none', () => {
-      const error = new Error('boom');
-      error.stack = undefined;
-
-      expect((formatErrorForState(error).body as { stack?: string }).stack).toBeUndefined();
+      expect((result.body as { stack?: string }).stack).toBeUndefined();
     });
 
     it('falls back to AgentRuntimeError for unknown thrown values', () => {
@@ -274,6 +270,22 @@ describe('formatErrorForState', () => {
       expect(result.attribution).toBe('harness');
     });
 
+    it('stores no SQL or parameters for a Drizzle failure without a PG cause', () => {
+      // Production 11-05: the select of a message by id failed mid-run and the
+      // whole statement plus user ids were shown on the scheduled task page.
+      const error = new Error(
+        'Failed query: select "id" from "messages" where "messages"."id" = $1 limit $2\nparams: msg_q9Utuc2kAGXSkuMutD,1',
+      );
+      (error as any).cause = new Error('Connection terminated unexpectedly');
+
+      const result = formatErrorForState(error);
+
+      expect(result.type).toBe(AgentRuntimeErrorType.DatabasePersistError);
+      expect(result.message).toBe(DATABASE_ERROR_PUBLIC_MESSAGE);
+      expect(JSON.stringify(result)).not.toMatch(/select|msg_q9Utuc2kAGXSkuMutD|Failed query/);
+      expect(String(consoleError.mock.calls[0][0])).toContain('Connection terminated unexpectedly');
+    });
+
     it('unwraps PG diagnostics from a Drizzle "Failed query" cause for final state errors', () => {
       const error = new Error('Failed query: begin \nparams: ');
       (error as any).cause = {
@@ -286,21 +298,12 @@ describe('formatErrorForState', () => {
       const result = formatErrorForState(error);
 
       expect(result.type).toBe('pg_XX000');
-      expect(result.message).toBe(
-        'PG XX000 · ERROR · Failed to acquire permit to connect to the database. Too many database connection attempts are currently ongoing.',
-      );
+      expect(result.message).toBe(DATABASE_ERROR_PUBLIC_MESSAGE);
       expect(result.attribution).toBe('harness');
       expect(result.category).toBe('stream');
       expect(result.countAsFailure).toBe(true);
-      expect(result.body).toMatchObject({
-        pg: {
-          code: 'XX000',
-          message:
-            'Failed to acquire permit to connect to the database. Too many database connection attempts are currently ongoing.',
-          severity: 'ERROR',
-        },
-        wrappedMessage: 'Failed query: begin \nparams: ',
-      });
+      expect(result.body).toEqual({ name: 'Error', pgCode: 'XX000' });
+      expect(String(consoleError.mock.calls[0][0])).toContain('Failed to acquire permit');
     });
   });
 

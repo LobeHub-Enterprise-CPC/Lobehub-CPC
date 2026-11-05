@@ -1,3 +1,4 @@
+import { DATABASE_ERROR_PUBLIC_MESSAGE } from '@lobechat/utils/queryError';
 import { describe, expect, it } from 'vitest';
 
 import { normalizeChatMessageError } from './normalizeChatMessageError';
@@ -105,5 +106,45 @@ describe('normalizeChatMessageError', () => {
     expect(normalizeChatMessageError(new Error('500 unexpected internal failure'))).toMatchObject({
       type: 500,
     });
+  });
+
+  describe('database query detail', () => {
+    const sql =
+      'Failed query: select "id" from "messages" where "id" = $1\nparams: msg_q9Utuc2kAGXSkuMutD';
+
+    it.each([
+      ['a thrown Drizzle error', new Error(sql)],
+      [
+        'a typed payload carrying the query in its error',
+        { error: { message: sql }, errorType: 'AgentRuntimeError' },
+      ],
+      [
+        'an already-normalized error',
+        {
+          body: { name: 'Error', stack: `Error: ${sql}` },
+          message: sql,
+          type: 'DatabasePersistError',
+        },
+      ],
+    ])('keeps no SQL or parameters for %s', (_, input) => {
+      const result = normalizeChatMessageError(input);
+
+      expect(result.message).toBe(DATABASE_ERROR_PUBLIC_MESSAGE);
+      expect(JSON.stringify(result)).not.toMatch(/select|msg_q9Utuc2kAGXSkuMutD|Failed query/);
+    });
+
+    it('keeps display fields that carry no query detail', () => {
+      const result = normalizeChatMessageError({
+        body: { stack: `Error: ${sql}`, traceId: 'trace-1' },
+        message: sql,
+        type: 'DatabasePersistError',
+      });
+
+      expect(result.body).toEqual({ traceId: 'trace-1' });
+    });
+  });
+
+  it('does not store the stack of a thrown Error', () => {
+    expect(normalizeChatMessageError(new Error('boom')).body).toEqual({ name: 'Error' });
   });
 });

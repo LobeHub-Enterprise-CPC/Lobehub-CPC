@@ -1,5 +1,6 @@
 // @vitest-environment node
 import type { TaskItem } from '@lobechat/types';
+import { DATABASE_ERROR_PUBLIC_MESSAGE } from '@lobechat/utils/queryError';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TaskLifecycleService } from './index';
@@ -618,6 +619,25 @@ describe('TaskLifecycleService.onTopicComplete', () => {
       });
 
       expect(updateStatus).toHaveBeenCalledWith('task-1', 'paused', { error: 'boom' });
+    });
+
+    it('stores no SQL in tasks.error for a database failure', async () => {
+      findById.mockResolvedValue(baseTask({ automationMode: 'schedule', status: 'running' }));
+
+      await service.onTopicComplete({
+        errorMessage:
+          'Failed query: select "id" from "messages" where "id" = $1\nparams: msg_q9Utuc2kAGXSkuMutD',
+        operationId: 'op-1',
+        reason: 'error',
+        runTrigger: 'schedule',
+        taskId: 'task-1',
+        taskIdentifier: 'TASK-1',
+        topicId: 'topic-1',
+      });
+
+      expect(updateStatus).toHaveBeenCalledWith('task-1', 'scheduled', {
+        error: DATABASE_ERROR_PUBLIC_MESSAGE,
+      });
     });
 
     it('manual run of a schedule task fails → restored to scheduled, NOT paused', async () => {

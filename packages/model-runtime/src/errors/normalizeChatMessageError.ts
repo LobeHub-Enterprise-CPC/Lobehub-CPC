@@ -1,5 +1,6 @@
 import { AgentRuntimeErrorType, ChatErrorType, type ChatMessageError } from '@lobechat/types';
 import { isRecord } from '@lobechat/utils/object';
+import { containsQueryDetail, DATABASE_ERROR_PUBLIC_MESSAGE } from '@lobechat/utils/queryError';
 
 import { refineErrorCode } from './refine';
 import { getErrorCodeSpec } from './specs';
@@ -117,18 +118,6 @@ const buildPayloadBody = (
 };
 
 /**
- * Cap a stack before it lands in `agent_operations.error` / trace snapshots.
- * The top frames identify the throw site; the rest is runtime plumbing that
- * would only bloat every stored error row.
- */
-const STACK_MAX_CHARS = 1000;
-
-const truncateStack = (stack: string | undefined): string | undefined => {
-  if (!stack) return undefined;
-  return stack.length > STACK_MAX_CHARS ? `${stack.slice(0, STACK_MAX_CHARS)}…` : stack;
-};
-
-/**
  * Merge classification metadata from `ERROR_CODE_SPECS` onto a normalized
  * `ChatMessageError`. Codes that aren't in the spec table (fallbacks like
  * `InternalServerError`, or numeric ChatErrorType values) pass through
@@ -138,7 +127,7 @@ const truncateStack = (stack: string | undefined): string | undefined => {
  * JSONB, S3 trace snapshots, agent-gateway WS push, dashboards) all get the
  * same shape without re-running pattern matching themselves.
  */
-const enrichWithSpec = (formatted: ChatMessageError): ChatMessageError => {
+const classify = (formatted: ChatMessageError): ChatMessageError => {
   // Generic `ProviderBizError` is re-derived from the message / HTTP status into
   // a more specific code before enrichment, so the catch-all doesn't swallow
   // rate-limits, network drops, quota, etc. Specific codes pass through.
@@ -169,6 +158,41 @@ const enrichWithSpec = (formatted: ChatMessageError): ChatMessageError => {
     type,
   };
 };
+
+const hasQueryDetail = (value: unknown, depth = 0): boolean => {
+  if (containsQueryDetail(value)) return true;
+  if (!isRecord(value) || depth > 5) return false;
+  return Object.values(value).some((nested) => hasQueryDetail(nested, depth + 1));
+};
+
+/**
+ * The normalized error is stored on the message and returned to the client as
+ * is, so a Drizzle `Failed query: <sql> params: <values>` must not survive in
+ * `message` or anywhere in `body`. The classified `type` stays, so the UI still
+ * shows its localized copy; the raw text belongs in server logs.
+ */
+const redactQueryDetail = (formatted: ChatMessageError): ChatMessageError => {
+  if (
+    formatted.type !== AgentRuntimeErrorType.DatabasePersistError &&
+    !hasQueryDetail(formatted.message) &&
+    !hasQueryDetail(formatted.body)
+  )
+    return formatted;
+
+  const { body, ...rest } = formatted;
+  const safeBody = isRecord(body)
+    ? Object.fromEntries(Object.entries(body).filter(([, value]) => !hasQueryDetail(value)))
+    : undefined;
+
+  return {
+    ...rest,
+    ...(safeBody && Object.keys(safeBody).length > 0 ? { body: safeBody } : {}),
+    message: DATABASE_ERROR_PUBLIC_MESSAGE,
+  };
+};
+
+const enrichWithSpec = (formatted: ChatMessageError): ChatMessageError =>
+  redactQueryDetail(classify(formatted));
 
 /**
  * Normalize an arbitrary thrown value into `ChatMessageError`, then attach
@@ -243,11 +267,9 @@ export const normalizeChatMessageError = (error: unknown): ChatMessageError => {
   }
 
   if (error instanceof Error) {
-    // Unclassified harness throw: nothing upstream recognized it, so `name` +
-    // `message` are all the triage signal there is — and for a `SyntaxError`
-    // out of some `JSON.parse` those two say nothing about WHERE it blew up.
-    // Persist a bounded stack so a recurring 500 is locatable from the stored
-    // operation instead of needing a live repro.
+    // Unclassified harness throw. The stack stays out of `body`: this object is
+    // stored on the message and rendered in its error details, so server file
+    // paths would reach the user. The server logs the throw site instead.
     // Error hooks attach display fields such as `traceId` through `_responseBody` — also on
     // plain Errors, e.g. a provider stream that fails with `TypeError: terminated`.
     const responseBody = (error as { _responseBody?: unknown })._responseBody;
@@ -255,7 +277,6 @@ export const normalizeChatMessageError = (error: unknown): ChatMessageError => {
       body: {
         ...(isRecord(responseBody) ? responseBody : {}),
         name: error.name,
-        stack: truncateStack(error.stack),
       },
       message: error.message,
       type: ChatErrorType.InternalServerError,

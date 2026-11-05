@@ -2,32 +2,63 @@ import { normalizeHeterogeneousMessageError } from '@lobechat/heterogeneous-agen
 import { normalizeChatMessageError } from '@lobechat/model-runtime/errors';
 import type { ChatErrorBudgetContext, ChatMessageError } from '@lobechat/types';
 import { isRecord } from '@lobechat/utils/object';
+import { DATABASE_ERROR_PUBLIC_MESSAGE } from '@lobechat/utils/queryError';
 
-import { formatPgError, pgErrorType, unwrapPgError } from './pgError';
+import { type PgErrorInfo, pgErrorType, unwrapPgError } from './pgError';
 
-/** Add server-only database diagnostics before shared message normalization. */
+const LOGGED_INTERNAL_ERRORS = new WeakSet<Error>();
+
+/**
+ * The stored error is user-visible, so an internal throw keeps its stack, SQL
+ * and driver detail only here: one JSON line per thrown error (the runtime
+ * re-normalizes the same error several times on its way to the message).
+ */
+export const logInternalError = (error: Error, type: unknown, pg?: PgErrorInfo) => {
+  if (LOGGED_INTERNAL_ERRORS.has(error)) return;
+  LOGGED_INTERNAL_ERRORS.add(error);
+  const cause = (error as { cause?: unknown }).cause;
+  console.error(
+    JSON.stringify({
+      cause:
+        cause instanceof Error ? cause.message : cause === undefined ? undefined : String(cause),
+      event: 'agent_runtime.internal_error',
+      message: error.message,
+      name: error.name,
+      pg,
+      stack: error.stack,
+      type,
+    }),
+  );
+};
+
+/**
+ * Normalize a thrown value into the stored `ChatMessageError`. Database errors
+ * keep only their SQLSTATE bucket (`pg_<code>`) and a generic message.
+ */
 export const formatErrorForState = (error: unknown): ChatMessageError => {
   if (error instanceof Error) {
     const pg = unwrapPgError(error);
     if (pg) {
+      const type = pgErrorType(pg) as ChatMessageError['type'];
+      logInternalError(error, type, pg);
       return {
         attribution: 'harness',
-        body: {
-          name: error.name,
-          pg,
-          wrappedMessage: error.message,
-        },
+        body: { name: error.name, pgCode: pg.code },
         category: 'stream',
         countAsFailure: true,
         httpStatus: 500,
-        message: formatPgError(pg),
+        message: DATABASE_ERROR_PUBLIC_MESSAGE,
         retryable: false,
         severity: 'error',
-        type: pgErrorType(pg) as ChatMessageError['type'],
+        type,
       };
     }
   }
-  return normalizeHeterogeneousMessageError(normalizeChatMessageError(error));
+  const formatted = normalizeHeterogeneousMessageError(normalizeChatMessageError(error));
+  if (error instanceof Error && formatted.attribution !== 'provider') {
+    logInternalError(error, formatted.type);
+  }
+  return formatted;
 };
 
 const readFiniteNumber = (value: unknown): number | undefined =>

@@ -4,6 +4,7 @@ import { BriefIdentifier } from '@lobechat/builtin-tool-brief';
 import { INBOX_SESSION_ID } from '@lobechat/const';
 import type { ExecAgentResult, TaskItem, TaskRunTrigger } from '@lobechat/types';
 import { getHeterogeneousTaskModelProvider, readTaskExecutionConfig } from '@lobechat/types';
+import { toPublicErrorText } from '@lobechat/utils/queryError';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 
@@ -485,7 +486,8 @@ export class TaskRunnerService {
         try {
           const failedTask = await this.taskModel.resolve(idOrIdentifier);
           if (failedTask && failedTask.status === 'running') {
-            const errorText = error instanceof Error ? error.message : 'Unknown error';
+            const errorText =
+              error instanceof Error ? toPublicErrorText(error.message) : 'Unknown error';
             // A failed kickoff must not kill an automation task's schedule: the
             // scheduling state is not a per-run health signal. Restore the
             // resting 'scheduled' state so the next tick still fires (this is
@@ -559,7 +561,8 @@ export class TaskRunnerService {
       } catch (error) {
         // Archived after discovery: the runner refused it, nothing failed.
         if (error instanceof TRPCError && error.code === 'PRECONDITION_FAILED') continue;
-        const message = error instanceof Error ? error.message : 'Failed to start task';
+        const message =
+          error instanceof Error ? toPublicErrorText(error.message) : 'Failed to start task';
         log('cascadeOnCompletion: runTask failed for %s: %s', task.identifier, message);
         // Best-effort: mark as paused so the user can see why it didn't run.
         try {
