@@ -37,6 +37,8 @@ export interface WorkflowEnvelope {
     runId: string;
     /** 0 for the trigger, +1 for every continuation. */
     seq: number;
+    /** Deliveries in a row turned away for a flow-control slot; sets the next backoff. */
+    throttled?: number;
     /** Absolute address of the route serving this run. */
     url: string;
     v: 1;

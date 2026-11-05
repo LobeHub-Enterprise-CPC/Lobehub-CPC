@@ -17,8 +17,19 @@ const LEASE_MS = 90_000;
 const RENEW_EVERY_MS = 30_000;
 /** After this much work in one delivery, the next step boundary hands over to a fresh delivery. */
 const DELIVERY_BUDGET_MS = 5 * 60_000;
-/** How long a throttled run waits before it asks for a slot again. */
-const THROTTLE_RETRY_MS = 5000;
+/**
+ * A run turned away for a flow-control slot asks again after a backoff that doubles from
+ * the base up to the cap. Every retry is a new queued delivery, so a fixed short retry turns
+ * thousands of waiting runs into tens of thousands of deliveries a minute.
+ */
+const THROTTLE_BASE_MS = 5000;
+const THROTTLE_MAX_MS = 5 * 60_000;
+
+/** The wait before the next slot request, jittered over its upper half so waiters spread out. */
+const throttleBackoffMs = (throttled: number) => {
+  const cap = Math.min(THROTTLE_MAX_MS, THROTTLE_BASE_MS * 2 ** throttled);
+  return cap / 2 + (Math.random() * cap) / 2;
+};
 
 type Duration = number | `${number}${'d' | 'h' | 'm' | 's'}`;
 
@@ -221,17 +232,20 @@ const parseDefault = (raw: string): unknown => {
 const nonRetryable = (c: Context, error: string, status: number) =>
   c.json({ error }, status as 400, { 'Upstash-NonRetryable-Error': 'true' });
 
-/** Holds the flow-control slots and rate a delivery needs, or reports how long to wait. */
+/**
+ * Holds the flow-control slots and rate a delivery needs. Otherwise reports that a slot is
+ * full, or how long until the rate allows another start.
+ */
 const acquireFlowControl = async (
   store: WorkflowStore,
   controls: FlowControl[],
   token: string,
-): Promise<{ held: string[]; waitMs: number }> => {
+): Promise<{ held: string[]; slotFull?: true; waitMs: number }> => {
   const held: string[] = [];
   for (const control of controls) {
     if (control.parallelism) {
       if (!(await store.acquireSlot(control.key, token, control.parallelism, LEASE_MS)))
-        return { held, waitMs: THROTTLE_RETRY_MS };
+        return { held, slotFull: true, waitMs: 0 };
       held.push(control.key);
     }
     const rate = control.rate ?? control.ratePerSecond;
@@ -263,9 +277,11 @@ const reportToParent = async (
   }
   await store.saveStep(parent.runId, parent.stepKey, encode(result));
   const parentEnvelope = JSON.parse(stored) as WorkflowEnvelope;
+  // The parent held its slots when it invoked; resuming starts its backoff over.
+  const { throttled: _throttled, ...workflow } = parentEnvelope.workflow;
   await publishEnvelope({
     ...parentEnvelope,
-    workflow: { ...parentEnvelope.workflow, seq: parentEnvelope.workflow.seq + 1 },
+    workflow: { ...workflow, seq: workflow.seq + 1 },
   });
 };
 
@@ -307,11 +323,17 @@ const handle = async <TPayload, TResult>(
   }, RENEW_EVERY_MS);
   renew.unref?.();
 
-  const continueLater = async (delayMs: number) =>
-    publishEnvelope(
-      { ...envelope, workflow: { ...envelope.workflow, seq: envelope.workflow.seq + 1 } },
+  /** Publishes the next delivery; only a delivery still waiting for a slot carries `throttled`. */
+  const continueLater = async (delayMs: number, throttled?: number) => {
+    const { throttled: _previous, ...workflow } = envelope.workflow;
+    return publishEnvelope(
+      {
+        ...envelope,
+        workflow: { ...workflow, seq: workflow.seq + 1, ...(throttled ? { throttled } : {}) },
+      },
       delayMs > 0 ? Math.ceil(delayMs / 1000) : undefined,
     );
+  };
 
   let context: WorkflowContext<TPayload> | undefined;
   const payloadText = rawPayload(envelope.payload);
@@ -325,8 +347,14 @@ const handle = async <TPayload, TResult>(
     );
     const flow = await acquireFlowControl(store, controls, token);
     held = flow.held;
+    if (flow.slotFull) {
+      const throttled = envelope.workflow.throttled ?? 0;
+      await continueLater(throttleBackoffMs(throttled), throttled + 1);
+      return c.json({ runId, status: 'throttled' }, 202);
+    }
     if (flow.waitMs > 0) {
-      await continueLater(flow.waitMs);
+      // A rate wait is already exact; the run keeps its place in the slot backoff.
+      await continueLater(flow.waitMs, envelope.workflow.throttled);
       return c.json({ runId, status: 'throttled' }, 202);
     }
 
