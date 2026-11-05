@@ -138,6 +138,13 @@ container or Job with a durable `ES_REINDEX_STATE_DIR`; `--startup --yes` perfor
 version check, backfill, drain and promotion in one run. Failed namespace locks still require
 explicit recovery. Continuous sync remains a separate worker.
 
+Tenant provisioning creates the schema but neither capture nor indexes, so a tenant created after
+the initial backfill is rejected by sync with `capture infrastructure is not installed`. Onboard such
+tenants with `--apply --fresh-run --yes --new-tenants-only`: it selects the tenants without a
+checkpoint, installs capture as the schema owner (the reindex runs as the runtime role), then
+backfills. It is safe to schedule; tenants with a checkpoint are skipped, and `--fresh-run` still
+refuses a target whose aliases exist.
+
 For mapping changes, generation operations, repeat/resume behavior, or deployment integration, read
 [Mapping migration workflow](references/mapping-migrations.md). It routes to the public command guide
 and adds recovery, automation, and local Docker rehearsal rules.

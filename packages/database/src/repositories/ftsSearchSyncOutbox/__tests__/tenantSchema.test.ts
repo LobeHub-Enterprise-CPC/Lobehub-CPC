@@ -34,6 +34,10 @@ describe('FTS search sync capture in a tenant schema', () => {
     const pglite = await tenantDatabase();
     const repository = new FtsSearchSyncOutboxRepository(drizzle({ client: pglite }) as never);
 
+    // Provisioning migrates the schema but installs no capture: name that, not a version mismatch.
+    await expect(repository.assertCaptureInfrastructure()).rejects.toThrow(
+      'FTS search sync capture infrastructure is not installed',
+    );
     await repository.installCaptureInfrastructure();
     // Idempotent: a second deploy only validates the installed definition.
     await repository.installCaptureInfrastructure();
