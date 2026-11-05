@@ -120,6 +120,7 @@ export class UserPersonaExtractor extends BaseMemoryExtractor<
       {
         messages,
         model: this.model,
+        stream: true,
         tools: this.getTools(options || {}),
       },
       { metadata: { trigger: RequestTrigger.Memory } },

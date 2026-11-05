@@ -1,6 +1,7 @@
 import { MemorySourceType } from '@lobechat/types';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { ChatTopicResultRecorderOptions } from './chatTopic';
 import { LobeChatTopicContextProvider, LobeChatTopicResultRecorder } from './chatTopic';
 
 const job = {
@@ -84,10 +85,7 @@ describe('LobeChatTopicContextProvider previous conversation', () => {
 });
 
 describe('LobeChatTopicResultRecorder watermark', () => {
-  const recorderWith = (options: {
-    extractedThrough?: string;
-    previousExtractedThrough?: string;
-  }) => {
+  const recorderWith = (options: Partial<ChatTopicResultRecorderOptions>) => {
     const set = vi.fn(() => ({ where: vi.fn() }));
     const recorder = new LobeChatTopicResultRecorder({
       // Completed before the watermark existed: only lastMessageAt marks how far it got.
@@ -127,6 +125,55 @@ describe('LobeChatTopicResultRecorder watermark', () => {
     await recorder.recordFail(job, new Error('model returned invalid output'));
 
     expect(written().extractedThrough).toBe('2024-03-01T10:00:00.000Z');
+  });
+
+  it('counts consecutive failed runs on a conversation that has not moved', async () => {
+    const { recorder, written } = recorderWith({
+      currentMetadata: {
+        userMemoryExtractRunState: {
+          failedRuns: 2,
+          lastMessageAt: '2024-03-01T09:00:00.000Z',
+          lastRunAt: '2024-03-01T12:00:00.000Z',
+        },
+        userMemoryExtractStatus: 'failed',
+      },
+      lastMessageAt: '2024-03-01T09:00:00.000Z',
+    });
+
+    await recorder.recordFail(job, new Error('504 Gateway Time-out'));
+
+    expect(written().failedRuns).toBe(3);
+  });
+
+  it('starts the failure count over when new conversation arrived since the last run', async () => {
+    const { recorder, written } = recorderWith({
+      currentMetadata: {
+        userMemoryExtractRunState: { failedRuns: 4, lastRunAt: '2024-03-01T12:00:00.000Z' },
+        userMemoryExtractStatus: 'failed',
+      },
+      lastMessageAt: '2024-03-02T08:00:00.000Z',
+    });
+
+    await recorder.recordFail(job, new Error('504 Gateway Time-out'));
+
+    expect(written().failedRuns).toBe(1);
+  });
+
+  it('drops the failure count once a run succeeds', async () => {
+    const { recorder, written } = recorderWith({
+      currentMetadata: {
+        userMemoryExtractRunState: { failedRuns: 2 },
+        userMemoryExtractStatus: 'failed',
+      },
+    });
+
+    await recorder.recordComplete(job, {
+      createdIds: [],
+      layers: {},
+      processedMemoryCount: 0,
+    } as any);
+
+    expect(written()).not.toHaveProperty('failedRuns');
   });
 
   it('clears the error of an earlier failed run once a run succeeds', async () => {

@@ -62,6 +62,12 @@ describe('MemoryExtractionService session affinity', () => {
             : schemaName === 'identity_extraction'
               ? { add: [], remove: [], update: [] }
               : { memories: [] };
+        if (body.stream) {
+          const chunk = { choices: [{ delta: { content: JSON.stringify(result) }, index: 0 }] };
+          return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, {
+            headers: { 'content-type': 'text/event-stream' },
+          });
+        }
         return Response.json({
           choices: [
             {

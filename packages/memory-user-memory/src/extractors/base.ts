@@ -145,6 +145,9 @@ export abstract class BaseMemoryExtractor<
         messages,
         model: this.model,
         schema: this.getSchema(options as unknown as TExtractorTemplateProps),
+        // A long extraction on a slow model can pass a gateway's idle read timeout before the
+        // first byte of a non-streaming reply; streaming keeps the connection alive.
+        stream: true,
         tools: this.getTools(options as unknown as TExtractorTemplateProps),
       };
 

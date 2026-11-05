@@ -46,6 +46,11 @@ export interface TopicUserMemoryExtractRunState {
    * extracts messages created after it; a failed run leaves it where it was.
    */
   extractedThrough?: string;
+  /**
+   * Failed runs in a row since the conversation last moved; a success drops it. Unattended runs
+   * retry a failed topic only while it is within the automatic retry budget.
+   */
+  failedRuns?: number;
   lastMessageAt?: string;
   lastRunAt?: string;
   messageCount?: number;

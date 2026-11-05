@@ -97,6 +97,7 @@ import {
   convertChatCompletionToolToResponseTool,
   stripChatCompletionParameters,
 } from './responseTools';
+import { createStructuredCompletion } from './structuredCompletion';
 import {
   parseStructuredOutputText,
   parseStructuredToolArguments,
@@ -946,7 +947,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         type: 'function',
       };
 
-      const res = await this.client.chat.completions.create(
+      const res = await createStructuredCompletion(
+        this.client,
         this.withMappedRequestModel(
           this.handleGenerateObjectPayload(payload, {
             ...getGenerateObjectReasoningParams(payload),
@@ -959,12 +961,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           }),
           payload.model,
         ) as OpenAI.ChatCompletionCreateParamsNonStreaming,
-        { headers: options?.headers, signal: options?.signal },
+        { ...options, stream: payload.stream },
+        usagePayload,
       );
-
-      if (res.usage) {
-        await options?.onUsage?.(convertOpenAIUsage(res.usage, usagePayload));
-      }
 
       // Structural type keeps this compatible across openai SDK majors (v6
       // widened tool_calls to a function/custom union).
@@ -1081,7 +1080,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         log('calling chat.completions.create for structured output');
         let res: OpenAI.ChatCompletion;
         try {
-          res = await this.client.chat.completions.create(
+          res = await createStructuredCompletion(
+            this.client,
             this.withMappedRequestModel(
               this.handleGenerateObjectPayload(payload, {
                 ...getGenerateObjectReasoningParams(payload),
@@ -1093,7 +1093,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
               }),
               model,
             ) as OpenAI.ChatCompletionCreateParamsNonStreaming,
-            { headers: options?.headers, signal: options?.signal },
+            { ...options, stream: payload.stream },
+            usagePayload,
           );
         } catch (error) {
           // Gateways can serve json_schema-incapable upstreams under arbitrary
@@ -1104,9 +1105,6 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
           log('provider rejected json_schema response_format, retrying via tool calling');
           return await this.generateObjectViaToolCalling(payload, options, usagePayload);
-        }
-        if (res.usage) {
-          await options?.onUsage?.(convertOpenAIUsage(res.usage, usagePayload));
         }
 
         const text = res.choices?.[0]?.message?.content;
@@ -1687,7 +1685,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         thoughtSignatureScope,
       });
 
-      const res = await this.client.chat.completions.create(
+      const res = await createStructuredCompletion(
+        this.client,
         this.withMappedRequestModel(
           this.handleGenerateObjectPayload(payload, {
             ...getGenerateObjectReasoningParams(payload),
@@ -1700,12 +1699,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           }),
           payload.model,
         ) as OpenAI.ChatCompletionCreateParamsNonStreaming,
-        { headers: options?.headers, signal: options?.signal },
+        { ...options, stream: payload.stream },
+        usagePayload,
       );
-
-      if (res.usage) {
-        await options?.onUsage?.(convertOpenAIUsage(res.usage, usagePayload));
-      }
 
       const toolCalls = res.choices?.[0]?.message?.tool_calls;
       if (!toolCalls?.length) throw new StructuredOutputError('no tool calls returned');

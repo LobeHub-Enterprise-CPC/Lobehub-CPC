@@ -27,6 +27,12 @@ export interface GenerateObjectPayload {
   reasoning_effort?: ChatStreamPayload['reasoning_effort'];
   responseApi?: boolean;
   schema?: GenerateObjectSchema;
+  /**
+   * Stream the reply and assemble the object from it. For long generations behind a gateway
+   * that closes connections idle past its read timeout; providers without a streaming
+   * structured-output path ignore it.
+   */
+  stream?: boolean;
   thinking?: ChatStreamPayload['thinking'];
   tools?: ChatCompletionTool[];
 }
