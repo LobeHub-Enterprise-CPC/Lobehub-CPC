@@ -91,14 +91,16 @@ describe('TempFileManager', () => {
     expect(rmSync).not.toHaveBeenCalled();
   });
 
-  it('should register cleanup hooks on process events', () => {
-    const processOnSpy = vi.spyOn(process, 'on');
+  it('leaves process signals, exceptions and exit to the server', () => {
+    // A SIGTERM listener that exits would cut the tenant lease's drain short: the
+    // pod dies at once and Hatchet re-runs every task it held, paid model calls included.
+    const events = ['SIGTERM', 'SIGINT', 'uncaughtException', 'exit'] as const;
+    const before = events.map((event) => process.listenerCount(event));
+
+    new TempFileManager(mockDirname);
     new TempFileManager(mockDirname);
 
-    expect(processOnSpy).toHaveBeenCalledWith('exit', expect.any(Function));
-    expect(processOnSpy).toHaveBeenCalledWith('uncaughtException', expect.any(Function));
-    expect(processOnSpy).toHaveBeenCalledWith('SIGINT', expect.any(Function));
-    expect(processOnSpy).toHaveBeenCalledWith('SIGTERM', expect.any(Function));
+    expect(events.map((event) => process.listenerCount(event))).toEqual(before);
   });
 });
 

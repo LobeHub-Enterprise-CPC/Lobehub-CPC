@@ -38,8 +38,14 @@ const PAUSE_ATTEMPT_TIMEOUT_MS = 2000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Pause before SDK shutdown snapshots its in-flight tasks. REST can hang. */
-const pauseBeforeStop = async (worker: { name: string; pause: () => Promise<unknown> }) => {
+/**
+ * Pause before SDK shutdown snapshots its in-flight tasks. REST can hang.
+ * Resolves whether the engine stopped assigning to this worker.
+ */
+const pauseBeforeStop = async (worker: {
+  name: string;
+  pause: () => Promise<unknown>;
+}): Promise<boolean> => {
   const deadline = Date.now() + PAUSE_BUDGET_MS;
   while (Date.now() < deadline) {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -53,7 +59,7 @@ const pauseBeforeStop = async (worker: { name: string; pause: () => Promise<unkn
           );
         }),
       ]);
-      return;
+      return true;
     } catch {
       const remaining = deadline - Date.now();
       if (remaining > 0) await sleep(Math.min(PAUSE_RETRY_MS, remaining));
@@ -62,6 +68,7 @@ const pauseBeforeStop = async (worker: { name: string; pause: () => Promise<unkn
     }
   }
   console.warn({ event: 'hatchet.worker.pause_failed', worker: worker.name });
+  return false;
 };
 
 /**
@@ -191,8 +198,6 @@ const orUndefined = async <T>(what: string, fn: () => Promise<T>): Promise<T | u
 interface Role {
   /** Accepted actions not finished yet, of this role's current and earlier workers. */
   pending: Set<Promise<unknown>>;
-  /** The current worker's start(): settles once its receive loop has ended. */
-  receiver?: Promise<void>;
   /** Registers a worker for this role; undefined once the process drains. */
   register: () => Promise<HatchetWorker | undefined>;
   worker: HatchetWorker;
@@ -207,7 +212,7 @@ interface Role {
 const run = (role: Role, worker: HatchetWorker): void => {
   // Track the whole action, including the dispatcher completion acknowledgement.
   // SDK 1.45's stop snapshots futures while the receive loop is still live;
-  // a buffered action delivered afterwards can otherwise outlive unregister.
+  // drain waits for an action delivered after that snapshot through this set.
   const handleAction = worker._internal.handleAction.bind(worker._internal);
   worker._internal.handleAction = (action) => {
     const result = handleAction(action);
@@ -217,7 +222,7 @@ const run = (role: Role, worker: HatchetWorker): void => {
     return result;
   };
   role.worker = worker;
-  role.receiver = withoutSdkSignalHandlers(() => worker.start()).catch((error: unknown) => {
+  void withoutSdkSignalHandlers(() => worker.start()).catch((error: unknown) => {
     console.error('[Hatchet] worker stopped', error);
     if (isDrainingAgentSteps()) return;
     console.info({ event: 'hatchet.worker.restarting', worker: worker.name });
@@ -300,16 +305,23 @@ export const startHatchetWorkers = (): void => {
       stop: async () => {
         if (!running) return;
         await Promise.allSettled(
-          roles.map(async ({ pending, receiver, worker }) => {
-            await pauseBeforeStop(worker);
-            // Close admission but keep the heartbeat and worker registration
-            // alive until every accepted action has sent its terminal event.
-            // killing also fences start() if listener registration is pending.
+          roles.map(async ({ pending, worker }) => {
+            // Pause is what stops new assignments. The action stream stays open
+            // until stop() so the heartbeat stays accepted and cancellations
+            // still arrive; with the stream closed, engine v0.114.2 rejects every
+            // heartbeat (it still records it) and nothing can be cancelled.
+            const paused = await pauseBeforeStop(worker);
+            // Fences start() if listener registration is still pending.
             worker._internal.killing = true;
-            worker._internal.listener?.stopStream();
-            await receiver;
+            // Unpaused, the engine keeps assigning: closing the stream is then
+            // the only way to stop admission.
+            if (!paused) worker._internal.listener?.stopStream();
             while (pending.size > 0) await Promise.allSettled(pending);
+            // Unregisters last: closes the stream, stops the heartbeat.
             await worker.stop();
+            // An assignment already in flight when pause took effect can reach
+            // the receive loop after the SDK's own in-flight snapshot.
+            while (pending.size > 0) await Promise.allSettled(pending);
             console.info({ event: 'hatchet.worker.stopped', worker: worker.name });
           }),
         );
