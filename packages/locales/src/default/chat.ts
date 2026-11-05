@@ -1098,6 +1098,7 @@ export default {
   'input.modelFixedTip':
     'The model is fixed in the Agent Profile and cannot be switched while chatting.',
   'input.modelDisabled': 'The current model is disabled',
+  'input.modelDisabled.label': 'Model disabled',
   'input.modelDisabled.action': 'Enable',
   'input.modelDisabled.actionFailed': 'Failed to enable the model. Please try again.',
   'input.modelDisabled.selectionFailed':
