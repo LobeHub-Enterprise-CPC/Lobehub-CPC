@@ -54,6 +54,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   vi.useRealTimers();
 });
@@ -270,6 +271,78 @@ describe('workflow runtime', () => {
     release();
     expect(await (await running).json()).toMatchObject({ status: 'done' });
     expect(await (await deliver(app, retry)).json()).toMatchObject({ status: 'done' });
+  });
+
+  it('backs a throttled run off exponentially up to five minutes, and starts over once it gets in', async () => {
+    // Every throttled delivery is a new queued task: a fixed short retry turned thousands of
+    // waiting runs into tens of thousands of deliveries a minute and starved the server.
+    const key = unique('backoff');
+    let holders = 0;
+    let release = () => {};
+    const app = new Hono().post(
+      '/api/wf/backoff',
+      serve(async (context) => {
+        if ((context.requestPayload as { holder?: boolean } | undefined)?.holder) {
+          await context.run('hold', async () => {
+            holders += 1;
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          });
+          return;
+        }
+        await context.run('work', () => 'ok');
+        await context.sleep('rest', 1);
+        await context.run('after', () => 'ok');
+      }),
+    );
+    const trigger = async (body?: unknown) => {
+      await workflowClient.trigger({
+        body,
+        flowControl: { key, parallelism: 1 },
+        url: `${BASE}/api/wf/backoff`,
+      });
+      return lastPublished();
+    };
+    /** Starts a holder and resolves once it occupies the only slot. */
+    const hold = async () => {
+      const before = holders;
+      const holding = deliver(app, await trigger({ holder: true }));
+      await vi.waitFor(() => expect(holders).toBe(before + 1));
+      // Wrapped: returning the pending delivery itself would make `await hold()` wait for it.
+      return { holding };
+    };
+    /** Delivers `message` into a full slot, jitter pinned to its upper bound. */
+    const throttle = async (message: (typeof published)[number]) => {
+      const random = vi.spyOn(Math, 'random').mockReturnValue(0.999_999);
+      try {
+        expect(await (await deliver(app, message)).json()).toMatchObject({ status: 'throttled' });
+      } finally {
+        random.mockRestore();
+      }
+      return lastPublished();
+    };
+
+    let { holding } = await hold();
+    let retry = await throttle(await trigger());
+    const delays = [retry.delay];
+    for (let index = 0; index < 7; index += 1) {
+      retry = await throttle(retry);
+      delays.push(retry.delay);
+    }
+    expect(delays).toEqual([5, 10, 20, 40, 80, 160, 300, 300]);
+    expect(retry.body.workflow.seq).toBe(8);
+
+    release();
+    await holding;
+    // It gets in, works, then sleeps; its wake-up meets a new holder and waits from the start.
+    expect(await (await deliver(app, retry)).json()).toMatchObject({ status: 'suspended' });
+    const wake = lastPublished();
+    ({ holding } = await hold());
+    expect((await throttle(wake)).delay).toBe(5);
+
+    release();
+    await holding;
   });
 
   it('counts a flow-control key declared by both the trigger and the route once', async () => {
