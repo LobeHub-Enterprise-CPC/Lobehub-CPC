@@ -1900,6 +1900,16 @@ describe('TopicModel', () => {
           userId,
         },
       ]);
+      await serverDB.insert(messages).values(
+        ['mem-pending', 'mem-done'].map((topicId) => ({
+          content: 'hi',
+          createdAt: minutesAgo(30),
+          id: `msg-${topicId}`,
+          role: 'user',
+          topicId,
+          userId,
+        })),
+      );
 
       const pendingOnly = await topicModel.listTopicsForMemoryExtractor();
       expect(pendingOnly.map((t) => t.id)).toEqual(['mem-pending']);
@@ -1918,6 +1928,16 @@ describe('TopicModel', () => {
           userId,
         },
       ]);
+      await serverDB.insert(messages).values(
+        ['mem-1', 'mem-2'].map((topicId) => ({
+          content: 'hi',
+          createdAt: minutesAgo(30),
+          id: `msg-${topicId}`,
+          role: 'user',
+          topicId,
+          userId,
+        })),
+      );
 
       expect(await topicModel.countTopicsForMemoryExtractor()).toBe(1);
     });
