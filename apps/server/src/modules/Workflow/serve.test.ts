@@ -12,11 +12,15 @@ const published = vi.hoisted(
       deduplicationId?: string;
       headers?: Record<string, string>;
       retries?: number;
+      timeout?: number;
       url: string;
     }[],
 );
 
-vi.mock('@/server/modules/Hatchet/config', () => ({ isHatchetDeliveryEnabled: () => false }));
+vi.mock('@/server/modules/Hatchet/config', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  isHatchetDeliveryEnabled: () => false,
+}));
 vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
   getDirectDeliveryClient: () => ({
     messages: { delete: vi.fn() },
@@ -81,6 +85,8 @@ describe('workflow runtime', () => {
       deduplicationId: `${workflowRunId}:0`,
       headers: { traceparent: 't-1' },
       retries: 3,
+      // Long enough for a slow model call inside a step, so it is not redelivered mid-call.
+      timeout: 3600,
     });
 
     const response = await deliver(app, trigger);

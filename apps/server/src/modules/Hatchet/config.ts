@@ -28,7 +28,8 @@ const HOUR = 60 * MINUTE;
 export const HATCHET_TIMING = {
   /** Same dedup window as QStash. */
   dedupTtlMs: 10 * MINUTE,
-  deliveryExecutionTimeoutMs: 20 * MINUTE,
+  /** Covers the longest delivery attempt, a workflow step's (`workflowDeliveryHttpTimeoutMs`). */
+  deliveryExecutionTimeoutMs: 65 * MINUTE,
   /**
    * Per-attempt HTTP timeout of a direct delivery published without one. QStash
    * then allows the plan maximum, and some receivers (goal advance, widget
@@ -45,6 +46,14 @@ export const HATCHET_TIMING = {
   stepExecutionTimeoutMs: 65 * MINUTE,
   /** One `/run` invocation: 450s of inline steps plus the slowest single step, with margin. */
   stepHttpTimeoutMs: 60 * MINUTE,
+  /**
+   * Per-attempt HTTP timeout of a workflow delivery. A delivery runs steps for up to its 5-minute
+   * budget and then always finishes the step in progress, which can be a single slow model call
+   * (memory extraction of one conversation segment), so like a step attempt it has to cover the
+   * slowest call. A shorter timeout only redelivers the attempt into the run lock (HTTP 409)
+   * until its retries run out while the first attempt is still working.
+   */
+  workflowDeliveryHttpTimeoutMs: 60 * MINUTE,
 } as const;
 
 const positiveInt = (name: string, fallback: number): number => {
