@@ -14,10 +14,11 @@ import { pendingHostWorkCount, settleHostWork } from '@/server/utils/scheduleAft
 import { resolveDeliveryTarget } from './address';
 import { getHatchetClient } from './client';
 import { getHatchetCapacity } from './config';
+import { inProcessWorkCount, settleInProcessWork } from './inProcessWork';
 import { pendingPublishCount, settlePendingPublishes } from './pending';
 import { getScheduleTasks } from './schedules';
 import { getDeliverySigningKey } from './signature';
-import { getAgentStepTask, getDeliveryTask } from './tasks';
+import { getAgentStepTask, getDeliveryTask, getMemoryDeliveryTask } from './tasks';
 
 type Workflows = Extract<
   Parameters<ReturnType<typeof getHatchetClient>['worker']>[1],
@@ -196,6 +197,8 @@ const orUndefined = async <T>(what: string, fn: () => Promise<T>): Promise<T | u
 
 /** One kind of worker, steps or deliveries, and whichever worker currently serves it. */
 interface Role {
+  /** Whether the current worker is started and has not given up on the engine. */
+  active: boolean;
   /** Accepted actions not finished yet, of this role's current and earlier workers. */
   pending: Set<Promise<unknown>>;
   /** Registers a worker for this role; undefined once the process drains. */
@@ -222,7 +225,9 @@ const run = (role: Role, worker: HatchetWorker): void => {
     return result;
   };
   role.worker = worker;
+  role.active = true;
   void withoutSdkSignalHandlers(() => worker.start()).catch((error: unknown) => {
+    role.active = false;
     console.error('[Hatchet] worker stopped', error);
     if (isDrainingAgentSteps()) return;
     console.info({ event: 'hatchet.worker.restarting', worker: worker.name });
@@ -243,64 +248,57 @@ const run = (role: Role, worker: HatchetWorker): void => {
   console.info({ event: 'hatchet.worker.started', worker: worker.name });
 };
 
-let started = false;
+interface WorkerPlan {
+  name: string;
+  slots: number;
+  workflows: Workflows;
+}
+
+/** What a health check can ask of this process's workers. */
+export interface HatchetWorkersStatus {
+  /** Every worker is registered, started, and still connected as far as the SDK knows. */
+  isServing: () => boolean;
+}
+
+const registration = (plan: WorkerPlan) => () =>
+  retryUntilDraining(
+    () =>
+      orUndefined(`could not register ${plan.name}`, () =>
+        withoutSdkSignalHandlers(
+          () =>
+            getHatchetClient().worker(plan.name, {
+              handleKill: false,
+              slots: plan.slots,
+              workflows: plan.workflows,
+            }),
+          true,
+        ),
+      ),
+    WORKER_RETRY_MS,
+  );
 
 /**
- * Start this process's Hatchet workers without holding up server start: Next
- * awaits `register()` before it serves requests, and the workers must not take
- * a delivery before this very server answers on its loopback address.
- *
- * Creating a worker registers its task with the engine, which publishing a
- * run needs, so that happens first; the worker takes nothing until started.
- * The tenant process lease owns SIGTERM (drain → deregister → re-signal), so
- * it has to exist before the first delivery, and the drain participants are
- * registered before the workers can accept anything.
+ * Registers a worker per plan, then starts them once `untilReady` resolves true and the
+ * tenant process lease is held. The lease owns SIGTERM (drain → deregister → re-signal), so
+ * it has to exist before the first delivery, and the drain participants are registered
+ * before the workers can accept anything.
  */
-export const startHatchetWorkers = (): void => {
-  if (started) return;
-  // Every delivery to our own routes is signed with it, and every receiver checks it.
-  if (!getDeliverySigningKey()) throw new Error('DELIVERY_SIGNING_KEY is required in queue mode');
-  started = true;
-
-  // Post-response work and Hatchet publishes are waited for on shutdown even
-  // if the workers never come up: request handlers produce both.
-  registerDrainParticipant({
-    pending: () => pendingHostWorkCount() + pendingPublishCount(),
-    settle: async () => {
-      await Promise.all([settleHostWork(), settlePendingPublishes()]);
-    },
-  });
+const startWorkers = (
+  plans: WorkerPlan[],
+  untilReady: () => Promise<boolean | undefined>,
+): HatchetWorkersStatus => {
+  const roles: Role[] = [];
+  // A worker that was never started has nothing to stop.
+  let running = false;
 
   void (async () => {
-    const capacity = getHatchetCapacity();
-    const id = `${hostname()}-${process.pid}`;
-    const registration = (name: string, slots: number, workflows: Workflows) => () =>
-      retryUntilDraining(
-        () =>
-          orUndefined(`could not register ${name}`, () =>
-            withoutSdkSignalHandlers(
-              () => getHatchetClient().worker(name, { handleKill: false, slots, workflows }),
-              true,
-            ),
-          ),
-        WORKER_RETRY_MS,
-      );
-    const roles: Role[] = [];
-    for (const register of [
-      registration(`cpc-steps-${id}`, capacity.stepSlots, [getAgentStepTask()]),
-      // Recurring jobs only publish deliveries, so they share the delivery worker.
-      registration(`cpc-delivery-${id}`, capacity.deliverySlots, [
-        getDeliveryTask(),
-        ...getScheduleTasks(),
-      ]),
-    ]) {
+    for (const plan of plans) {
+      const register = registration(plan);
       const worker = await register();
       if (!worker) return;
-      roles.push({ pending: new Set(), register, worker });
+      roles.push({ active: false, pending: new Set(), register, worker });
     }
 
-    // A worker that was never started has nothing to stop.
-    let running = false;
     registerDrainParticipant({
       stop: async () => {
         if (!running) return;
@@ -328,18 +326,7 @@ export const startHatchetWorkers = (): void => {
       },
     });
 
-    let failedProbes = 0;
-    const ready = await retryUntilDraining(async () => {
-      const failure = await probeReady();
-      if (!failure) return true;
-      // Nothing is consumed until this server answers: say so at once, then periodically.
-      failedProbes += 1;
-      if ((failedProbes - 1) % READY_WARN_EVERY === 0)
-        console.warn({ event: 'hatchet.worker.not_ready', failedProbes, ...failure });
-      return undefined;
-    }, READY_POLL_MS);
-    if (!ready) return;
-    console.info({ event: 'hatchet.worker.loopback_ready', failedProbes });
+    if (!(await untilReady())) return;
 
     const leased = await retryUntilDraining(
       () =>
@@ -356,4 +343,97 @@ export const startHatchetWorkers = (): void => {
   })().catch((error) => {
     console.error('[Hatchet] failed to start workers', error);
   });
+
+  return {
+    isServing: () =>
+      running &&
+      !isDrainingAgentSteps() &&
+      roles.length === plans.length &&
+      roles.every((role) => role.active),
+  };
+};
+
+/** Requires the signing key and waits for publishes and post-response work on shutdown. */
+const prepare = (): void => {
+  // Every delivery to our own routes is signed with it, and every receiver checks it.
+  if (!getDeliverySigningKey()) throw new Error('DELIVERY_SIGNING_KEY is required in queue mode');
+
+  // Post-response work and Hatchet publishes are waited for on shutdown even
+  // if the workers never come up: request handlers produce both.
+  registerDrainParticipant({
+    pending: () => pendingHostWorkCount() + pendingPublishCount(),
+    settle: async () => {
+      await Promise.all([settleHostWork(), settlePendingPublishes()]);
+    },
+  });
+};
+
+const workerId = () => `${hostname()}-${process.pid}`;
+
+let started = false;
+
+/**
+ * Start this process's Hatchet workers without holding up server start: Next
+ * awaits `register()` before it serves requests, and the workers must not take
+ * a delivery before this very server answers on its loopback address.
+ *
+ * Creating a worker registers its task with the engine, which publishing a
+ * run needs, so that happens first; the worker takes nothing until started.
+ * Memory workflow deliveries routed to `cpc-memory-delivery` are not served
+ * here: the memory worker process takes them.
+ */
+export const startHatchetWorkers = (): void => {
+  if (started) return;
+  prepare();
+  started = true;
+
+  const capacity = getHatchetCapacity();
+  const id = workerId();
+  let failedProbes = 0;
+  startWorkers(
+    [
+      { name: `cpc-steps-${id}`, slots: capacity.stepSlots, workflows: [getAgentStepTask()] },
+      // Recurring jobs only publish deliveries, so they share the delivery worker.
+      {
+        name: `cpc-delivery-${id}`,
+        slots: capacity.deliverySlots,
+        workflows: [getDeliveryTask(), ...getScheduleTasks()],
+      },
+    ],
+    async () => {
+      const ready = await retryUntilDraining(async () => {
+        const failure = await probeReady();
+        if (!failure) return true;
+        // Nothing is consumed until this server answers: say so at once, then periodically.
+        failedProbes += 1;
+        if ((failedProbes - 1) % READY_WARN_EVERY === 0)
+          console.warn({ event: 'hatchet.worker.not_ready', failedProbes, ...failure });
+        return undefined;
+      }, READY_POLL_MS);
+      if (ready) console.info({ event: 'hatchet.worker.loopback_ready', failedProbes });
+      return ready;
+    },
+  );
+};
+
+/**
+ * The memory worker process: one worker for `cpc-memory-delivery`, which runs the
+ * memory routes in this process (`memoryDelivery.ts`), so there is no server to wait for.
+ */
+export const startMemoryDeliveryWorker = (): HatchetWorkersStatus => {
+  prepare();
+  registerDrainParticipant({
+    pending: inProcessWorkCount,
+    settle: settleInProcessWork,
+  });
+  return startWorkers(
+    [
+      {
+        name: `cpc-memory-${workerId()}`,
+        slots: getHatchetCapacity().memorySlots,
+        workflows: [getMemoryDeliveryTask()],
+      },
+    ],
+    async () => true,
+  );
 };

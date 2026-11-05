@@ -8,15 +8,25 @@ import { compileRetryDelay, defaultRetryDelayMs, parseRetryAfter } from './retry
 import { getDeliverySigningKey, signUpstashRequest } from './signature';
 import type { DeliveryAttempt, DeliveryInput, DeliveryOutcome } from './types';
 
-interface DeliveryDependencies {
-  env?: Parameters<typeof resolveDeliveryTarget>[1];
-  now?: () => number;
-  signingKey?: string;
-}
-
-interface DeliveryResponse {
+export interface DeliveryResponse {
   headers: Headers;
   status: number;
+}
+
+/** Sends a delivery to one of our own routes. */
+export type LoopbackTransport = (
+  url: URL,
+  headers: Headers,
+  body: string,
+  signal: AbortSignal,
+) => Promise<DeliveryResponse>;
+
+interface DeliveryDependencies {
+  env?: Parameters<typeof resolveDeliveryTarget>[1];
+  /** Serves our own routes in place of this pod's HTTP listener (the memory worker). */
+  loopback?: LoopbackTransport;
+  now?: () => number;
+  signingKey?: string;
 }
 
 const RESPONSE_LIMIT = 64 * 1024;
@@ -63,12 +73,7 @@ const deliveryHeaders = (
   return headers;
 };
 
-const loopbackRequest = (
-  url: URL,
-  headers: Headers,
-  body: string,
-  signal: AbortSignal,
-): Promise<DeliveryResponse> =>
+const loopbackRequest: LoopbackTransport = (url, headers, body, signal) =>
   new Promise((resolve, reject) => {
     // The self listener binds one resolved address. Racing address families
     // can discard its connected socket while a busy event loop delays readiness.
@@ -155,6 +160,8 @@ export const deliver = async (
         port: process.env.PORT ?? '3210',
       },
     );
+    // A process serving our routes itself never sends anything elsewhere.
+    if (deps.loopback && !target.loopback) throw new Error('Not one of our own routes');
     headers = deliveryHeaders(input, attempt, target.loopback ? signingKey : undefined, now());
     if (target.loopback) headers.set('Host', target.host);
   } catch {
@@ -167,7 +174,7 @@ export const deliver = async (
   let reason: string;
   try {
     response = target.loopback
-      ? await loopbackRequest(target.url, headers, input.body, controller.signal)
+      ? await (deps.loopback ?? loopbackRequest)(target.url, headers, input.body, controller.signal)
       : await externalRequest(target.url, headers, input.body, controller.signal);
     reason = 'HTTP ' + response.status;
   } catch (error) {

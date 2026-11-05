@@ -8,50 +8,79 @@ import {
 } from '@hatchet-dev/typescript-sdk/v1';
 
 import { getHatchetClient } from './client';
-import { AGENT_STEP_TASK, DELIVERY_TASK, HATCHET_TIMING } from './config';
+import { AGENT_STEP_TASK, DELIVERY_TASK, HATCHET_TIMING, MEMORY_DELIVERY_TASK } from './config';
 import { deliver } from './deliver';
 import { trackPublish } from './pending';
 import { compileRetryDelay } from './retryDelay';
-import { type DeliveryInput, MAX_MESSAGE_RETRIES, TASK_RETRIES } from './types';
+import {
+  type DeliveryAttempt,
+  type DeliveryInput,
+  type DeliveryOutcome,
+  MAX_MESSAGE_RETRIES,
+  TASK_RETRIES,
+} from './types';
 
 // The SDK requires JSON object types for run input and output, which an
 // interface cannot satisfy (it has no index signature), hence type aliases.
 type DeliveryTaskInput = Pick<DeliveryInput, keyof DeliveryInput>;
 type DeliveryTaskOutput = { status: number };
 
-const runDelivery = async (
-  input: DeliveryTaskInput,
-  ctx: Context<DeliveryTaskInput>,
-): Promise<DeliveryTaskOutput> => {
-  const outcome = await deliver(input, {
-    attempt: ctx.retryCount(),
-    messageId: ctx.taskRunExternalId(),
-  });
-  switch (outcome.kind) {
-    case 'delivered': {
-      return { status: outcome.status };
+type Deliver = (input: DeliveryInput, attempt: DeliveryAttempt) => Promise<DeliveryOutcome>;
+
+const runWith =
+  (send: Deliver) =>
+  async (
+    input: DeliveryTaskInput,
+    ctx: Context<DeliveryTaskInput>,
+  ): Promise<DeliveryTaskOutput> => {
+    const outcome = await send(input, {
+      attempt: ctx.retryCount(),
+      messageId: ctx.taskRunExternalId(),
+    });
+    switch (outcome.kind) {
+      case 'delivered': {
+        return { status: outcome.status };
+      }
+      case 'retry': {
+        throw new RetryAfterError(outcome.reason, { after: outcome.afterMs });
+      }
+      case 'failed': {
+        throw new NonRetryableError(outcome.reason);
+      }
     }
-    case 'retry': {
-      throw new RetryAfterError(outcome.reason, { after: outcome.afterMs });
-    }
-    case 'failed': {
-      throw new NonRetryableError(outcome.reason);
-    }
-  }
-};
+  };
+
+const runDelivery = runWith(deliver);
 
 /**
- * Both tasks deliver one QStash-style message; they differ only in how long
- * an attempt may run or wait in the queue. `retries` is a ceiling:
- * each message's own budget is enforced by `deliver`.
+ * The memory worker runs the memory routes in its own process. Imported on first
+ * run: the routes publish through this module themselves.
+ */
+const runMemoryDelivery = runWith(async (input, attempt) => {
+  const { deliverMemoryInProcess } = await import('./memoryDelivery');
+  return deliverMemoryInProcess(input, attempt);
+});
+
+/**
+ * Every task delivers one QStash-style message; they differ in how long an
+ * attempt may run or wait in the queue, and the memory task in where it runs.
+ * `retries` is a ceiling: each message's own budget is enforced by `deliver`.
  */
 const declareDeliveryTask = (
   name: string,
-  { executionTimeoutMs, queueTimeoutMs }: { executionTimeoutMs: number; queueTimeoutMs: number },
+  {
+    executionTimeoutMs,
+    fn = runDelivery,
+    queueTimeoutMs,
+  }: {
+    executionTimeoutMs: number;
+    fn?: ReturnType<typeof runWith>;
+    queueTimeoutMs: number;
+  },
 ) =>
   getHatchetClient().task<DeliveryTaskInput, DeliveryTaskOutput>({
     executionTimeout: executionTimeoutMs,
-    fn: runDelivery,
+    fn,
     idempotency: {
       expression: 'input.dedupKey',
       strategy: 'ttl',
@@ -67,6 +96,7 @@ export type DeliveryTask = ReturnType<typeof declareDeliveryTask>;
 // Declared on first use: this module is imported in every mode, Hatchet or not.
 let agentStepTask: DeliveryTask | undefined;
 let deliveryTask: DeliveryTask | undefined;
+let memoryDeliveryTask: DeliveryTask | undefined;
 
 export const getAgentStepTask = (): DeliveryTask =>
   (agentStepTask ??= declareDeliveryTask(AGENT_STEP_TASK, {
@@ -77,6 +107,13 @@ export const getAgentStepTask = (): DeliveryTask =>
 export const getDeliveryTask = (): DeliveryTask =>
   (deliveryTask ??= declareDeliveryTask(DELIVERY_TASK, {
     executionTimeoutMs: HATCHET_TIMING.deliveryExecutionTimeoutMs,
+    queueTimeoutMs: HATCHET_TIMING.deliveryQueueTimeoutMs,
+  }));
+
+export const getMemoryDeliveryTask = (): DeliveryTask =>
+  (memoryDeliveryTask ??= declareDeliveryTask(MEMORY_DELIVERY_TASK, {
+    executionTimeoutMs: HATCHET_TIMING.deliveryExecutionTimeoutMs,
+    fn: runMemoryDelivery,
     queueTimeoutMs: HATCHET_TIMING.deliveryQueueTimeoutMs,
   }));
 

@@ -21,6 +21,16 @@ Confirm and record each item before enabling Hatchet delivery.
    - `agent.async_tool_resume.republished`, `agent.async_tool_resume.republish_exhausted`
    - `subagent.bridge.rejected`
 
+## Memory worker
+
+Memory workflow deliveries (`/orgs/{slug}/api/workflows/memory-user-memory/…`) run outside the web pods, so memory extraction scales and rolls out on its own:
+
+- In queue mode every publisher sends them to `cpc-memory-delivery`, and only `scripts/memory-worker.ts` serves that task: a queue-mode deployment without a memory worker extracts no memories, and its memory deliveries wait until they time out (24 hours). Local mode delivers in-process as before.
+- The memory worker runs the memory routes in its own process: it checks that the address is a memory workflow of this app and that its tenant slug is the run's `tenantKey`, enters the tenant as the route shell does, and answers through the same 2xx / 409 / non-retryable / 5xx mapping as an HTTP delivery. It needs everything memory extraction needs (database, Redis, model keys, Elasticsearch), `DELIVERY_SIGNING_KEY` and the Hatchet client settings, but no Next server.
+- `HATCHET_MEMORY_SLOTS` (default 20) caps the deliveries one memory worker runs at once. The task has no tenant concurrency; add replicas rather than slots when it backs up.
+- `/healthz` on `MEMORY_WORKER_PORT` (default 3212) answers 200 once the worker is registered and started and the tenant process lease is held. SIGTERM pauses the worker, waits for the deliveries it accepted (including a handler whose attempt already timed out), then deregisters and exits 0. Its termination grace needs the same 65-minute delivery cap as the web pods.
+- **First rollout**: start the memory worker and wait for `/healthz`, then roll the web pods. Old web pods keep delivering the memory runs they already published to `cpc-delivery`; one extraction run per user still holds across both (Redis user lease).
+
 ## Before enabling
 
 - Every tenant has applied tenant migration `0006_add_sub_agent_bridge`. In Hatchet mode the sub-agent bridge writes its binding before it schedules a child's first step, and fails without the table.
@@ -31,7 +41,7 @@ Hatchet holds work that no other mode can see, and the sub-agent bridge reconcil
 
 1. `cpc-agent-step` has no run in QUEUED, RUNNING or SCHEDULED.
 
-2. `cpc-delivery` has no run in QUEUED, RUNNING or SCHEDULED.
+2. `cpc-delivery` and `cpc-memory-delivery` have no run in QUEUED, RUNNING or SCHEDULED.
 
 3. For every tenant, this query returns no rows:
 

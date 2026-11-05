@@ -45,6 +45,7 @@ vi.mock('@/server/modules/Tenant/postgresClaims', () => ({
 vi.mock('./tasks', () => ({
   getAgentStepTask: () => ({ name: 'cpc-agent-step' }),
   getDeliveryTask: () => ({ name: 'cpc-delivery' }),
+  getMemoryDeliveryTask: () => ({ name: 'cpc-memory-delivery' }),
 }));
 
 vi.mock('./schedules', () => ({ getScheduleTasks: () => [{ name: 'cpc-cron-goal-sweep' }] }));
@@ -603,5 +604,82 @@ describe('startHatchetWorkers', () => {
     expect(mocks.workers).toHaveLength(2);
     expect(mocks.workers[1].stop).toHaveBeenCalledTimes(1);
     errorSpy.mockRestore();
+  });
+});
+
+describe('startMemoryDeliveryWorker', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    mocks.actionWork.mockReset();
+    mocks.actionWork.mockResolvedValue(undefined);
+    mocks.ensure.mockReset();
+    mocks.ensure.mockResolvedValue(undefined);
+    mocks.finishWorkers = [];
+    mocks.failWorkers = [];
+    mocks.failRegistrations = 0;
+    mocks.skipSdkRegistration = true;
+    mocks.duringRegistration = undefined;
+    Reflect.deleteProperty(globalThis, Symbol.for('lobehub.agentStepDrain'));
+    // No server in this process: a probe would fail, and must not be asked.
+    mocks.probeStatus = ['error', 'error', 'error'];
+    mocks.workers = [];
+    vi.stubEnv('DELIVERY_SIGNING_KEY', 'worker-test-key');
+  });
+
+  afterEach(async () => {
+    mocks.finishWorkers.forEach((finish) => finish());
+    await Promise.resolve();
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('serves only the memory task, without waiting for a web server', async () => {
+    const { worker } = await load();
+
+    const status = worker.startMemoryDeliveryWorker();
+    expect(status.isServing()).toBe(false);
+    await flush(10);
+
+    expect(mocks.workers.map((w) => w.name)).toEqual([expect.stringMatching(/^cpc-memory-/)]);
+    expect(mocks.ensure).toHaveBeenCalledTimes(1);
+    expect(mocks.workers[0].start).toHaveBeenCalledTimes(1);
+    expect(status.isServing()).toBe(true);
+  });
+
+  it('is not serving once its worker gives up on the engine, until the replacement starts', async () => {
+    const { worker } = await load();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const status = worker.startMemoryDeliveryWorker();
+    await flush(10);
+
+    mocks.failWorkers[0](new Error('listener gave up'));
+    await flush(10);
+    expect(status.isServing()).toBe(false);
+
+    await flush(5000);
+    expect(mocks.workers).toHaveLength(2);
+    expect(status.isServing()).toBe(true);
+    errorSpy.mockRestore();
+  });
+
+  it('drains in-process memory work before the lease is released', async () => {
+    const [{ drain, worker }, work] = await Promise.all([load(), import('./inProcessWork')]);
+    const status = worker.startMemoryDeliveryWorker();
+    await flush(10);
+
+    let finish!: () => void;
+    void work.trackInProcessWork(new Promise<void>((resolve) => (finish = resolve)));
+    let drained = false;
+    void drain.drainAgentSteps().then(() => (drained = true));
+    await flush(30_000);
+
+    expect(status.isServing()).toBe(false);
+    expect(mocks.workers[0].pause).toHaveBeenCalled();
+    expect(drained).toBe(false);
+    finish();
+    await flush(10);
+    expect(drained).toBe(true);
   });
 });

@@ -114,9 +114,14 @@ export const withTenantRequest =
     }
   };
 
-/** Same as {@link withTenantRequest} for a job whose tenant id came from a verified payload. */
-export const runInTenant = async <T>(tenantId: string, operation: () => Promise<T>): Promise<T> => {
-  const { scope, release } = await getTenantRuntime().enterTenantId(tenantId);
+type Entered = Awaited<ReturnType<ReturnType<typeof getTenantRuntime>['enterTenantId']>>;
+
+const runEntered = async <T>(
+  { scope, release }: Entered,
+  operation: () => Promise<T>,
+  close: (reason?: unknown) => void,
+): Promise<T> => {
+  const { tenantId } = scope;
   scope.trackWork = (resource) => getTenantLiveResources().bind(tenantId, resource);
   let finish!: () => void;
   const settled = new Promise<void>((resolve) => {
@@ -124,7 +129,7 @@ export const runInTenant = async <T>(tenantId: string, operation: () => Promise<
   });
   let unbind = () => {};
   try {
-    unbind = getTenantLiveResources().bind(tenantId, { close: () => {}, settled });
+    unbind = getTenantLiveResources().bind(tenantId, { close, settled });
     return await runWithTenantScope(scope, operation);
   } finally {
     finish();
@@ -132,3 +137,18 @@ export const runInTenant = async <T>(tenantId: string, operation: () => Promise<
     await release();
   }
 };
+
+/** Same as {@link withTenantRequest} for a job whose tenant id came from a verified payload. */
+export const runInTenant = async <T>(tenantId: string, operation: () => Promise<T>): Promise<T> =>
+  runEntered(await getTenantRuntime().enterTenantId(tenantId), operation, () => {});
+
+/**
+ * Same as {@link withTenantRequest} for a signed delivery served in-process (the memory
+ * worker): the tenant is the slug of the address it was published to. `close` runs when the
+ * tenant is frozen or taken offline while the operation is still running.
+ */
+export const runInTenantSlug = async <T>(
+  slug: string,
+  operation: () => Promise<T>,
+  close: (reason?: unknown) => void,
+): Promise<T> => runEntered(await getTenantRuntime().enterSlug(slug), operation, close);
