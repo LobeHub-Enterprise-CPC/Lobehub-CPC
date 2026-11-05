@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../../core/getTestDB';
@@ -346,6 +347,33 @@ describe('TopicModel - listTopicsForMemoryExtractor incremental extraction', () 
     });
 
     expect(total).toBe(2);
+  });
+
+  it('treats the watermark as covering its own message despite microsecond timestamps', async () => {
+    // Postgres keeps microseconds; the watermark is written from a JS Date, which keeps
+    // milliseconds. The message the watermark points at must not count as new.
+    await serverDB.insert(topics).values({
+      createdAt: new Date('2023-01-06'),
+      id: 'microseconds',
+      metadata: completed({ extractedThrough: '2023-01-10T00:00:00.123Z' }),
+      userId,
+    });
+    await serverDB.insert(messages).values({
+      createdAt: new Date('2023-01-10T00:00:00.123Z'),
+      id: 'f1',
+      role: 'user',
+      topicId: 'microseconds',
+      userId,
+    });
+    await serverDB.execute(
+      sql`UPDATE ${messages} SET created_at = '2023-01-10T00:00:00.123456Z' WHERE id = 'f1'`,
+    );
+
+    const result = await topicModel.listTopicsForMemoryExtractor({
+      settledBefore: new Date('2023-01-15'),
+    });
+
+    expect(result.map((topic) => topic.id)).not.toContain('microseconds');
   });
 
   it('waits until a message settles before treating it as new', async () => {

@@ -64,6 +64,9 @@ export const listTopicsForMemoryExtractor = async (
  * extracted has no watermark at all. Tool output is not
  * conversation and never makes a topic due.
  *
+ * The watermark comes from a JS Date (milliseconds) while Postgres keeps microseconds, so the
+ * message it names is compared at millisecond precision; otherwise it would always look new.
+ *
  * No null tests on computed expressions (see the note on TopicModel): a missing watermark
  * COALESCEs to '-infinity'.
  */
@@ -71,7 +74,7 @@ const hasConversationToExtract = (settledBefore?: Date) => sql`EXISTS (
   SELECT 1 FROM ${messages} AS m
   WHERE m.topic_id = ${topics.id}
     AND m.role IN ('user', 'assistant')
-    AND m.created_at > COALESCE(
+    AND date_trunc('milliseconds', m.created_at) > COALESCE(
       (${topics.metadata} #>> '{userMemoryExtractRunState,extractedThrough}')::timestamptz,
       CASE WHEN COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') = 'completed'
         THEN COALESCE(
