@@ -244,13 +244,13 @@ export interface TaskSchedulerContext {
   // re-arming until the user resolves the urgent brief. Manual "run now"
   // failures do NOT touch this counter.
   consecutiveFailures?: number;
+  /** Additional scheduled executions sharing an existing conversation, scoped to this window. */
+  reusedExecutions?: { window?: string; count: number };
   // ISO timestamp when the latest tick was scheduled. Informational only.
   scheduledAt?: string;
   // ISO timestamp opening the current schedule window: `maxExecutions` counts
   // schedule runs since it, and the dispatcher never fires an earlier occurrence.
   scheduleStartedAt?: string;
-  /** Additional scheduled executions sharing an existing conversation, scoped to this window. */
-  reusedExecutions?: { window?: string; count: number };
   // QStash messageId (or LocalScheduler scheduleId) for the next tick. Used to
   // cancel when the user wants an interval change to take effect immediately.
   tickMessageId?: string;
@@ -276,6 +276,8 @@ export interface TaskLifecycleAudit {
   // live `error` column.
   lastError?: {
     at: string;
+    /** The run's structured error type (e.g. `DatabasePersistError`), when it had one. */
+    errorType?: string;
     message: string;
     trigger?: TaskRunTrigger;
   };
@@ -605,7 +607,6 @@ export interface TaskRunVerifySummary {
 }
 
 export interface TaskDetailData {
-  projectId?: string | null;
   activities?: TaskDetailActivity[];
   agentId?: string | null;
   /** ISO time the user archived the task; null when it is not archived. */
@@ -622,6 +623,11 @@ export interface TaskDetailData {
   /** Rich-editor JSON state for the instruction; preserves details markdown drops (image size, etc.). */
   editorData?: unknown;
   error?: string | null;
+  /**
+   * Structured type of the failure in `error`, so the UI can show its localized
+   * copy; absent when `error` did not come from a typed run failure.
+   */
+  errorType?: string;
   /** Files attached to the task instruction (persistent context for every run). */
   files?: ChatFileItem[];
   /** The goal this task (or its nearest goal-bound ancestor) belongs to; null when none. */
@@ -641,6 +647,7 @@ export interface TaskDetailData {
   name?: string | null;
   parent?: { agentId?: string | null; identifier: string; name: string | null } | null;
   priority?: number | null;
+  projectId?: string | null;
   schedule?: {
     maxExecutions?: number | null;
     pattern?: string | null;

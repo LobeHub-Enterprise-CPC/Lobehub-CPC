@@ -361,6 +361,8 @@ export class TaskLifecycleService {
 
       // `tasks.error` and the lifecycle audit are shown on the task page.
       const errorText = toPublicErrorText(errorMessage) || 'Unknown error';
+      // The type lets the task page show its localized copy for this failure.
+      const failure = { errorType: errorCode, message: errorText };
 
       const runTrigger = params.runTrigger ?? 'manual';
       const isAutomationTick = runTrigger === 'schedule' || runTrigger === 'heartbeat';
@@ -375,7 +377,7 @@ export class TaskLifecycleService {
         // Task vanished mid-run — nothing to transition.
       } else if (!currentTask.automationMode) {
         // Ad-hoc / dependency task: pause for user attention (legacy behavior).
-        await this.recordAutomationError(currentTask, errorText, runTrigger);
+        await this.recordAutomationError(currentTask, failure, runTrigger);
         await this.taskModel.updateStatus(taskId, 'paused', { error: errorText });
       } else if (!isAutomationTick) {
         // a manual "run now" of an automation task failed. This is
@@ -384,7 +386,7 @@ export class TaskLifecycleService {
         // flipped it to 'running') so the next scheduled tick still fires, and
         // record the error for visibility — but do NOT pause and do NOT touch
         // the consecutive-failure fuse (only automation ticks count).
-        await this.recordAutomationError(currentTask, errorText, runTrigger);
+        await this.recordAutomationError(currentTask, failure, runTrigger);
         await this.taskModel.updateStatus(taskId, 'scheduled', { error: errorText });
       } else if (currentTask.automationMode === 'schedule') {
         // a scheduled tick failed. A single transient error must not
@@ -403,7 +405,7 @@ export class TaskLifecycleService {
             taskIdentifier,
             consecutiveFailures,
           );
-          await this.recordAutomationError(currentTask, errorText, runTrigger, {
+          await this.recordAutomationError(currentTask, failure, runTrigger, {
             consecutiveFailures,
             pauseReason: `${consecutiveFailures} consecutive scheduled-run failures`,
           });
@@ -415,7 +417,7 @@ export class TaskLifecycleService {
             consecutiveFailures,
             AUTOMATION_FAILURE_FUSE,
           );
-          await this.recordAutomationError(currentTask, errorText, runTrigger, {
+          await this.recordAutomationError(currentTask, failure, runTrigger, {
             consecutiveFailures,
           });
           await this.taskModel.updateStatus(taskId, 'scheduled', { error: errorText });
@@ -429,7 +431,7 @@ export class TaskLifecycleService {
         const ctx = (currentTask.context as { scheduler?: TaskSchedulerContext } | null) ?? {};
         scheduleConsecutiveFailures = (ctx.scheduler?.consecutiveFailures ?? 0) + 1;
         pausedByFuse = scheduleConsecutiveFailures >= AUTOMATION_FAILURE_FUSE;
-        await this.recordAutomationError(currentTask, errorText, runTrigger);
+        await this.recordAutomationError(currentTask, failure, runTrigger);
         await this.taskModel.updateStatus(taskId, 'scheduled', { error: errorText });
       }
 
@@ -630,7 +632,7 @@ export class TaskLifecycleService {
    */
   private async recordAutomationError(
     task: TaskItem,
-    errorText: string,
+    failure: { errorType?: string; message: string },
     trigger: TaskRunTrigger,
     extra?: { consecutiveFailures?: number; pauseReason?: string },
   ): Promise<void> {
@@ -639,7 +641,12 @@ export class TaskLifecycleService {
 
     const lifecycle: TaskLifecycleAudit = {
       errorCount: (ctx.lifecycle?.errorCount ?? 0) + 1,
-      lastError: { at: now, message: errorText, trigger },
+      lastError: {
+        at: now,
+        ...(failure.errorType ? { errorType: failure.errorType } : {}),
+        message: failure.message,
+        trigger,
+      },
     };
     if (extra?.pauseReason) {
       lifecycle.lastPausedAt = now;

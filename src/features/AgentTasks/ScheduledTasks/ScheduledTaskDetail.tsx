@@ -23,6 +23,7 @@ import { ScheduledRunRow } from './ScheduledRunRow';
 import { createScheduledTaskModal } from './ScheduledTaskForm';
 import { ScheduledTaskProperties } from './ScheduledTaskProperties';
 import { styles } from './style';
+import { getTaskErrorText } from './taskErrorText';
 
 export const ScheduledTaskDetail = ({
   compactActions = false,
@@ -42,6 +43,7 @@ export const ScheduledTaskDetail = ({
   taskId: string;
 }) => {
   const { t } = useTranslation('chat');
+  const { t: tError } = useTranslation(['error', 'modelRuntime']);
   const { error, isInitialLoading, isNotFound, onRetry } = useActiveTaskDetail(taskId);
   const detail = useTaskStore(taskDetailSelectors.activeTaskDetail);
 
@@ -126,7 +128,13 @@ export const ScheduledTaskDetail = ({
           type="error"
         />
       )}
-      {detail.error && <Alert showIcon title={detail.error} type="error" />}
+      {detail.error && (
+        <Alert
+          showIcon
+          title={getTaskErrorText(tError, detail.error, detail.errorType)}
+          type="error"
+        />
+      )}
       <Flexbox gap={8}>
         <Text fontSize={12} type="secondary">
           {t('scheduledTasks.description')}

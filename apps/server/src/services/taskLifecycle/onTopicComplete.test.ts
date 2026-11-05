@@ -640,6 +640,33 @@ describe('TaskLifecycleService.onTopicComplete', () => {
       });
     });
 
+    it('records the run error type next to the text, for the localized copy', async () => {
+      findById.mockResolvedValue(baseTask({ automationMode: 'schedule', status: 'running' }));
+
+      await service.onTopicComplete({
+        errorCode: 'DatabasePersistError',
+        errorMessage: DATABASE_ERROR_PUBLIC_MESSAGE,
+        operationId: 'op-1',
+        reason: 'error',
+        runTrigger: 'schedule',
+        taskId: 'task-1',
+        taskIdentifier: 'TASK-1',
+        topicId: 'topic-1',
+      });
+
+      expect(updateContext).toHaveBeenCalledWith(
+        'task-1',
+        expect.objectContaining({
+          lifecycle: expect.objectContaining({
+            lastError: expect.objectContaining({
+              errorType: 'DatabasePersistError',
+              message: DATABASE_ERROR_PUBLIC_MESSAGE,
+            }),
+          }),
+        }),
+      );
+    });
+
     it('manual run of a schedule task fails → restored to scheduled, NOT paused', async () => {
       const task = baseTask({ automationMode: 'schedule', status: 'running' });
       findById.mockResolvedValue(task);
