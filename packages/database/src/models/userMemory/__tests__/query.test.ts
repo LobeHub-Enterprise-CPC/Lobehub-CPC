@@ -449,6 +449,29 @@ describe('user memory query layer', () => {
       expect(ftsSearchCandidates).not.toHaveBeenCalled();
     });
 
+    it('does not fuzzy-match long context against the candidates either', async () => {
+      // Matching a whole conversation against every field of every candidate is synchronous
+      // work that grows with both, and long enough context stalled a server for seconds.
+      const queryModel = Reflect.get(memoryModel, 'queryModel') as {
+        searchActivitiesSemantic: (...args: unknown[]) => Promise<unknown[]>;
+      };
+      vi.spyOn(queryModel, 'searchActivitiesSemantic').mockResolvedValue([
+        { id: 'act-1', narrative: '对话', tags: [] },
+      ]);
+
+      const result = await memoryModel.searchMemory(
+        {
+          layers: [LayersEnum.Activity],
+          queries: ['对话'.repeat(200)],
+          topK: { activities: 2, contexts: 0, experiences: 0, identities: 0, preferences: 0 },
+        },
+        [[0.1, 0.2, 0.3]],
+      );
+
+      expect(result.activities.map((item) => item.id)).toEqual(['act-1']);
+      expect(result.meta.ranking.activities?.['act-1'].fuzzy).toBe(0);
+    });
+
     it('deduplicates contexts before applying the lexical candidate limit', async () => {
       const { memory: linkedMemoryOne } = await createContextPair({
         description: 'Atlas roadmap and staffing',
