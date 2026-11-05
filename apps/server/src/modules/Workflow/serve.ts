@@ -4,6 +4,7 @@ import debug from 'debug';
 import type { Context } from 'hono';
 
 import { getDeliverySigningKey, verifyDeliveryRequest } from '@/server/modules/Hatchet/signature';
+import { withActivity } from '@/server/modules/RuntimeActivity';
 
 import { publishEnvelope, triggerChild, type TriggerOptions } from './client';
 import { WorkflowAbort, WorkflowCanceled, WorkflowNonRetryableError } from './errors';
@@ -377,7 +378,13 @@ const handle = async <TPayload, TResult>(
 
     let result: TResult;
     try {
-      result = await routeFunction(context);
+      const routed = context;
+      result = await withActivity(
+        'workflow',
+        workflowLabel(envelope.workflow.url),
+        { attempt, runId, seq: envelope.workflow.seq },
+        () => routeFunction(routed),
+      );
     } finally {
       await context.settle();
     }
@@ -429,6 +436,15 @@ const handle = async <TPayload, TResult>(
       store.releaseLock(runId, token),
       ...held.map((key) => store.releaseSlot(key, token)),
     ]);
+  }
+};
+
+/** The route a delivery targets, without the host and tenant prefix, e.g. `memory-user-memory/…`. */
+const workflowLabel = (url: string) => {
+  try {
+    return new URL(url).pathname.replace(/^.*\/api\/workflows\//, '');
+  } catch {
+    return url;
   }
 };
 

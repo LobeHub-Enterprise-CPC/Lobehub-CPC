@@ -5,6 +5,7 @@ import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { type ListTopicsForMemoryExtractorCursor } from '@/database/models/topic';
 import { getServerDB } from '@/database/server';
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
+import { noteActivity } from '@/server/modules/RuntimeActivity';
 import { type WorkflowContext } from '@/server/modules/Workflow';
 import {
   type MemoryExtractionNormalizedPayload,
@@ -66,6 +67,13 @@ interface TopicOutcome {
   memoryCount: number;
 }
 
+/**
+ * One line per extracted segment and per user run, so what a run did (extracted, nothing new,
+ * skipped, failed) can be read from the logs instead of inferred from topic metadata.
+ */
+const logOutcome = (event: 'memory.run' | 'memory.topic', fields: Record<string, unknown>) =>
+  console.info(JSON.stringify({ event, ...fields }));
+
 interface UserOutcome {
   createdMemories: number;
   processedTopics: number;
@@ -117,13 +125,22 @@ export const processUserTopicsHandler = async (context: Context) => {
 
     if (!(await takeUserLease(context, userId, params))) {
       users[userId] = { skipped: 'another memory extraction run is working on this user' };
+      logOutcome('memory.run', { outcome: 'skipped:lease', runId: context.workflowRunId, userId });
       continue;
     }
 
+    noteActivity({ userId });
     const outcome = await processUser(context, params, userId, layers);
     await runStep(context, `memory:user-memory:extract:users:${userId}:release-lease`, () =>
       redisService.userMemoryExtractionLease.release(userId, context.workflowRunId),
     );
+    logOutcome('memory.run', {
+      memories: outcome.createdMemories,
+      outcome: outcome.stopped ? `stopped:${outcome.stopped}` : 'done',
+      runId: context.workflowRunId,
+      topics: outcome.processedTopics,
+      userId,
+    });
     if (outcome.stopped === 'guard') return GUARD_STOPPED;
     users[userId] = outcome;
   }
@@ -273,6 +290,22 @@ const extractTopicBacklog = async (
     if (!guard.result) return 'guard';
 
     const outcome = await runStep<TopicOutcome>(context, stepName, async () => {
+      noteActivity({ segment, topicId, userId });
+      const startedAt = Date.now();
+      const done = (topic: TopicOutcome, reason: string) => {
+        logOutcome('memory.topic', {
+          error: topic.error?.slice(0, 300),
+          hasMore: topic.hasMore,
+          memories: topic.memoryCount,
+          ms: Date.now() - startedAt,
+          outcome: reason,
+          runId: context.workflowRunId,
+          segment,
+          topicId,
+          userId,
+        });
+        return topic;
+      };
       try {
         const result = await executor.extractTopic({
           asyncTaskId: params.asyncTaskId,
@@ -289,13 +322,16 @@ const extractTopicBacklog = async (
           userInitiated: params.userInitiated,
           workspaceId: params.workspaceId,
         });
-        return {
-          extractedThrough: result.extractedThrough,
-          hasMore: result.hasMore,
-          memoryCount: result.memoryIds.length,
-        };
+        return done(
+          {
+            extractedThrough: result.extractedThrough,
+            hasMore: result.hasMore,
+            memoryCount: result.memoryIds.length,
+          },
+          result.extracted ? 'extracted' : (result.reason ?? 'not_extracted'),
+        );
       } catch (error) {
-        return { error: errorMessageFrom(error), failed: true, memoryCount: 0 };
+        return done({ error: errorMessageFrom(error), failed: true, memoryCount: 0 }, 'failed');
       }
     });
 
