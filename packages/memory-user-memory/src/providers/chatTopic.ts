@@ -172,8 +172,9 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
       traceId: this.options.traceId,
     };
 
-    // An earlier failed run left its error behind; a completed topic no longer has one.
+    // An earlier failed run left its error and count behind; a completed topic has neither.
     delete memoryExtraction.error;
+    delete memoryExtraction.failedRuns;
     memoryExtraction.extractedThrough = this.options.extractedThrough;
     memoryExtraction.lastMessageAt = this.options.lastMessageAt;
     memoryExtraction.lastRunAt = now;
@@ -206,6 +207,13 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
       traceId: this.options.traceId,
     };
 
+    // Count failures on the same conversation; new messages since the last run start it over.
+    const previousRunAt = existingMetadata.userMemoryExtractRunState?.lastRunAt;
+    const conversationMoved =
+      !!previousRunAt &&
+      !!this.options.lastMessageAt &&
+      new Date(this.options.lastMessageAt) > new Date(previousRunAt);
+    memoryExtraction.failedRuns = conversationMoved ? 1 : (memoryExtraction.failedRuns ?? 0) + 1;
     memoryExtraction.error = error.message;
     memoryExtraction.extractedThrough = this.options.previousExtractedThrough;
     memoryExtraction.lastMessageAt = this.options.lastMessageAt;

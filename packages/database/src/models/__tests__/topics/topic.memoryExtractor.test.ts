@@ -161,10 +161,18 @@ describe('TopicModel - listTopicsForMemoryExtractor', () => {
   });
 });
 
-describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages', () => {
-  const failedRun = (lastRunAt: string) => ({
-    userMemoryExtractRunState: { lastRunAt, status: 'failed' as const },
+describe('TopicModel - listTopicsForMemoryExtractor limitFailedRetries', () => {
+  const failedRun = (lastRunAt: string, failedRuns?: number) => ({
+    userMemoryExtractRunState: { failedRuns, lastRunAt },
     userMemoryExtractStatus: 'failed' as const,
+  });
+  const message = (id: string, topicId: string, createdAt: string) => ({
+    content: 'hi',
+    createdAt: new Date(createdAt),
+    id,
+    role: 'user' as const,
+    topicId,
+    userId,
   });
 
   beforeEach(async () => {
@@ -172,79 +180,58 @@ describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages
     await serverDB.insert(users).values({ id: userId });
     await serverDB.insert(topics).values([
       { createdAt: new Date('2023-01-01'), id: 'pending', metadata: {}, userId },
+      // Failed before the count existed: one failure so far, still within the budget.
       {
         createdAt: new Date('2023-01-02'),
-        id: 'failed-stale',
+        id: 'failed-uncounted',
         metadata: failedRun('2023-02-01T00:00:00.000Z'),
         userId,
       },
       {
         createdAt: new Date('2023-01-03'),
-        id: 'failed-active',
-        metadata: failedRun('2023-02-01T00:00:00.000Z'),
+        id: 'failed-last-retry',
+        metadata: failedRun('2023-02-01T00:00:00.000Z', 3),
         userId,
       },
       {
         createdAt: new Date('2023-01-04'),
-        id: 'failed-no-run-time',
-        metadata: { userMemoryExtractStatus: 'failed' },
+        id: 'failed-exhausted',
+        metadata: failedRun('2023-02-01T00:00:00.000Z', 4),
+        userId,
+      },
+      // Out of retries, but the user kept talking after the failed run.
+      {
+        createdAt: new Date('2023-01-05'),
+        id: 'failed-exhausted-active',
+        metadata: failedRun('2023-02-01T00:00:00.000Z', 9),
         userId,
       },
     ]);
-    await serverDB.insert(messages).values([
-      {
-        content: 'hi',
-        createdAt: new Date('2023-01-10'),
-        id: 'm-pending',
-        role: 'user',
-        topicId: 'pending',
-        userId,
-      },
-      {
-        content: 'hi',
-        createdAt: new Date('2023-01-10'),
-        id: 'm-no-run-time',
-        role: 'user',
-        topicId: 'failed-no-run-time',
-        userId,
-      },
-      {
-        content: 'hi',
-        createdAt: new Date('2023-01-15'),
-        id: 'm-stale',
-        role: 'user',
-        topicId: 'failed-stale',
-        userId,
-      },
-      {
-        content: 'hi',
-        createdAt: new Date('2023-01-15'),
-        id: 'm-active-old',
-        role: 'user',
-        topicId: 'failed-active',
-        userId,
-      },
-      {
-        content: 'hi',
-        createdAt: new Date('2023-02-02'),
-        id: 'm-active-new',
-        role: 'user',
-        topicId: 'failed-active',
-        userId,
-      },
-    ]);
+    await serverDB
+      .insert(messages)
+      .values([
+        message('m-pending', 'pending', '2023-01-10'),
+        message('m-uncounted', 'failed-uncounted', '2023-01-15'),
+        message('m-last-retry', 'failed-last-retry', '2023-01-15'),
+        message('m-exhausted', 'failed-exhausted', '2023-01-15'),
+        message('m-active-old', 'failed-exhausted-active', '2023-01-15'),
+        message('m-active-new', 'failed-exhausted-active', '2023-02-02'),
+      ]);
   });
 
   afterEach(async () => {
     await serverDB.delete(users);
   });
 
-  it('retries a failed topic only after it received a message since the failed run', async () => {
-    const result = await topicModel.listTopicsForMemoryExtractor({
-      skipFailedWithoutNewMessages: true,
-    });
+  it('retries a failed topic until its automatic retries run out, then only after new messages', async () => {
+    const result = await topicModel.listTopicsForMemoryExtractor({ limitFailedRetries: true });
 
-    expect(result.map((topic) => topic.id)).toEqual(['pending', 'failed-active']);
+    expect(result.map((topic) => topic.id)).toEqual([
+      'pending',
+      'failed-uncounted',
+      'failed-last-retry',
+      'failed-exhausted-active',
+    ]);
   });
 
   it('keeps every unfinished topic when the option is off', async () => {
@@ -252,9 +239,10 @@ describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages
 
     expect(result.map((topic) => topic.id)).toEqual([
       'pending',
-      'failed-stale',
-      'failed-active',
-      'failed-no-run-time',
+      'failed-uncounted',
+      'failed-last-retry',
+      'failed-exhausted',
+      'failed-exhausted-active',
     ]);
   });
 });

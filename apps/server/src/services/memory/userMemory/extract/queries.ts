@@ -178,7 +178,7 @@ export async function getTopicsForUser(
     limit: pageSize,
     // The same settle window extraction applies, so a listed topic has something to extract.
     settledBefore: new Date(Date.now() - MEMORY_EXTRACTION_WINDOW.settleMs),
-    skipFailedWithoutNewMessages: !(job.forceAll || job.forceTopics || job.userInitiated),
+    limitFailedRetries: !(job.forceAll || job.forceTopics || job.userInitiated),
     startDate: job.from,
   });
   if (!rows?.length) {

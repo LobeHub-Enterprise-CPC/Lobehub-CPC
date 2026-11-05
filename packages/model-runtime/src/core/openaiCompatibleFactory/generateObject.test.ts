@@ -308,3 +308,140 @@ describe('generateObject via Responses API', () => {
     expect(requestPayload.input).toEqual([{ content: 'Generate a handoff', role: 'user' }]);
   });
 });
+
+describe('generateObject streaming', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const createInstance = () => new TestRuntime({ apiKey: 'test' });
+
+  const streamOf = (chunks: unknown[]) => ({
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) yield chunk;
+    },
+  });
+
+  const usageChunk = {
+    choices: [],
+    usage: { completion_tokens: 7, prompt_tokens: 11, total_tokens: 18 },
+  };
+
+  it('should stream json_schema output and assemble it from content deltas', async () => {
+    const instance = createInstance();
+    const createMock = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue(
+        streamOf([
+          { choices: [{ delta: { content: '{"summary":"Task ' }, index: 0 }] },
+          { choices: [{ delta: { content: 'completed","title":"Done"}' }, index: 0 }] },
+          usageChunk,
+        ]) as any,
+      );
+    const onUsage = vi.fn();
+
+    const result = await instance.generateObject(
+      { ...generateObjectPayload, model: 'gpt-4o', responseApi: false, stream: true },
+      { onUsage },
+    );
+
+    const requestPayload = createMock.mock.calls[0][0] as any;
+    expect(requestPayload.stream).toBe(true);
+    expect(requestPayload.stream_options).toEqual({ include_usage: true });
+    expect(requestPayload.response_format).toEqual(
+      expect.objectContaining({ type: 'json_schema' }),
+    );
+    expect(result).toEqual({ summary: 'Task completed', title: 'Done' });
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    expect(onUsage.mock.calls[0][0]).toMatchObject({ totalInputTokens: 11, totalOutputTokens: 7 });
+  });
+
+  it('should stream forced tool calls and assemble the arguments from deltas', async () => {
+    const instance = createInstance();
+    const createMock = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue(
+        streamOf([
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    {
+                      function: { arguments: '', name: 'task_topic_handoff' },
+                      id: 'call_1',
+                      index: 0,
+                      type: 'function',
+                    },
+                  ],
+                },
+                index: 0,
+              },
+            ],
+          },
+          {
+            choices: [
+              {
+                delta: {
+                  tool_calls: [
+                    { function: { arguments: '{"summary":"Task completed",' }, index: 0 },
+                  ],
+                },
+                index: 0,
+              },
+            ],
+          },
+          {
+            choices: [
+              {
+                delta: { tool_calls: [{ function: { arguments: '"title":"Done"}' }, index: 0 }] },
+                index: 0,
+              },
+            ],
+          },
+          usageChunk,
+        ]) as any,
+      );
+    const onUsage = vi.fn();
+
+    const result = await instance.generateObject(
+      { ...generateObjectPayload, model: 'deepseek-v4-flash', stream: true },
+      { onUsage },
+    );
+
+    const requestPayload = createMock.mock.calls[0][0] as any;
+    expect(requestPayload.stream).toBe(true);
+    expect(requestPayload.tool_choice).toEqual({
+      function: { name: 'task_topic_handoff' },
+      type: 'function',
+    });
+    expect(result).toEqual({ summary: 'Task completed', title: 'Done' });
+    expect(onUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it('should keep the non-streaming request when stream is not requested', async () => {
+    const instance = createInstance();
+    const createMock = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue(toolCallResponse as any);
+
+    await instance.generateObject({ ...generateObjectPayload, model: 'deepseek-v4-flash' });
+
+    expect((createMock.mock.calls[0][0] as any).stream).toBeUndefined();
+  });
+
+  it('should fail when the stream ends without a tool call', async () => {
+    const instance = createInstance();
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue(
+      streamOf([{ choices: [{ delta: { content: 'no tools here' }, index: 0 }] }]) as any,
+    );
+
+    await expect(
+      instance.generateObject({
+        ...generateObjectPayload,
+        model: 'deepseek-v4-flash',
+        stream: true,
+      }),
+    ).rejects.toThrow(/no tool calls returned/);
+  });
+});

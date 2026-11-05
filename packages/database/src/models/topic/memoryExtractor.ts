@@ -12,12 +12,14 @@ export const listTopicsForMemoryExtractor = async (
     ignoreExtracted?: boolean;
     limit?: number;
     /**
-     * Leave out a topic whose last extraction failed unless a message arrived after
-     * that run. Unattended runs set this so a deterministic failure (an oversized
-     * conversation, a model that keeps returning invalid output) is not paid for
-     * again every hour; a user-initiated run still retries it.
+     * Retry a topic whose last extraction failed only while it has automatic retries left
+     * (`MEMORY_EXTRACTION_AUTO_RETRIES`), or once a message arrived after that run.
+     * Unattended runs set this so a transient failure (a gateway timeout, a provider
+     * outage) is made up for, while a deterministic one (an oversized conversation, a
+     * model that keeps returning invalid output) is not paid for again every hour; a
+     * user-initiated run still retries it.
      */
-    skipFailedWithoutNewMessages?: boolean;
+    limitFailedRetries?: boolean;
     /** Only messages created before this count as new, so a conversation still being written waits. */
     settledBefore?: Date;
     startDate?: Date;
@@ -50,7 +52,7 @@ export const listTopicsForMemoryExtractor = async (
       options.startDate ? gte(topics.createdAt, options.startDate) : undefined,
       options.endDate ? lte(topics.createdAt, options.endDate) : undefined,
       options.ignoreExtracted ? undefined : hasConversationToExtract(options.settledBefore),
-      options.skipFailedWithoutNewMessages ? retryableAfterFailure : undefined,
+      options.limitFailedRetries ? retryableAfterFailure : undefined,
       cursorCondition,
     ),
   });
@@ -89,13 +91,21 @@ const hasConversationToExtract = (settledBefore?: Date) => sql`EXISTS (
     ${settledBefore ? sql`AND m.created_at < ${settledBefore.toISOString()}::timestamptz` : sql``}
 )`;
 
+/**
+ * Automatic retries a failed topic gets on an unchanged conversation: one per unattended run
+ * (hourly), after which it waits for a new message.
+ */
+export const MEMORY_EXTRACTION_AUTO_RETRIES = 3;
+
 // The relational query builder renders column refs unqualified, so the subquery
 // names its columns through an alias. No null tests on computed expressions (see
-// the note on TopicModel): a failed run
-// without a recorded time compares against 'infinity', so it counts as having no
-// newer message.
+// the note on TopicModel): a failed run without a recorded time compares against
+// 'infinity', so it counts as having no newer message, and a failure recorded
+// before runs were counted counts as the first.
 const retryableAfterFailure = sql`NOT (
   COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') = 'failed'
+  AND COALESCE((${topics.metadata} #>> '{userMemoryExtractRunState,failedRuns}')::int, 1)
+    > ${MEMORY_EXTRACTION_AUTO_RETRIES}
   AND NOT EXISTS (
     SELECT 1 FROM ${messages} AS m
     WHERE m.topic_id = ${topics.id}
