@@ -145,6 +145,12 @@ checkpoint, installs capture as the schema owner (the reindex runs as the runtim
 backfills. It is safe to schedule; tenants with a checkpoint are skipped, and `--fresh-run` still
 refuses a target whose aliases exist.
 
+Tenant destruction drops the schema but not the search data. The same `--new-tenants-only` run removes
+what a destroyed tenant left behind: for every `tenant_destruction` row with `completed_at` (and not a
+live directory tenant), it deletes each index named `<namespace>-*` of that tenant, including the
+alias-less `-fts-search-control` index, and its state directory. Clean up by tenant namespace, never by
+alias, or the control index is missed.
+
 For mapping changes, generation operations, repeat/resume behavior, or deployment integration, read
 [Mapping migration workflow](references/mapping-migrations.md). It routes to the public command guide
 and adds recovery, automation, and local Docker rehearsal rules.
