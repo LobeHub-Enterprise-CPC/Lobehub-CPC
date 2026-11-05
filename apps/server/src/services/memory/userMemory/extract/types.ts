@@ -61,6 +61,11 @@ export interface TopicExtractionJob {
   from?: Date;
   layers: LayersEnum[];
   reportProgress?: boolean;
+  /**
+   * Watermark this run already reached on the topic, for its next segment. Without it the
+   * topic's stored watermark applies, or none when the run forces a full re-extraction.
+   */
+  resumeFrom?: string;
   source: MemorySourceType;
   to?: Date;
   topicId: string;

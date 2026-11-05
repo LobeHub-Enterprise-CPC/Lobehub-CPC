@@ -62,8 +62,9 @@ describe('processUsersHandler', () => {
       run: createStepRunner(),
     } as never);
 
+    // One process-user-topics run per user.
     expect(result).toEqual({
-      batches: 1,
+      batches: 2,
       dryRun: true,
       nextCursor: 'user-cursor',
       processedUsers: 2,

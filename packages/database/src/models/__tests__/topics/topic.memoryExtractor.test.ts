@@ -6,6 +6,7 @@ import type { LobeChatDatabase } from '../../../type';
 import { TopicModel } from '../../topic';
 
 const userId = 'topic-memory-extractor-user';
+const otherUserId = 'topic-memory-extractor-other-user';
 const serverDB: LobeChatDatabase = await getTestDB();
 const topicModel = new TopicModel(serverDB, userId);
 
@@ -19,28 +20,26 @@ describe('TopicModel - countTopicsForMemoryExtractor', () => {
     await serverDB.delete(users);
   });
 
-  it('counts only unextracted topics when ignoreExtracted is false (default behavior)', async () => {
+  it('counts only topics with conversation left to extract when ignoreExtracted is false', async () => {
     await serverDB.insert(topics).values([
-      {
-        id: 't1',
-        createdAt: new Date('2023-01-01'),
-        metadata: {},
-        userId,
-      },
+      { id: 't1', createdAt: new Date('2023-01-01'), metadata: {}, userId },
       {
         id: 't2',
         createdAt: new Date('2023-02-01'),
         metadata: {
+          userMemoryExtractRunState: { extractedThrough: '2023-02-02T00:00:00.000Z' },
           userMemoryExtractStatus: 'completed',
         },
         userId,
       },
-      {
-        id: 't3',
-        createdAt: new Date('2023-03-01'),
-        metadata: {},
-        userId,
-      },
+      { id: 't3', createdAt: new Date('2023-03-01'), metadata: {}, userId },
+      // No conversation at all: nothing to extract.
+      { id: 't4-empty', createdAt: new Date('2023-03-02'), metadata: {}, userId },
+    ]);
+    await serverDB.insert(messages).values([
+      { createdAt: new Date('2023-01-02'), id: 'm1', role: 'user', topicId: 't1', userId },
+      { createdAt: new Date('2023-02-02'), id: 'm2', role: 'user', topicId: 't2', userId },
+      { createdAt: new Date('2023-03-02'), id: 'm3', role: 'assistant', topicId: 't3', userId },
     ]);
 
     const total = await topicModel.countTopicsForMemoryExtractor({
@@ -172,6 +171,20 @@ describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages
     ]);
     await serverDB.insert(messages).values([
       {
+        createdAt: new Date('2023-01-10'),
+        id: 'm-pending',
+        role: 'user',
+        topicId: 'pending',
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-10'),
+        id: 'm-no-run-time',
+        role: 'user',
+        topicId: 'failed-no-run-time',
+        userId,
+      },
+      {
         createdAt: new Date('2023-01-15'),
         id: 'm-stale',
         role: 'user',
@@ -216,5 +229,238 @@ describe('TopicModel - listTopicsForMemoryExtractor skipFailedWithoutNewMessages
       'failed-active',
       'failed-no-run-time',
     ]);
+  });
+});
+
+describe('TopicModel - listTopicsForMemoryExtractor incremental extraction', () => {
+  const completed = (state: Record<string, string>) => ({
+    userMemoryExtractRunState: state,
+    userMemoryExtractStatus: 'completed' as const,
+  });
+
+  beforeEach(async () => {
+    await serverDB.delete(users);
+    await serverDB.insert(users).values({ id: userId });
+    await serverDB.insert(topics).values([
+      {
+        createdAt: new Date('2023-01-01'),
+        id: 'new-user-message',
+        metadata: completed({ extractedThrough: '2023-01-10T00:00:00.000Z' }),
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-02'),
+        id: 'only-tool-output',
+        metadata: completed({ extractedThrough: '2023-01-10T00:00:00.000Z' }),
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-03'),
+        id: 'up-to-date',
+        metadata: completed({ extractedThrough: '2023-01-10T00:00:00.000Z' }),
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-04'),
+        // Completed before the watermark existed: its last run covered up to lastMessageAt.
+        id: 'legacy-completed',
+        metadata: completed({ lastMessageAt: '2023-01-10T00:00:00.000Z' }),
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-05'),
+        id: 'still-being-written',
+        metadata: {},
+        userId,
+      },
+    ]);
+    await serverDB.insert(messages).values([
+      {
+        createdAt: new Date('2023-01-09'),
+        id: 'a1',
+        role: 'user',
+        topicId: 'new-user-message',
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-11'),
+        id: 'a2',
+        role: 'user',
+        topicId: 'new-user-message',
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-11'),
+        id: 'b1',
+        role: 'tool',
+        topicId: 'only-tool-output',
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-09'),
+        id: 'c1',
+        role: 'assistant',
+        topicId: 'up-to-date',
+        userId,
+      },
+      { createdAt: new Date('2023-01-10'), id: 'c2', role: 'user', topicId: 'up-to-date', userId },
+      {
+        createdAt: new Date('2023-01-10'),
+        id: 'd1',
+        role: 'user',
+        topicId: 'legacy-completed',
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-12'),
+        id: 'd2',
+        role: 'assistant',
+        topicId: 'legacy-completed',
+        userId,
+      },
+      {
+        createdAt: new Date('2023-01-20'),
+        id: 'e1',
+        role: 'user',
+        topicId: 'still-being-written',
+        userId,
+      },
+    ]);
+  });
+
+  afterEach(async () => {
+    await serverDB.delete(users);
+  });
+
+  it('picks up a completed topic again once user or assistant messages follow its watermark', async () => {
+    const result = await topicModel.listTopicsForMemoryExtractor({
+      settledBefore: new Date('2023-01-15'),
+    });
+
+    expect(result.map((topic) => topic.id)).toEqual(['new-user-message', 'legacy-completed']);
+  });
+
+  it('counts the same topics it lists', async () => {
+    const total = await topicModel.countTopicsForMemoryExtractor({
+      settledBefore: new Date('2023-01-15'),
+    });
+
+    expect(total).toBe(2);
+  });
+
+  it('waits until a message settles before treating it as new', async () => {
+    const result = await topicModel.listTopicsForMemoryExtractor({
+      settledBefore: new Date('2023-01-25'),
+    });
+
+    expect(result.map((topic) => topic.id)).toContain('still-being-written');
+  });
+});
+
+describe('TopicModel - listTopicsForMemoryExtractor pagination', () => {
+  beforeEach(async () => {
+    await serverDB.delete(users);
+    await serverDB.insert(users).values([{ id: userId }, { id: otherUserId }]);
+  });
+
+  afterEach(async () => {
+    await serverDB.delete(users);
+  });
+
+  // Only a topic with conversation left to extract is listed, so each fixture topic gets one.
+  const insertUserMessages = (topicIds: string[]) =>
+    serverDB.insert(messages).values(
+      topicIds.map((topicId) => ({
+        content: 'hi',
+        createdAt: new Date('2025-06-01T00:00:00Z'),
+        id: `msg-${topicId}`,
+        role: 'user',
+        topicId,
+        userId,
+      })),
+    );
+
+  it('should paginate pending topics and skip extracted ones by default', async () => {
+    await serverDB.insert(topics).values([
+      {
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        id: 't1',
+        metadata: { userMemoryExtractStatus: 'completed' },
+        userId,
+      },
+      { createdAt: new Date('2024-01-02T00:00:00Z'), id: 't2', userId },
+      {
+        createdAt: new Date('2024-01-03T00:00:00Z'),
+        id: 't3',
+        metadata: { userMemoryExtractStatus: 'pending' },
+        userId,
+      },
+      { createdAt: new Date('2024-01-04T00:00:00Z'), id: 't4', userId: otherUserId },
+    ] satisfies Array<typeof topics.$inferInsert>);
+    await insertUserMessages(['t1', 't2', 't3']);
+
+    // t1 is skipped because it has userMemoryExtractStatus: 'completed'
+    // t4 is skipped because it belongs to a different user
+    const page1 = await topicModel.listTopicsForMemoryExtractor({ limit: 1 });
+    expect(page1.map((t) => t.id)).toEqual(['t2']);
+
+    const page2 = await topicModel.listTopicsForMemoryExtractor({
+      cursor: { createdAt: page1[0].createdAt, id: page1[0].id },
+      limit: 5,
+    });
+    expect(page2.map((t) => t.id)).toEqual(['t3']);
+  });
+
+  it('should include extracted topics when ignoreExtracted is true', async () => {
+    await serverDB.insert(topics).values([
+      {
+        createdAt: new Date('2024-02-01T00:00:00Z'),
+        id: 'et1',
+        metadata: { userMemoryExtractStatus: 'completed' },
+        userId,
+      },
+      { createdAt: new Date('2024-02-02T00:00:00Z'), id: 'et2', userId },
+    ] satisfies Array<typeof topics.$inferInsert>);
+
+    const rows = await topicModel.listTopicsForMemoryExtractor({
+      ignoreExtracted: true,
+      limit: 10,
+    });
+
+    expect(rows.map((t) => t.id)).toEqual(['et1', 'et2']);
+  });
+
+  it('should paginate forward from the cursor, excluding items at or before it and including later ones', async () => {
+    const createdAt = new Date('2025-01-20T18:43:33.603Z');
+
+    await serverDB.insert(topics).values([
+      // Before cursor
+      { createdAt: new Date(createdAt.getTime() - 2), id: 'before-old', userId },
+      { createdAt, id: 'before-same-timestamp', userId },
+      // Cursor row
+      { createdAt, id: 'cursor-topic', userId },
+      // Same timestamp, after cursor by ID
+      { createdAt, id: 'cursor-topic-z', userId },
+      // Later timestamps
+      { createdAt: new Date(createdAt.getTime() + 1), id: 'after-1', userId },
+      { createdAt: new Date(createdAt.getTime() + 2), id: 'after-2', userId },
+      // Different user should be ignored
+      { createdAt: new Date(createdAt.getTime() + 3), id: 'other-user', userId: otherUserId },
+    ] satisfies Array<typeof topics.$inferInsert>);
+    await insertUserMessages([
+      'before-old',
+      'before-same-timestamp',
+      'cursor-topic',
+      'cursor-topic-z',
+      'after-1',
+      'after-2',
+    ]);
+
+    const rows = await topicModel.listTopicsForMemoryExtractor({
+      cursor: { createdAt, id: 'cursor-topic' },
+      limit: 10,
+    });
+
+    expect(rows.map((t) => t.id)).toEqual(['cursor-topic-z', 'after-1', 'after-2']);
   });
 });

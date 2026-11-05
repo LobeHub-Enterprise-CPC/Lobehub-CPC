@@ -24,6 +24,7 @@ import { trimEmbeddingInput } from '@/utils/tokenizer/embedding';
 
 import type { MemoryExtractionExecutorContext } from './context';
 import type { TopicPaginationJob, UserPaginationResult } from './types';
+import { MEMORY_EXTRACTION_WINDOW } from './window';
 
 export async function listConversationsForTopic(
   ctx: MemoryExtractionExecutorContext,
@@ -39,10 +40,17 @@ export async function listConversationsForTopic(
       createdAt: messages.createdAt,
       id: messages.id,
       role: messages.role,
+      updatedAt: messages.updatedAt,
     })
     .from(messages)
     .where(
-      and(buildWorkspaceWhere({ userId, workspaceId }, messages), eq(messages.topicId, topicId)),
+      and(
+        buildWorkspaceWhere({ userId, workspaceId }, messages),
+        eq(messages.topicId, topicId),
+        // The conversation itself. Tool output (file contents, search results, command logs) is
+        // most of a topic's text and says little about the user, so it is not extracted.
+        inArray(messages.role, ['user', 'assistant']),
+      ),
     )
     .orderBy(asc(messages.createdAt));
 
@@ -55,7 +63,8 @@ export async function listConversationsForTopic(
           createdAt: row.createdAt ?? topicUpdatedAt,
           id: row.id,
           role: (row.role ?? 'assistant') as LLMRoleType,
-        }) satisfies OpenAIChatMessage & { createdAt: Date; id: string },
+          updatedAt: row.updatedAt,
+        }) satisfies OpenAIChatMessage & { createdAt: Date; id: string; updatedAt: Date | null },
     );
 
   if (conversation.length === 0) {
@@ -167,6 +176,8 @@ export async function getTopicsForUser(
     endDate: job.to,
     ignoreExtracted: job.forceAll || job.forceTopics,
     limit: pageSize,
+    // The same settle window extraction applies, so a listed topic has something to extract.
+    settledBefore: new Date(Date.now() - MEMORY_EXTRACTION_WINDOW.settleMs),
     skipFailedWithoutNewMessages: !(job.forceAll || job.forceTopics || job.userInitiated),
     startDate: job.from,
   });

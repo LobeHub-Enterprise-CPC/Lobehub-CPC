@@ -22,7 +22,8 @@ import {
 } from './utils';
 
 const USER_PAGE_SIZE = 50;
-const USER_BATCH_SIZE = 20;
+// One user per process-user-topics run: a run works through that user's topics in order.
+const USER_BATCH_SIZE = 1;
 const WORKFLOW_PATH = 'api/workflows/memory-user-memory/pipelines/chat-topic/process-users';
 const PROCESS_USERS_FLOW_CONTROL_KEY = 'memory-user-memory.pipelines.chat-topic.process-users';
 
@@ -135,7 +136,6 @@ export const processUsersHandler = async (
       MemoryExtractionWorkflowService.triggerProcessUserTopics(
         {
           ...buildWorkflowPayloadInput(params),
-          topicCursor: undefined,
           userId: userIds[0],
           userIds,
         },

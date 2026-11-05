@@ -48,6 +48,10 @@ export const RedisKeyNamespace = {
    * claims that keep their background refreshes from piling up.
    */
   SEND_PATH_CACHE: 'sendPathCache',
+  /**
+   * User memory extraction workflow coordination.
+   */
+  USER_MEMORY: 'userMemory',
 } as const;
 
 /**
@@ -193,6 +197,16 @@ export const RedisKeys = {
     workspaceRescanClaim: (userId: string, pool: string, deviceId: string, cwd: string): string =>
       `workspace_rescan_claim:v1:${userId}:${pool}:${deviceId}:${cwd}`,
   },
+  /**
+   * User memory scope — see {@link RedisKeyNamespace.USER_MEMORY}.
+   */
+  userMemory: {
+    /**
+     * Lease held by the one memory extraction run working on a user.
+     * Full key: userMemory:extraction_run_lease:v1:{userId}
+     */
+    extractionRunLease: (userId: string): string => `extraction_run_lease:v1:${userId}`,
+  },
 } as const;
 
 /**
@@ -208,6 +222,7 @@ export const RedisKeyScopeNamespace = {
   integrations: RedisKeyNamespace.INTEGRATIONS,
   lobechat: RedisKeyNamespace.LOBEHUB,
   sendPathCache: RedisKeyNamespace.SEND_PATH_CACHE,
+  userMemory: RedisKeyNamespace.USER_MEMORY,
 } as const satisfies Record<
   keyof typeof RedisKeys,
   (typeof RedisKeyNamespace)[keyof typeof RedisKeyNamespace]

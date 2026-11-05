@@ -37,6 +37,7 @@ import {
   MemoryExtractionWorkflowService,
   normalizeMemoryExtractionPayload,
 } from '@/server/services/memory/userMemory/extract';
+import { MEMORY_EXTRACTION_WINDOW } from '@/server/services/memory/userMemory/extract/window';
 
 const userMemoryProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -282,6 +283,8 @@ export const userMemoryRouter = router({
       const totalTopics = await ctx.topicModel.countTopicsForMemoryExtractor({
         endDate: input.toDate,
         ignoreExtracted: false,
+        // Counted as the run lists them, so progress reaches the total.
+        settledBefore: new Date(Date.now() - MEMORY_EXTRACTION_WINDOW.settleMs),
         startDate: input.fromDate,
       });
       const metadata = initUserMemoryExtractionMetadata({

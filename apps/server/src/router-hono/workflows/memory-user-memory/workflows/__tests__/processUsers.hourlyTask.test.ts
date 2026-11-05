@@ -34,7 +34,6 @@ vi.mock('@/server/services/memory/userMemory/extract', () => ({
     layers: payload.layers ?? [],
     mode: payload.mode ?? 'workflow',
     sources: payload.sources ?? [],
-    topicFanoutCount: payload.topicFanoutCount ?? 0,
     topicIds: payload.topicIds ?? [],
     userIds: payload.userIds ?? [],
   }),
@@ -96,13 +95,18 @@ describe('processUsersHandler hourly task behavior', () => {
       processedUsers: 2,
     });
 
-    expect(mocks.triggerProcessUserTopics).toHaveBeenCalledWith(
-      expect.objectContaining({
-        hourlyTaskId: '00000000-0000-4000-8000-000000000001',
-        userIds: ['u1', 'u2'],
-      }),
-      { extraHeaders: {} },
-    );
+    // One process-user-topics run per user.
+    expect(mocks.triggerProcessUserTopics).toHaveBeenCalledTimes(2);
+    for (const userId of ['u1', 'u2']) {
+      expect(mocks.triggerProcessUserTopics).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hourlyTaskId: '00000000-0000-4000-8000-000000000001',
+          userId,
+          userIds: [userId],
+        }),
+        { extraHeaders: {} },
+      );
+    }
     expect(mocks.appendUserMemoryWorkflowRunIds).toHaveBeenCalledWith(
       '00000000-0000-4000-8000-000000000001',
       ['process-user-topics-run'],
