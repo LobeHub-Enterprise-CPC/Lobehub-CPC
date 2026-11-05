@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { recordUpstashWorkflowEvent } from '@lobechat/observability-otel/modules/upstash-workflow';
 import { errorNameFrom } from '@lobechat/utils';
 
+import { HATCHET_TIMING } from '@/server/modules/Hatchet/config';
 import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
 import type { DirectPublishRequest } from '@/server/modules/Hatchet/publisher';
 
@@ -40,6 +41,9 @@ const toRunId = (id?: string) =>
 const toHeaders = (headers?: Headers | Record<string, string>) =>
   headers instanceof Headers ? Object.fromEntries(headers.entries()) : { ...headers };
 
+/** Seconds. */
+const WORKFLOW_DELIVERY_TIMEOUT = HATCHET_TIMING.workflowDeliveryHttpTimeoutMs / 1000;
+
 /** Publishes one delivery of a run: its trigger or a continuation. */
 export const publishEnvelope = async (
   envelope: WorkflowEnvelope,
@@ -53,6 +57,7 @@ export const publishEnvelope = async (
     headers: envelope.headers,
     retries,
     ...(retryDelay === undefined ? {} : { retryDelay }),
+    timeout: WORKFLOW_DELIVERY_TIMEOUT,
     url,
   });
 };

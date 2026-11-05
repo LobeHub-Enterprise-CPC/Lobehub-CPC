@@ -22,4 +22,15 @@ describe('Hatchet step timing contract', () => {
 
     expect(longestGapMs).toBeLessThan(AGENT_RUNTIME_STATE_TTL_SECONDS * 1000);
   });
+
+  it('lets a workflow delivery finish its budget and then the slowest single model call', () => {
+    // Workflow/serve.ts hands over after 5 minutes of steps, but only at a step boundary; the
+    // slowest single model call measured in production took 2,298s (see config.ts).
+    const longestDeliveryMs = 5 * 60_000 + 2298_000;
+
+    expect(HATCHET_TIMING.workflowDeliveryHttpTimeoutMs).toBeGreaterThan(longestDeliveryMs);
+    expect(HATCHET_TIMING.workflowDeliveryHttpTimeoutMs).toBeLessThanOrEqual(
+      HATCHET_TIMING.deliveryExecutionTimeoutMs - 60_000,
+    );
+  });
 });
