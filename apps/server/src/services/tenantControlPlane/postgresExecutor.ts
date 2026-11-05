@@ -28,6 +28,7 @@ import {
 import { seedBootstrapOwner } from './bootstrapOwner';
 import type { DatasourceBundle } from './contracts';
 import { validateDatasourceBundle } from './datasource';
+import type { PendingOwner } from './repository';
 import type { ProvisionStepContext, TenantDatabaseExecutor } from './service';
 
 // Distribution chains run after the OSS chain. Every path that migrates a
@@ -273,7 +274,33 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
             tenantId: ctx.tenantId,
           });
         // After the seeders, so the account joins the default department they create.
-        if (owner) await seedBootstrapOwner(drizzle(client), owner);
+        if (owner) await seedBootstrapOwner(drizzle(client), owner, ctx.tenantId);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      }
+    });
+  }
+
+  /** `tenant-bootstrap-owner`: the initial account takes this Owner, as the schema owner. */
+  async syncBootstrapOwner({
+    bundle,
+    owner,
+    tenantId,
+  }: {
+    bundle: DatasourceBundle;
+    owner: PendingOwner;
+    tenantId: string;
+  }): Promise<void> {
+    const { schemaName } = tenantDbNames(tenantId);
+    await withClient(bundle, 'owner', async (client) => {
+      await client.query('BEGIN');
+      try {
+        await client.query(
+          `SET LOCAL search_path TO ${ident(schemaName)}, ${TENANT_EXTENSION_SCHEMAS.join(', ')}`,
+        );
+        await seedBootstrapOwner(drizzle(client), owner, tenantId);
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK').catch(() => undefined);

@@ -1163,6 +1163,64 @@
         ]
       }
     },
+    "lobehubBootstrapOwnerRequest": {
+      "apps": ["lobehub"],
+      "direction": "request",
+      "jsonSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "bootstrapOwner": {
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "string",
+                "maxLength": 256,
+                "format": "email",
+                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "password": {
+                "type": "string",
+                "minLength": 8,
+                "maxLength": 128
+              }
+            },
+            "required": ["email", "name", "password"],
+            "additionalProperties": false
+          },
+          "tenantId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        },
+        "required": ["bootstrapOwner", "tenantId"],
+        "additionalProperties": false
+      }
+    },
+    "lobehubBootstrapOwnerResult": {
+      "apps": ["lobehub"],
+      "direction": "response",
+      "jsonSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "bootstrapOwnerReady": {
+            "type": "boolean",
+            "const": true
+          },
+          "tenantId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        },
+        "required": ["bootstrapOwnerReady", "tenantId"]
+      }
+    },
     "lobehubDatasourceRequest": {
       "apps": ["lobehub"],
       "direction": "request",

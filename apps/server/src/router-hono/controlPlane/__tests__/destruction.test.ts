@@ -23,6 +23,7 @@ const setup = () => {
       checkOwnership: async () => {},
       migrate: async () => {},
       seed: async () => {},
+      syncBootstrapOwner: async () => {},
       verify: async () => {},
       verifyDiscovery: async () => {},
     },

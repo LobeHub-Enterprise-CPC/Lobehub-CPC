@@ -176,6 +176,20 @@ export const provisionRequestSchema = z
   .strict();
 export type ProvisionRequest = z.infer<typeof provisionRequestSchema>;
 
+/**
+ * `tenant-bootstrap-owner`: the Owner Console is about to give Admin, sent until Admin accepts it.
+ * The tenant's initial account takes it, so an Owner submitted after this application was
+ * provisioned, or a changed one, still signs in to both applications with one account.
+ */
+export const bootstrapOwnerRequestSchema = z
+  .object({ bootstrapOwner: bootstrapOwnerSchema, tenantId })
+  .strict();
+export type BootstrapOwnerRequest = z.infer<typeof bootstrapOwnerRequestSchema>;
+export interface BootstrapOwnerResult {
+  bootstrapOwnerReady: true;
+  tenantId: string;
+}
+
 export const provisionQuerySchema = z.object({ operationId: id, tenantId }).strict();
 
 export type ProvisionStatus = 'received' | 'applying' | 'applied' | 'failed';
