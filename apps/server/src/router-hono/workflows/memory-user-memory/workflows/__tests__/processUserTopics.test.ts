@@ -275,4 +275,52 @@ describe('processUserTopicsHandler', () => {
     expect(result).toMatchObject({ skipped: true });
     expect(mocks.extractTopic).not.toHaveBeenCalled();
   });
+
+  it('logs what each segment and the user run came to', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    mocks.extractTopic
+      .mockResolvedValueOnce({ ...extracted(['m1']), extracted: true })
+      .mockResolvedValueOnce({ ...extracted(), extracted: false, reason: 'nothing_new' });
+
+    await processUserTopicsHandler(createContext() as never);
+
+    const lines = info.mock.calls.map(([line]) => JSON.parse(line as string));
+    expect(lines).toEqual([
+      expect.objectContaining({
+        event: 'memory.topic',
+        memories: 1,
+        outcome: 'extracted',
+        topicId: 't1',
+      }),
+      expect.objectContaining({
+        event: 'memory.topic',
+        memories: 0,
+        outcome: 'nothing_new',
+        topicId: 't2',
+      }),
+      expect.objectContaining({
+        event: 'memory.run',
+        memories: 1,
+        outcome: 'done',
+        runId: 'run-1',
+        topics: 2,
+        userId: 'u1',
+      }),
+    ]);
+    info.mockRestore();
+  });
+
+  it('logs a user left to the next run because another run holds the lease', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    mocks.acquireUserRunLease.mockResolvedValue(false);
+
+    await processUserTopicsHandler(createContext() as never);
+
+    expect(JSON.parse(info.mock.calls[0][0] as string)).toMatchObject({
+      event: 'memory.run',
+      outcome: 'skipped:lease',
+      userId: 'u1',
+    });
+    info.mockRestore();
+  });
 });

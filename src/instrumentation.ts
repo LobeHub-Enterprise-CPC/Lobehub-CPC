@@ -84,6 +84,13 @@ export async function register() {
   // to receive forwarded events at `/api/agent/messenger/webhooks/<platform>`,
   // which doesn't require any startup work.
 
+  // Name the work behind a blocked event loop. A long enough stall outlasts the tenant process
+  // lease and the server fences itself; without this the restart is all that is left behind.
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { startStallDetector } = await import('@/server/modules/RuntimeActivity');
+    startStallDetector();
+  }
+
   if (process.env.NODE_ENV !== 'production' && !process.env.ENABLE_TELEMETRY_IN_DEV) {
     return;
   }

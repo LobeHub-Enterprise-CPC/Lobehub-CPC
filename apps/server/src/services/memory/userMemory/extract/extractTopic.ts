@@ -29,6 +29,7 @@ import type { UserMemoryHybridSearchAggregatedResult } from '@/database/models/u
 import { UserMemoryModel } from '@/database/models/userMemory';
 import { buildWorkspaceWhere } from '@/database/utils/workspace';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { noteActivity } from '@/server/modules/RuntimeActivity';
 import { S3 } from '@/server/modules/S3';
 import { AsyncTaskStatus } from '@/types/asyncTask';
 
@@ -112,6 +113,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
 
       try {
         const db = await ctx.db;
+        noteActivity({ phase: 'load', topicId: job.topicId, userId: job.userId });
         const topic = await db.query.topics.findFirst({
           columns: { createdAt: true, id: true, metadata: true, updatedAt: true, userId: true },
           where: and(
@@ -126,6 +128,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           topicProcessed = true;
           return {
             extracted: false,
+            reason: 'topic_not_found',
             layers: {},
             memoryIds: [],
             traceId: span.spanContext().traceId,
@@ -136,6 +139,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           topicProcessed = true;
           return {
             extracted: false,
+            reason: 'topic_out_of_range',
             layers: {},
             memoryIds: [],
             traceId: span.spanContext().traceId,
@@ -151,6 +155,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           topicProcessed = true;
           return {
             extracted: false,
+            reason: 'already_extracted',
             hasMore: false,
             layers: {},
             memoryIds: [],
@@ -185,6 +190,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
 
         const runtimes = await ctx.getRuntime(job.userId, memoryServiceConfig, keyVaults);
 
+        noteActivity({ phase: 'conversation' });
         const conversations = await ctx.listConversationsForTopic(
           job.userId,
           topic.id,
@@ -192,6 +198,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           job.workspaceId,
         );
         const extractorContextLimit = memoryServiceConfig.extractorContextLimit;
+        noteActivity({ messages: conversations?.length ?? 0, phase: 'window' });
         const window = await selectExtractionWindow(conversations ?? [], {
           ...MEMORY_EXTRACTION_WINDOW,
           countTokens: (text) => ctx.countTokens(text),
@@ -210,6 +217,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           topicProcessed = true;
           return {
             extracted: false,
+            reason: 'nothing_new',
             hasMore: false,
             layers: {},
             memoryIds: [],
@@ -268,6 +276,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
         };
 
         try {
+          noteActivity({ phase: 'retrieval', segmentMessages: window.segment.length });
           searchResult = await ctx.listRelevantUserMemories(
             extractionJob,
             runtimes.embeddings,
@@ -300,6 +309,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           extractionJob.sourceId,
         );
 
+        noteActivity({ phase: 'identities' });
         const retrievedMemoryIdentities = await ctx.listUserMemoryIdentities(
           extractionJob,
           job.userId,
@@ -387,6 +397,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
 
         const shouldRecordTrace = Boolean(observabilityS3);
 
+        noteActivity({ phase: 'extract' });
         extraction = await service.run(extractionJob, {
           callbacks: shouldRecordTrace
             ? {
@@ -424,6 +435,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           topicProcessed = true;
           return {
             extracted: false,
+            reason: 'no_extraction',
             extractedThrough: window.extractedThrough?.toISOString(),
             hasMore: window.hasMore,
             layers: {},
@@ -432,6 +444,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           };
         }
 
+        noteActivity({ phase: 'persist' });
         const persistedRes = await ctx.persistExtraction(
           extractionJob,
           messageIds,
