@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   extractTopic: vi.fn(),
   filterTopicIdsForUser: vi.fn(),
   getTopicsForUser: vi.fn(),
+  holdUserRunLease: vi.fn(),
   isHourlyMemoryExtractionCancelled: vi.fn(),
   releaseUserRunLease: vi.fn(),
   triggerPersonaUpdate: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock('@/server/services/redis', () => ({
   redisService: {
     userMemoryExtractionLease: {
       acquire: mocks.acquireUserRunLease,
+      hold: mocks.holdUserRunLease,
       release: mocks.releaseUserRunLease,
     },
   },
@@ -91,6 +93,7 @@ describe('processUserTopicsHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.acquireUserRunLease.mockResolvedValue(true);
+    mocks.holdUserRunLease.mockResolvedValue(true);
     mocks.isHourlyMemoryExtractionCancelled.mockResolvedValue(false);
     mocks.filterTopicIdsForUser.mockImplementation(async (_userId, topicIds: string[]) => topicIds);
     mocks.getTopicsForUser.mockResolvedValue({ ids: ['t1', 't2'] });
@@ -232,6 +235,28 @@ describe('processUserTopicsHandler', () => {
     expect(result).toMatchObject({ users: { u1: { skipped: expect.any(String) } } });
   });
 
+  it('keeps the lease alive before every segment of a long run', async () => {
+    await processUserTopicsHandler(createContext() as never);
+
+    expect(mocks.holdUserRunLease).toHaveBeenCalledTimes(2);
+    expect(mocks.holdUserRunLease).toHaveBeenCalledWith('u1', 'run-1');
+    expect(mocks.holdUserRunLease.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.extractTopic.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('stops when another run took the user over, instead of extracting the same topics twice', async () => {
+    // The lease lapsed during a very long run and the next hourly run took it.
+    mocks.holdUserRunLease.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+    const result = await processUserTopicsHandler(createContext() as never);
+
+    expect(extractedTopics()).toEqual(['t1']);
+    expect((result as any).users.u1).toMatchObject({ processedTopics: 1, stopped: 'lease' });
+    // Never gives back a lease that is someone else's now.
+    expect(mocks.releaseUserRunLease).not.toHaveBeenCalled();
+  });
+
   it('makes a user-initiated run wait for the lease instead of skipping', async () => {
     mocks.acquireUserRunLease
       .mockResolvedValueOnce(false)
@@ -244,6 +269,16 @@ describe('processUserTopicsHandler', () => {
     expect(context.sleep).toHaveBeenCalledTimes(2);
     expect(context.sleep).toHaveBeenCalledWith(expect.stringContaining('lease-wait'), 60);
     expect(extractedTopics()).toEqual(['t1', 't2']);
+  });
+
+  it('lets a user-initiated run that went ahead without the lease keep going', async () => {
+    mocks.acquireUserRunLease.mockResolvedValue(false);
+    mocks.holdUserRunLease.mockResolvedValue(false);
+
+    await processUserTopicsHandler(createContext({ userInitiated: true }) as never);
+
+    expect(extractedTopics()).toEqual(['t1', 't2']);
+    expect(mocks.holdUserRunLease).not.toHaveBeenCalled();
   });
 
   it('stops before extracting anything once the hourly task is cancelled', async () => {

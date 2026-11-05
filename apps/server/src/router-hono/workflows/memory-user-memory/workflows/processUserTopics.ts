@@ -64,6 +64,8 @@ interface TopicOutcome {
   extractedThrough?: string;
   failed?: boolean;
   hasMore?: boolean;
+  /** Another run took the user over (this one outlasted the lease). */
+  leaseLost?: boolean;
   memoryCount: number;
 }
 
@@ -123,17 +125,21 @@ export const processUserTopicsHandler = async (context: Context) => {
       continue;
     }
 
-    if (!(await takeUserLease(context, userId, params))) {
+    const lease = await takeUserLease(context, userId, params);
+    if (!lease) {
       users[userId] = { skipped: 'another memory extraction run is working on this user' };
       logOutcome('memory.run', { outcome: 'skipped:lease', runId: context.workflowRunId, userId });
       continue;
     }
 
     noteActivity({ userId });
-    const outcome = await processUser(context, params, userId, layers);
-    await runStep(context, `memory:user-memory:extract:users:${userId}:release-lease`, () =>
-      redisService.userMemoryExtractionLease.release(userId, context.workflowRunId),
-    );
+    const outcome = await processUser(context, params, userId, layers, lease === 'held');
+    // A lease another run took over is theirs now.
+    if (outcome.stopped !== 'lease') {
+      await runStep(context, `memory:user-memory:extract:users:${userId}:release-lease`, () =>
+        redisService.userMemoryExtractionLease.release(userId, context.workflowRunId),
+      );
+    }
     logOutcome('memory.run', {
       memories: outcome.createdMemories,
       outcome: outcome.stopped ? `stopped:${outcome.stopped}` : 'done',
@@ -153,6 +159,7 @@ const processUser = async (
   params: MemoryExtractionNormalizedPayload,
   userId: string,
   layers: LayersEnum[],
+  holdsLease: boolean,
 ): Promise<UserOutcome> => {
   const executor = await MemoryExtractionExecutor.create();
   const outcome: UserOutcome = { createdMemories: 0, processedTopics: 0 };
@@ -216,8 +223,10 @@ const processUser = async (
       const stopped = await checkCancelled(context, params, userId, `topics:${topicId}`);
       if (stopped) return { ...outcome, stopped };
 
-      const topic = await extractTopicBacklog(context, params, executor, userId, topicId, layers);
-      if (topic === 'guard') return { ...outcome, stopped: 'guard' };
+      const topic = await extractTopicBacklog(context, params, executor, userId, topicId, layers, {
+        holdsLease,
+      });
+      if (topic === 'guard' || topic === 'lease') return { ...outcome, stopped: topic };
       outcome.createdMemories += topic;
       outcome.processedTopics += 1;
 
@@ -280,7 +289,8 @@ const extractTopicBacklog = async (
   userId: string,
   topicId: string,
   layers: LayersEnum[],
-): Promise<number | 'guard'> => {
+  { holdsLease }: { holdsLease: boolean },
+): Promise<number | 'guard' | 'lease'> => {
   let created = 0;
   let resumeFrom: string | undefined;
 
@@ -306,6 +316,12 @@ const extractTopicBacklog = async (
         });
         return topic;
       };
+      // Inside the step, so a replay of finished work never takes the lease again.
+      if (
+        holdsLease &&
+        !(await redisService.userMemoryExtractionLease.hold(userId, context.workflowRunId))
+      )
+        return done({ leaseLost: true, memoryCount: 0 }, 'lease_lost');
       try {
         const result = await executor.extractTopic({
           asyncTaskId: params.asyncTaskId,
@@ -335,6 +351,7 @@ const extractTopicBacklog = async (
       }
     });
 
+    if (outcome.leaseLost) return 'lease';
     created += outcome.memoryCount;
     if (outcome.failed || !outcome.hasMore || !outcome.extractedThrough) break;
     resumeFrom = outcome.extractedThrough;
@@ -345,13 +362,14 @@ const extractTopicBacklog = async (
 
 /**
  * Takes the user's lease. A user-initiated run waits for it, sleeping between attempts; an
- * unattended one gives up at once and leaves the user to the next run.
+ * unattended one gives up at once and leaves the user to the next run. `unheld` is a
+ * user-initiated run that waited long enough and goes ahead without it.
  */
 const takeUserLease = async (
   context: Context,
   userId: string,
   params: MemoryExtractionNormalizedPayload,
-): Promise<boolean> => {
+): Promise<'held' | 'unheld' | false> => {
   const attempts = params.userInitiated ? LEASE_WAIT_ATTEMPTS : 1;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const held = await runStep(
@@ -359,7 +377,7 @@ const takeUserLease = async (
       `memory:user-memory:extract:users:${userId}:lease:${attempt}`,
       () => redisService.userMemoryExtractionLease.acquire(userId, context.workflowRunId),
     );
-    if (held) return true;
+    if (held) return 'held';
     if (attempt + 1 < attempts) {
       await context.sleep(
         `memory:user-memory:extract:users:${userId}:lease-wait:${attempt}`,
@@ -368,7 +386,7 @@ const takeUserLease = async (
     }
   }
   // Waited long enough: the user asked for this, so it goes ahead.
-  return params.userInitiated === true;
+  return params.userInitiated === true ? 'unheld' : false;
 };
 
 /**
