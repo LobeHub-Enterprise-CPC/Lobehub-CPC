@@ -1,14 +1,17 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, readdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import * as dotenv from 'dotenv';
 import dotenvExpand from 'dotenv-expand';
 import type { ClientConfig } from 'pg';
+import { z } from 'zod';
 
 import type { TenantDatabaseTarget } from '../../apps/server/src/services/tenantControlPlane/tenantDatabases';
-import { tenantFtsSearchNamespace } from '../../packages/database/src/tenant/names';
+import { resolveElasticsearchTransport } from '../../packages/database/src/repositories/ftsSearch/elasticsearch/url';
+import { tenantFtsSearchNamespace, tenantHash } from '../../packages/database/src/tenant/names';
+import { resolveFtsSearchReindexElasticsearchEnvironment } from './options';
 import { summarizeFtsSearchReindexError } from './runtime/auditLogger';
 
 const env = process.env.NODE_ENV || 'development';
@@ -33,7 +36,11 @@ dotenvExpand.expand(dotenv.config({ override: true, path: `.env.${env}.local` })
  * tenant owner (the reindex runs as the runtime role, which cannot create
  * them), then runs the fresh backfill. Tenants that already have a checkpoint
  * are left alone; `--fresh-run` itself still refuses a target whose aliases
- * already exist.
+ * already exist. The same run removes what destroyed tenants left behind: a
+ * tenant whose destruction completed (`tenant_destruction.completed_at`, the
+ * Work terminal that outlives every other record) loses every index of its
+ * namespace, including the alias-less `-fts-search-control` index, and its
+ * state directory. Dropping the tenant schema does not touch either.
  */
 
 const sslQuery = async (ssl: ClientConfig['ssl'], stateDirectory: string | undefined) => {
@@ -102,9 +109,13 @@ const hasCheckpoint = async (stateDirectory: string) => {
 
 export interface RunTenantReindexOptions {
   argv: string[];
+  /** Deletes every index of one tenant namespace and returns their names (`--new-tenants-only`). */
+  deleteIndices?: (namespace: string) => Promise<string[]>;
   environment: NodeJS.ProcessEnv;
   /** Installs the capture triggers in one tenant as its owner (`--new-tenants-only`). */
   installCapture?: (tenantId: string) => Promise<void>;
+  /** Tenants whose destruction completed (`--new-tenants-only`). */
+  listDestroyedTenants?: () => Promise<string[]>;
   listTargets: (tenantIds: string[]) => Promise<TenantDatabaseTarget[]>;
   log?: (...values: unknown[]) => void;
   parseTenants: (argv: string[]) => string[];
@@ -113,8 +124,10 @@ export interface RunTenantReindexOptions {
 
 export const runTenantReindex = async ({
   argv,
+  deleteIndices = (namespace) => deleteNamespaceIndices(namespace, argv, environment),
   environment,
   installCapture = installTenantCapture,
+  listDestroyedTenants = listCompletedDestructions,
   listTargets,
   log = console.log,
   parseTenants,
@@ -138,6 +151,32 @@ export const runTenantReindex = async ({
 
   const targets = await listTargets(parseTenants(argv));
   const failed: string[] = [];
+  if (newTenantsOnly) {
+    const live = new Set(targets.map((target) => target.tenantId));
+    for (const tenantId of await listDestroyedTenants()) {
+      if (live.has(tenantId)) continue;
+      const stateDirectory = path.join(environment.ES_REINDEX_STATE_DIR!, tenantHash(tenantId));
+      try {
+        const indices = await deleteIndices(tenantFtsSearchNamespace(namespace, tenantId));
+        const hadState = existsSync(stateDirectory);
+        await rm(stateDirectory, { force: true, recursive: true });
+        if (indices.length > 0 || hadState)
+          log(
+            '🧹 Removed full-text search data of destroyed tenant %s: %d index(es)%s',
+            tenantId,
+            indices.length,
+            hadState ? ' and its state directory' : '',
+          );
+      } catch (error) {
+        console.error(
+          '❌ Cleanup failed for destroyed tenant %s:',
+          tenantId,
+          summarizeFtsSearchReindexError(error),
+        );
+        failed.push(tenantId);
+      }
+    }
+  }
   let processed = 0;
   for (const target of targets) {
     const stateDirectory = environment.ES_REINDEX_STATE_DIR
@@ -180,6 +219,60 @@ export const runTenantReindex = async ({
   }
   log('✅ Elasticsearch reindex finished for %d tenant(s)', processed);
   return 0;
+};
+
+const resolvedIndicesSchema = z.object({ indices: z.array(z.object({ name: z.string() })) });
+
+/**
+ * Deletes every index whose name starts with `<namespace>-` (aliases go with their index). The
+ * namespace ends in the tenant hash, so the prefix cannot reach another tenant's indices; each name
+ * is checked again before its exact-name DELETE.
+ */
+export const deleteNamespaceIndices = async (
+  namespace: string,
+  argv: readonly string[],
+  environment: Readonly<Record<string, string | undefined>>,
+) => {
+  const names = resolveFtsSearchReindexElasticsearchEnvironment(argv);
+  const { authorizationHeader, url } = resolveElasticsearchTransport({
+    allowInsecureHttp: environment.ES_ALLOW_INSECURE_HTTP === 'true',
+    apiKey: environment[names.apiKeyEnvironmentName],
+    url: environment[names.urlEnvironmentName] ?? '',
+  });
+  const request = (pathname: string, init: RequestInit = {}) =>
+    fetch(new URL(pathname, url), {
+      ...init,
+      headers: authorizationHeader ? { Authorization: authorizationHeader } : {},
+      signal: AbortSignal.timeout(30_000),
+    });
+  const prefix = `${namespace}-`;
+  const resolved = await request(
+    `/_resolve/index/${encodeURIComponent(prefix)}*?expand_wildcards=all`,
+  );
+  if (!resolved.ok)
+    throw new Error(`Elasticsearch index lookup failed for ${namespace} (${resolved.status})`);
+  const indices = resolvedIndicesSchema
+    .parse(await resolved.json())
+    .indices.map(({ name }) => name)
+    .filter((name) => name.startsWith(prefix));
+  for (const index of indices) {
+    const response = await request(`/${encodeURIComponent(index)}`, { method: 'DELETE' });
+    if (!response.ok && response.status !== 404)
+      throw new Error(`Elasticsearch index deletion failed for ${index} (${response.status})`);
+  }
+  return indices;
+};
+
+const listCompletedDestructions = async () => {
+  const [{ getPlatformDB, tenantDestruction }, { isNotNull }] = await Promise.all([
+    import('../../packages/database/src/platform'),
+    import('drizzle-orm'),
+  ]);
+  const rows = await getPlatformDB()
+    .select({ tenantId: tenantDestruction.tenantId })
+    .from(tenantDestruction)
+    .where(isNotNull(tenantDestruction.completedAt));
+  return rows.map(({ tenantId }) => tenantId);
 };
 
 const installTenantCapture = async (tenantId: string) => {

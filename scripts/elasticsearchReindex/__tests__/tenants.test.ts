@@ -6,8 +6,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TenantDatabaseTarget } from '../../../apps/server/src/services/tenantControlPlane/tenantDatabases';
-import { tenantFtsSearchNamespace } from '../../../packages/database/src/tenant/names';
-import { runTenantReindex, tenantDatabaseUrl } from '../tenants';
+import { tenantFtsSearchNamespace, tenantHash } from '../../../packages/database/src/tenant/names';
+import { deleteNamespaceIndices, runTenantReindex, tenantDatabaseUrl } from '../tenants';
 
 const target = (tenantId: string, h24: string): TenantDatabaseTarget => ({
   clientConfig: {
@@ -108,6 +108,7 @@ describe('runTenantReindex', () => {
             ES_REINDEX_STATE_DIR: state,
           },
           installCapture,
+          listDestroyedTenants: async () => [],
           listTargets: vi
             .fn()
             .mockResolvedValue([target('a', 'aaa'), target('b', 'bbb'), target('c', 'ccc')]),
@@ -142,6 +143,7 @@ describe('runTenantReindex', () => {
             .fn()
             .mockRejectedValueOnce(new Error('lock timeout'))
             .mockResolvedValueOnce(undefined),
+          listDestroyedTenants: async () => [],
           listTargets: vi.fn().mockResolvedValue([target('a', 'aaa'), target('b', 'bbb')]),
           log: vi.fn(),
           parseTenants: () => [],
@@ -152,6 +154,67 @@ describe('runTenantReindex', () => {
       expect(run).toHaveBeenCalledTimes(1);
       expect(run.mock.calls[0][1].ES_INDEX_NAMESPACE).toBe(tenantFtsSearchNamespace('cpc-mt', 'b'));
       expect(error).toHaveBeenCalledWith('❌ Elasticsearch reindex failed for tenants: %s', 'a');
+      error.mockRestore();
+    });
+
+    it('removes the indices and checkpoints of destroyed tenants, never those of live ones', async () => {
+      const state = await tempDirectory();
+      const destroyedState = path.join(state, tenantHash('gone'));
+      await mkdir(destroyedState);
+      await writeFile(path.join(destroyedState, 'reindex-x-v1.json'), '{}');
+      await mkdir(path.join(state, 'aaa'));
+      await writeFile(path.join(state, 'aaa', 'reindex-cpc-mt-a-0123456789ab-v1.json'), '{}');
+      const deleteIndices = vi.fn().mockResolvedValue(['cpc-mt-x-messages-v1']);
+
+      await expect(
+        runTenantReindex({
+          argv,
+          deleteIndices,
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: state,
+          },
+          installCapture: vi.fn(),
+          // A live tenant reported as destroyed (an inconsistent read) is left alone.
+          listDestroyedTenants: async () => ['gone', 'a'],
+          listTargets: vi.fn().mockResolvedValue([target('a', 'aaa')]),
+          log: vi.fn(),
+          parseTenants: () => [],
+          run: vi.fn().mockResolvedValue(0),
+        }),
+      ).resolves.toBe(0);
+
+      expect(deleteIndices.mock.calls).toEqual([[tenantFtsSearchNamespace('cpc-mt', 'gone')]]);
+      await expect(stat(destroyedState)).rejects.toThrow('ENOENT');
+      await expect(stat(path.join(state, 'aaa'))).resolves.toBeTruthy();
+    });
+
+    it('fails the run when a destroyed tenant cannot be cleaned up, after the other tenants', async () => {
+      const state = await tempDirectory();
+      const run = vi.fn().mockResolvedValue(0);
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      await expect(
+        runTenantReindex({
+          argv,
+          deleteIndices: vi.fn().mockRejectedValue(new Error('403')),
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: state,
+          },
+          installCapture: vi.fn().mockResolvedValue(undefined),
+          listDestroyedTenants: async () => ['gone'],
+          listTargets: vi.fn().mockResolvedValue([target('b', 'bbb')]),
+          log: vi.fn(),
+          parseTenants: () => [],
+          run,
+        }),
+      ).resolves.toBe(1);
+
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledWith('❌ Elasticsearch reindex failed for tenants: %s', 'gone');
       error.mockRestore();
     });
 
@@ -217,5 +280,66 @@ describe('tenantDatabaseUrl', () => {
         'sslmode',
       ),
     ).toBe('disable');
+  });
+});
+
+describe('deleteNamespaceIndices', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('deletes by exact name only the indices under the namespace, control index included', async () => {
+    const calls: { method: string; url: string }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: URL, init: RequestInit = {}) => {
+        calls.push({ method: init.method ?? 'GET', url: url.toString() });
+        if (!init.method)
+          return Response.json({
+            aliases: [{ indices: ['cpc-mt-abc-messages-v1'], name: 'cpc-mt-abc-messages' }],
+            data_streams: [],
+            indices: [
+              { name: 'cpc-mt-abc-messages-v1' },
+              { name: 'cpc-mt-abc-fts-search-control' },
+              // Not under `cpc-mt-abc-`: a server-side match is never trusted alone.
+              { name: 'cpc-mt-abcd-messages-v1' },
+            ],
+          });
+        return Response.json({ acknowledged: true });
+      }),
+    );
+
+    await expect(
+      deleteNamespaceIndices('cpc-mt-abc', [], {
+        ES_API_KEY: 'key',
+        ES_URL: 'https://es.internal:9200',
+      }),
+    ).resolves.toEqual(['cpc-mt-abc-messages-v1', 'cpc-mt-abc-fts-search-control']);
+    expect(calls).toEqual([
+      {
+        method: 'GET',
+        url: 'https://es.internal:9200/_resolve/index/cpc-mt-abc-*?expand_wildcards=all',
+      },
+      { method: 'DELETE', url: 'https://es.internal:9200/cpc-mt-abc-messages-v1' },
+      { method: 'DELETE', url: 'https://es.internal:9200/cpc-mt-abc-fts-search-control' },
+    ]);
+  });
+
+  it('fails when Elasticsearch refuses a deletion', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: URL, init: RequestInit = {}) =>
+        init.method
+          ? new Response('forbidden', { status: 403 })
+          : Response.json({ indices: [{ name: 'cpc-mt-abc-messages-v1' }] }),
+      ),
+    );
+
+    await expect(
+      deleteNamespaceIndices('cpc-mt-abc', [], {
+        ES_API_KEY: 'key',
+        ES_URL: 'https://es.internal:9200',
+      }),
+    ).rejects.toThrow('cpc-mt-abc-messages-v1 (403)');
   });
 });
