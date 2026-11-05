@@ -16,8 +16,15 @@ import type {
   PersistedMemoryResult,
 } from '../types';
 
+type RunState = NonNullable<ChatTopicMetadata['userMemoryExtractRunState']>;
+
 export interface ChatTopicProviderOptions {
   conversations: (OpenAIChatMessage & { createdAt: Date })[];
+  /**
+   * Conversation before the part being extracted, already extracted by an earlier run. Sent so
+   * references in `conversations` make sense; marked so nothing in it is extracted again.
+   */
+  previousConversations?: (OpenAIChatMessage & { createdAt: Date })[];
   topic: {
     createdAt: Date;
     id: string;
@@ -31,8 +38,12 @@ export interface ChatTopicProviderOptions {
 export interface ChatTopicResultRecorderOptions {
   currentMetadata?: ChatTopicMetadata;
   database: LobeChatDatabase;
+  /** Watermark a successful run moves to: creation time of the last message it extracted. */
+  extractedThrough?: string;
   lastMessageAt?: string;
   messageCount?: number;
+  /** Watermark before this run; a failed run keeps it so a retry resumes from the same place. */
+  previousExtractedThrough?: string;
   topicId: string;
   traceId?: string;
 }
@@ -48,40 +59,8 @@ export class LobeChatTopicContextProvider implements MemoryContextProvider<
   }
 
   async buildContext(userId: string): Promise<BuiltContext> {
-    const messageChildren: Child[] = [];
-
-    this.options.conversations.forEach((message, index) => {
-      const attributes: Record<string, string> = {
-        index: index.toString(),
-        role: message.role ?? 'assistant',
-      };
-
-      if (message.createdAt) {
-        attributes.created_at = new Date(message.createdAt).toISOString();
-      }
-
-      const content = Array.isArray(message.content)
-        ? message.content
-            .map((part) => {
-              if (part.type === 'text') {
-                return part.text;
-              }
-              if (part.type === 'thinking') {
-                return `[Thinking: ${part.thinking}]`;
-              }
-              if (part.type === 'image_url') {
-                return `[Image: ${part.image_url.url}]`;
-              }
-              if (part.type === 'video_url') {
-                return `[Video: ${part.video_url.url}]`;
-              }
-              return '';
-            })
-            .join('\n')
-        : message.content;
-
-      messageChildren.push(x('message', attributes, content));
-    });
+    const messageChildren = this.options.conversations.map(toMessageNode);
+    const previousChildren = (this.options.previousConversations ?? []).map(toMessageNode);
 
     const lastMessageAt =
       this.options.conversations.at(-1)?.createdAt ?? this.options.topic.updatedAt;
@@ -92,6 +71,18 @@ export class LobeChatTopicContextProvider implements MemoryContextProvider<
 
     const topicChildren: Child[] = [
       x('topic_metadata', metadataContent),
+      ...(previousChildren.length > 0
+        ? [
+            x(
+              'previous_messages',
+              {
+                count: previousChildren.length.toString(),
+                note: 'Earlier part of this conversation, already processed. Use it only to understand the messages below; do not extract memories from it.',
+              },
+              ...previousChildren,
+            ),
+          ]
+        : []),
       x('messages', { count: messageChildren.length.toString() }, ...messageChildren),
     ];
 
@@ -123,6 +114,39 @@ export class LobeChatTopicContextProvider implements MemoryContextProvider<
   }
 }
 
+const toMessageNode = (message: OpenAIChatMessage & { createdAt: Date }, index: number): Child => {
+  const attributes: Record<string, string> = {
+    index: index.toString(),
+    role: message.role ?? 'assistant',
+  };
+
+  if (message.createdAt) {
+    attributes.created_at = new Date(message.createdAt).toISOString();
+  }
+
+  const content = Array.isArray(message.content)
+    ? message.content
+        .map((part) => {
+          if (part.type === 'text') {
+            return part.text;
+          }
+          if (part.type === 'thinking') {
+            return `[Thinking: ${part.thinking}]`;
+          }
+          if (part.type === 'image_url') {
+            return `[Image: ${part.image_url.url}]`;
+          }
+          if (part.type === 'video_url') {
+            return `[Video: ${part.video_url.url}]`;
+          }
+          return '';
+        })
+        .join('\n')
+    : message.content;
+
+  return x('message', attributes, content);
+};
+
 export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
   processedMemoryCount: number;
 }> {
@@ -139,7 +163,7 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
     const existingMetadata = (this.options.currentMetadata as ChatTopicMetadata | undefined) ?? {};
 
     const now = new Date().toISOString();
-    const memoryExtraction = existingMetadata.userMemoryExtractRunState ?? {
+    const memoryExtraction: RunState = existingMetadata.userMemoryExtractRunState ?? {
       error: undefined,
       lastMessageAt: this.options.lastMessageAt,
       lastRunAt: now,
@@ -148,6 +172,7 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
       traceId: this.options.traceId,
     };
 
+    memoryExtraction.extractedThrough = this.options.extractedThrough;
     memoryExtraction.lastMessageAt = this.options.lastMessageAt;
     memoryExtraction.lastRunAt = now;
     memoryExtraction.messageCount = this.options.messageCount;
@@ -170,17 +195,17 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
     const existingMetadata = (this.options.currentMetadata as ChatTopicMetadata | undefined) ?? {};
 
     const now = new Date().toISOString();
-    const memoryExtraction = existingMetadata.userMemoryExtractRunState ?? {
+    const memoryExtraction: RunState = existingMetadata.userMemoryExtractRunState ?? {
       error: error.message,
       lastMessageAt: this.options.lastMessageAt,
       lastRunAt: now,
       messageCount: this.options.messageCount,
       processedMemoryCount: 0,
-      status: 'failed' as const,
       traceId: this.options.traceId,
     };
 
     memoryExtraction.error = error.message;
+    memoryExtraction.extractedThrough = this.options.previousExtractedThrough;
     memoryExtraction.lastMessageAt = this.options.lastMessageAt;
     memoryExtraction.lastRunAt = now;
     memoryExtraction.messageCount = this.options.messageCount;

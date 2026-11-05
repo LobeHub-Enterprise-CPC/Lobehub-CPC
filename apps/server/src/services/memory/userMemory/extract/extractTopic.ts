@@ -42,15 +42,18 @@ import {
   serializeError,
 } from './errors';
 import type { TopicExtractionJob } from './types';
+import { MEMORY_EXTRACTION_WINDOW, selectExtractionWindow } from './window';
 
-const isTopicExtracted = (metadata?: ChatTopicMetadata | null): boolean => {
-  const extractStatus = metadata?.userMemoryExtractStatus;
-  if (extractStatus) return extractStatus === 'completed';
-
-  return (
-    metadata?.userMemoryExtractStatus === 'completed' &&
-    !!metadata?.userMemoryExtractRunState?.lastRunAt
-  );
+/**
+ * The topic's stored watermark, read as `listTopicsForMemoryExtractor` reads it: the last
+ * extracted message, or for a topic completed before the watermark existed the last message its
+ * run saw. `up-to-date` when a completed topic records neither.
+ */
+const readWatermark = (metadata?: ChatTopicMetadata | null): Date | 'up-to-date' | undefined => {
+  const state = metadata?.userMemoryExtractRunState;
+  if (state?.extractedThrough) return new Date(state.extractedThrough);
+  if (metadata?.userMemoryExtractStatus !== 'completed') return undefined;
+  return state?.lastMessageAt ? new Date(state.lastMessageAt) : 'up-to-date';
 };
 
 export async function reportUserInitiatedProgress(
@@ -138,11 +141,17 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
             traceId: span.spanContext().traceId,
           };
         }
-        if (!job.forceAll && !job.forceTopics && isTopicExtracted(topic.metadata)) {
+        const watermark = job.resumeFrom
+          ? new Date(job.resumeFrom)
+          : job.forceAll || job.forceTopics
+            ? undefined
+            : readWatermark(topic.metadata);
+        if (watermark === 'up-to-date') {
           span.setStatus({ code: SpanStatusCode.OK, message: 'already_extracted' });
           topicProcessed = true;
           return {
             extracted: false,
+            hasMore: false,
             layers: {},
             memoryIds: [],
             traceId: span.spanContext().traceId,
@@ -182,28 +191,37 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           topic.updatedAt,
           job.workspaceId,
         );
-        if (!conversations || conversations.length === 0) {
+        const extractorContextLimit = memoryServiceConfig.extractorContextLimit;
+        const window = await selectExtractionWindow(conversations ?? [], {
+          ...MEMORY_EXTRACTION_WINDOW,
+          countTokens: (text) => ctx.countTokens(text),
+          now: new Date(),
+          segmentTokenLimit: extractorContextLimit ?? MEMORY_EXTRACTION_WINDOW.segmentTokenLimit,
+          trimText: (text, tokenLimit) => ctx.trimTextToTokenLimit(text, tokenLimit),
+          watermark,
+        });
+        if (window.segment.length === 0) {
+          // Nothing settled after the watermark: the topic keeps its state and is due again
+          // once new conversation settles.
           if (extractionJob) {
             ctx.recordJobMetrics(extractionJob, 'completed', Date.now() - startTime);
           }
-          span.setStatus({ code: SpanStatusCode.OK, message: 'empty_conversations' });
+          span.setStatus({ code: SpanStatusCode.OK, message: 'nothing_new' });
+          topicProcessed = true;
           return {
             extracted: false,
+            hasMore: false,
             layers: {},
             memoryIds: [],
             traceId: span.spanContext().traceId,
           };
         }
 
-        const extractorContextLimit = memoryServiceConfig.extractorContextLimit;
         const embeddingContextLimit =
           memoryServiceConfig.embeddingContextLimit ?? extractorContextLimit;
-        const extractorConversations = await ctx.trimConversationsToTokenLimit(
-          conversations,
-          extractorContextLimit,
-        );
+        const extractorConversations = window.segment;
         const embeddingConversations = await ctx.trimConversationsToTokenLimit(
-          conversations,
+          window.segment,
           embeddingContextLimit,
         );
 
@@ -211,6 +229,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
 
         const topicContextProvider = new LobeChatTopicContextProvider({
           conversations: extractorConversations,
+          previousConversations: window.previous,
           topic,
           topicId: topic.id,
         });
@@ -219,8 +238,10 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
         resultRecorder = new LobeChatTopicResultRecorder({
           currentMetadata: topic.metadata || {},
           database: db,
-          lastMessageAt: (conversations?.at(-1)?.createdAt || topic.updatedAt).toISOString(),
-          messageCount: conversations.length,
+          extractedThrough: window.extractedThrough?.toISOString(),
+          lastMessageAt: (window.segment.at(-1)?.createdAt || topic.updatedAt).toISOString(),
+          messageCount: window.segment.length,
+          previousExtractedThrough: watermark?.toISOString(),
           topicId: topic.id,
           traceId: span.spanContext().traceId,
         });
@@ -403,6 +424,8 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           topicProcessed = true;
           return {
             extracted: false,
+            extractedThrough: window.extractedThrough?.toISOString(),
+            hasMore: window.hasMore,
             layers: {},
             memoryIds: [],
             traceId: span.spanContext().traceId,
@@ -437,6 +460,8 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
         topicProcessed = true;
         return {
           extracted: true,
+          extractedThrough: window.extractedThrough?.toISOString(),
+          hasMore: window.hasMore,
           layers: persistedRes.layers,
           memoryIds: persistedRes.createdIds,
           traceId: span.spanContext().traceId,

@@ -22,10 +22,6 @@ export interface MemoryExtractionWorkflowCursor {
   id: string;
 }
 
-export interface TopicWorkflowCursor extends MemoryExtractionWorkflowCursor {
-  userId: string;
-}
-
 export interface MemoryExtractionHourlyWorkflowPayload {
   baseUrl?: string;
   cursor?: MemoryExtractionWorkflowCursor;
@@ -51,8 +47,6 @@ export interface MemoryExtractionNormalizedPayload {
   sourceIds?: string[];
   sources: MemorySourceType[];
   to?: Date;
-  topicCursor?: TopicWorkflowCursor;
-  topicFanoutCount: number;
   topicIds: string[];
   userCursor?: MemoryExtractionWorkflowCursor;
   userId?: string;
@@ -75,16 +69,6 @@ export const memoryExtractionPayloadSchema = z.object({
   sourceIds: z.array(z.string()).optional(),
   sources: z.array(z.string()).optional(),
   toDate: z.coerce.date().optional(),
-  topicCursor: z
-    .object({
-      createdAt: z.string(),
-      id: z.string(),
-      userId: z.string(),
-    })
-    .optional(),
-  // Running count of topics already fanned out for this user in the current pagination chain.
-  // Used by process-user-topics to enforce a hard per-user, per-run fan-out ceiling.
-  topicFanoutCount: z.coerce.number().int().nonnegative().optional(),
   topicIds: z.array(z.string()).optional(),
   userCursor: z
     .object({
@@ -142,8 +126,6 @@ export const normalizeMemoryExtractionPayload = (
     sourceIds: Array.from(new Set(parsed.sourceIds || [])).filter(Boolean),
     sources: normalizeSources(parsed.sources),
     to: parsed.toDate,
-    topicCursor: parsed.topicCursor,
-    topicFanoutCount: parsed.topicFanoutCount ?? 0,
     topicIds: Array.from(new Set(parsed.topicIds || [])).filter(Boolean),
     userCursor: parsed.userCursor,
     userId: parsed.userId ?? parsed.userIds?.[0],
@@ -156,11 +138,6 @@ export const normalizeMemoryExtractionPayload = (
 };
 
 export type UserTopicWorkflowPayload = MemoryExtractionPayloadInput;
-
-export interface TopicBatchWorkflowPayload extends MemoryExtractionPayloadInput {
-  topicIds: string[];
-  userId: string;
-}
 
 export const buildWorkflowPayloadInput = (
   payload: MemoryExtractionNormalizedPayload,
@@ -178,8 +155,6 @@ export const buildWorkflowPayloadInput = (
   sourceIds: payload.sourceIds,
   sources: payload.sources,
   toDate: payload.to,
-  topicCursor: payload.topicCursor,
-  topicFanoutCount: payload.topicFanoutCount,
   topicIds: payload.topicIds,
   userCursor: payload.userCursor,
   userId: payload.userId ?? payload.userIds[0],

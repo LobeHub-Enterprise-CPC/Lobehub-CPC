@@ -120,8 +120,6 @@ describe('extract module surface', () => {
       'triggerHourly',
       'triggerHourlyTracked',
       'triggerPersonaUpdate',
-      'triggerProcessTopic',
-      'triggerProcessTopics',
       'triggerProcessUserTopics',
       'triggerProcessUsers',
     ]);

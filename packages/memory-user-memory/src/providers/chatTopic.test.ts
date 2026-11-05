@@ -1,7 +1,7 @@
 import { MemorySourceType } from '@lobechat/types';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { LobeChatTopicContextProvider } from './chatTopic';
+import { LobeChatTopicContextProvider, LobeChatTopicResultRecorder } from './chatTopic';
 
 const job = {
   source: MemorySourceType.ChatTopic,
@@ -48,5 +48,84 @@ describe('LobeChatTopicContextProvider', () => {
     );
     expect(result.sourceId).toBe('topic-1');
     expect(result.userId).toBe('user-1');
+  });
+});
+
+describe('LobeChatTopicContextProvider previous conversation', () => {
+  it('sends earlier turns apart from the turns to extract, marked as already processed', async () => {
+    const provider = new LobeChatTopicContextProvider({
+      conversations: [
+        { content: 'New question', createdAt: new Date('2024-03-02T10:00:00.000Z'), role: 'user' },
+      ],
+      previousConversations: [
+        {
+          content: 'Earlier answer',
+          createdAt: new Date('2024-03-01T10:00:00.000Z'),
+          role: 'assistant',
+        },
+      ],
+      topic: { createdAt: new Date('2024-03-01T09:00:00.000Z'), id: 'topic-1' },
+      topicId: 'topic-1',
+    });
+
+    const { context } = await provider.buildContext(job.userId);
+
+    const previous = context.slice(
+      context.indexOf('<previous_messages'),
+      context.indexOf('</previous_messages>'),
+    );
+    const current = context.slice(context.indexOf('<messages'), context.indexOf('</messages>'));
+    expect(previous).toContain('already processed');
+    expect(previous).toContain('Earlier answer');
+    expect(current).toContain('New question');
+    expect(current).not.toContain('Earlier answer');
+    expect(context).toContain('message_count="1"');
+  });
+});
+
+describe('LobeChatTopicResultRecorder watermark', () => {
+  const recorderWith = (options: {
+    extractedThrough?: string;
+    previousExtractedThrough?: string;
+  }) => {
+    const set = vi.fn(() => ({ where: vi.fn() }));
+    const recorder = new LobeChatTopicResultRecorder({
+      // Completed before the watermark existed: only lastMessageAt marks how far it got.
+      currentMetadata: {
+        userMemoryExtractRunState: { lastMessageAt: options.previousExtractedThrough },
+        userMemoryExtractStatus: 'completed',
+      },
+      database: { update: () => ({ set }) } as any,
+      topicId: 'topic-1',
+      ...options,
+    });
+    const written = () => (set.mock.calls[0] as any)[0].metadata.userMemoryExtractRunState;
+    return { recorder, written };
+  };
+
+  it('moves the watermark to the last extracted message on success', async () => {
+    const { recorder, written } = recorderWith({
+      extractedThrough: '2024-03-02T10:00:00.000Z',
+      previousExtractedThrough: '2024-03-01T10:00:00.000Z',
+    });
+
+    await recorder.recordComplete(job, {
+      createdIds: [],
+      layers: {},
+      processedMemoryCount: 0,
+    } as any);
+
+    expect(written().extractedThrough).toBe('2024-03-02T10:00:00.000Z');
+  });
+
+  it('keeps the watermark where it was when the run fails, so a retry resumes there', async () => {
+    const { recorder, written } = recorderWith({
+      extractedThrough: '2024-03-02T10:00:00.000Z',
+      previousExtractedThrough: '2024-03-01T10:00:00.000Z',
+    });
+
+    await recorder.recordFail(job, new Error('model returned invalid output'));
+
+    expect(written().extractedThrough).toBe('2024-03-01T10:00:00.000Z');
   });
 });

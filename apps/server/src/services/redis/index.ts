@@ -7,6 +7,7 @@ import { staleSweepCursor } from './staleSweepCursor';
 import { steerQueue } from './steerQueue';
 import { tenantDiscovery } from './tenantDiscovery';
 import { threadStartFence } from './threadStartFence';
+import { userMemoryExtractionLease } from './userMemoryExtractionLease';
 import { workspaceRescan } from './workspaceRescan';
 
 /** Business Redis API. Providers, keys and expiry policy stay inside each domain. */
@@ -20,5 +21,6 @@ export const redisService = {
   steerQueue,
   tenantDiscovery,
   threadStartFence,
+  userMemoryExtractionLease,
   workspaceRescan,
 };

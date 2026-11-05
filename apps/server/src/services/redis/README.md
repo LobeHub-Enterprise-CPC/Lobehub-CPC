@@ -16,6 +16,8 @@ callers do not choose a provider, prefix, key, SET options or claim lifetime.
   distinct topics one nightly review may cover. Its keys live in the `agent-signal` namespace
   next to the Agent Signal runtime stores. Each count returns `undefined` without Redis; the
   Agent Signal caller decides whether that fails open or closed.
+- `userMemoryExtractionLease`: one memory extraction run per user, three hours at most; a run
+  that dies without releasing it blocks the user until it lapses. Without Redis every run holds it.
 
 `client.ts` is the connection seam. `getRedisServiceClient(scope)` takes the `RedisKeys` scope a
 domain reads its keys from; `RedisKeyScopeNamespace` maps every scope to the namespace that becomes

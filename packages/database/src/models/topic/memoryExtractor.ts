@@ -18,6 +18,8 @@ export const listTopicsForMemoryExtractor = async (
      * again every hour; a user-initiated run still retries it.
      */
     skipFailedWithoutNewMessages?: boolean;
+    /** Only messages created before this count as new, so a conversation still being written waits. */
+    settledBefore?: Date;
     startDate?: Date;
   } = {},
 ) => {
@@ -47,17 +49,40 @@ export const listTopicsForMemoryExtractor = async (
       ctx.notShareVisitor(),
       options.startDate ? gte(topics.createdAt, options.startDate) : undefined,
       options.endDate ? lte(topics.createdAt, options.endDate) : undefined,
-      options.ignoreExtracted
-        ? undefined
-        : // COALESCE, not `IS DISTINCT FROM`: a null test on a jsonb arrow
-          // expression crashes the production engine (see the note on the class).
-          // A null `metadata` extracts to '' here too, so this covers it.
-          sql`COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') <> 'completed'`,
+      options.ignoreExtracted ? undefined : hasConversationToExtract(options.settledBefore),
       options.skipFailedWithoutNewMessages ? retryableAfterFailure : undefined,
       cursorCondition,
     ),
   });
 };
+
+/**
+ * A topic has conversation left to extract when a user or assistant message was created after
+ * its watermark: the last message a successful run extracted (`extractedThrough`). A topic
+ * completed before the watermark existed falls back to `lastMessageAt`, which its last
+ * successful run recorded (a completed topic with neither counts as fully extracted); one never
+ * extracted has no watermark at all. Tool output is not
+ * conversation and never makes a topic due.
+ *
+ * No null tests on computed expressions (see the note on TopicModel): a missing watermark
+ * COALESCEs to '-infinity'.
+ */
+const hasConversationToExtract = (settledBefore?: Date) => sql`EXISTS (
+  SELECT 1 FROM ${messages} AS m
+  WHERE m.topic_id = ${topics.id}
+    AND m.role IN ('user', 'assistant')
+    AND m.created_at > COALESCE(
+      (${topics.metadata} #>> '{userMemoryExtractRunState,extractedThrough}')::timestamptz,
+      CASE WHEN COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') = 'completed'
+        THEN COALESCE(
+          (${topics.metadata} #>> '{userMemoryExtractRunState,lastMessageAt}')::timestamptz,
+          'infinity'::timestamptz
+        )
+      END,
+      '-infinity'::timestamptz
+    )
+    ${settledBefore ? sql`AND m.created_at < ${settledBefore.toISOString()}::timestamptz` : sql``}
+)`;
 
 // The relational query builder renders column refs unqualified, so the subquery
 // names its columns through an alias. No null tests on computed expressions (see
@@ -81,6 +106,7 @@ export const countTopicsForMemoryExtractor = async (
   options: {
     endDate?: Date;
     ignoreExtracted?: boolean;
+    settledBefore?: Date;
     startDate?: Date;
   } = {},
 ) => {
@@ -93,9 +119,7 @@ export const countTopicsForMemoryExtractor = async (
         ctx.notShareVisitor(),
         options.startDate ? gte(topics.createdAt, options.startDate) : undefined,
         options.endDate ? lte(topics.createdAt, options.endDate) : undefined,
-        options.ignoreExtracted
-          ? undefined
-          : sql`COALESCE(${topics.metadata}->>'userMemoryExtractStatus', '') <> 'completed'`,
+        options.ignoreExtracted ? undefined : hasConversationToExtract(options.settledBefore),
       ),
     );
 

@@ -25,8 +25,6 @@ import type {
 const WORKFLOW_PATHS = {
   hourly: '/api/workflows/memory-user-memory/call-cron-hourly-analysis',
   personaUpdate: '/api/workflows/memory-user-memory/pipelines/persona/update-writing',
-  topic: '/api/workflows/memory-user-memory/pipelines/chat-topic/process-topic',
-  topicBatch: '/api/workflows/memory-user-memory/pipelines/chat-topic/process-topics',
   userTopics: '/api/workflows/memory-user-memory/pipelines/chat-topic/process-user-topics',
   users: '/api/workflows/memory-user-memory/pipelines/chat-topic/process-users',
 } as const;
@@ -203,56 +201,6 @@ export class MemoryExtractionWorkflowService {
     return workflowClient.trigger({
       body: payload,
       flowControl: getProcessUserTopicsFlowControl(),
-      headers: options?.extraHeaders,
-      url,
-    });
-  }
-
-  static triggerProcessTopics(
-    userId: string,
-    payload: MemoryExtractionPayloadInput,
-    options?: { extraHeaders?: Record<string, string> },
-  ) {
-    if (!payload.baseUrl) {
-      throw new Error('Missing baseUrl for workflow trigger');
-    }
-
-    const url = getWorkflowUrl(WORKFLOW_PATHS.topicBatch, payload.baseUrl);
-    return workflowClient.trigger({
-      body: payload,
-      flowControl: {
-        key: `memory-user-memory.pipelines.chat-topic.process-topics.user.${userId}`,
-        // NOTICE: Each process-topics workflow currently invokes topic workflows sequentially.
-        // Parallelism 20 therefore bounds each user's active topic extraction workflows to 20.
-        // If process-topics changes back to parallel per-topic invoke, divide this number by
-        // the per-batch topic concurrency to preserve the same per-user topic budget.
-        parallelism: 20,
-      },
-      headers: options?.extraHeaders,
-      url,
-    });
-  }
-
-  static triggerProcessTopic(
-    userId: string,
-    payload: MemoryExtractionPayloadInput,
-    options?: { extraHeaders?: Record<string, string> },
-  ) {
-    if (!payload.baseUrl) {
-      throw new Error('Missing baseUrl for workflow trigger');
-    }
-
-    const url = getWorkflowUrl(WORKFLOW_PATHS.topic, payload.baseUrl);
-    return workflowClient.trigger({
-      body: payload,
-      // NOTICE: fire-and-forget fan-out (replaces the old context.invoke). The per-user key bounds
-      // how many process-topic runs a single user can start concurrently, so one heavy user can't
-      // monopolize extraction. Serve-side flow control (processTopicWorkflowOptions) additionally
-      // keeps this workflow's own step-continuation messages out of the shared "$" (unbound) bucket.
-      flowControl: {
-        key: `memory-user-memory.pipelines.chat-topic.process-topic.user.${userId}`,
-        parallelism: 5,
-      } satisfies FlowControl,
       headers: options?.extraHeaders,
       url,
     });

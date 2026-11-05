@@ -41,6 +41,11 @@ export interface GroupedTopic {
 
 export interface TopicUserMemoryExtractRunState {
   error?: string;
+  /**
+   * Creation time of the last message a successful run extracted. The next run only
+   * extracts messages created after it; a failed run leaves it where it was.
+   */
+  extractedThrough?: string;
   lastMessageAt?: string;
   lastRunAt?: string;
   messageCount?: number;

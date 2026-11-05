@@ -95,8 +95,6 @@ export type {
   MemoryExtractionNormalizedPayload,
   MemoryExtractionPayloadInput,
   MemoryExtractionWorkflowCursor,
-  TopicBatchWorkflowPayload,
-  TopicWorkflowCursor,
   UserTopicWorkflowPayload,
 } from './payload';
 export {
