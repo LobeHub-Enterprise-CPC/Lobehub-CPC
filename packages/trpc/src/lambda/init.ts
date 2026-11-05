@@ -7,6 +7,7 @@
  * @link https://trpc.io/docs/v11/router
  * @link https://trpc.io/docs/v11/procedures
  */
+import { DATABASE_ERROR_PUBLIC_MESSAGE, isQueryError } from '@lobechat/utils/queryError';
 import { initTRPC } from '@trpc/server';
 import superjson from 'superjson';
 
@@ -17,6 +18,14 @@ export const trpc = initTRPC.context<LambdaContext>().create({
    * @link https://trpc.io/docs/v11/error-formatting
    */
   errorFormatter({ shape, error }) {
+    // Clients render `message` (toasts, error alerts). A database failure's
+    // message is Drizzle's `Failed query: <sql> params: <values>`; the route's
+    // `onError` logs the original, the response only says the query failed.
+    if (isQueryError(error)) {
+      const { stack: _stack, ...data } = shape.data;
+      return { ...shape, data, message: DATABASE_ERROR_PUBLIC_MESSAGE };
+    }
+
     if (error.cause && 'data' in error.cause) {
       return {
         ...shape,

@@ -27,6 +27,7 @@ import type {
   TaskTopicHandoff,
 } from '@lobechat/types';
 import { DEFAULT_BRIEF_ACTIONS, RequestTrigger } from '@lobechat/types';
+import { toPublicErrorText } from '@lobechat/utils/queryError';
 import debug from 'debug';
 
 import {
@@ -358,7 +359,8 @@ export class TaskLifecycleService {
           resolveFailedRunStatus(errorMessage),
         );
 
-      const errorText = errorMessage || 'Unknown error';
+      // `tasks.error` and the lifecycle audit are shown on the task page.
+      const errorText = toPublicErrorText(errorMessage) || 'Unknown error';
 
       const runTrigger = params.runTrigger ?? 'manual';
       const isAutomationTick = runTrigger === 'schedule' || runTrigger === 'heartbeat';

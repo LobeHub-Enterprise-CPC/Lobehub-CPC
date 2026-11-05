@@ -1,10 +1,19 @@
 import { ModelEmptyError, ModelRefusalError } from '@lobechat/model-runtime';
 import { AgentRuntimeErrorType } from '@lobechat/types';
-import { describe, expect, it } from 'vitest';
+import { DATABASE_ERROR_PUBLIC_MESSAGE } from '@lobechat/utils/queryError';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { formatErrorEventData } from '../formatErrorEventData';
 
 describe('formatErrorEventData', () => {
+  let consoleError: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    consoleError.mockRestore();
+  });
+
   describe('PG enrichment', () => {
     it('classifies a top-level PostgresError (has .name set by driver, still unwrapped)', () => {
       // postgres-js style: error IS the PG error at the top level, with a
@@ -24,9 +33,7 @@ describe('formatErrorEventData', () => {
       const out = formatErrorEventData(err, 'tool_message_persist');
 
       expect(out.errorType).toBe('pg_22021');
-      expect(out.error).toBe(
-        'PG 22021 · ERROR · invalid byte sequence for encoding "UTF8": 0xed 0xa0 0x9f · detail=invalid byte sequence in column "state" · table=message_plugins · column=state',
-      );
+      expect(out.error).toBe(DATABASE_ERROR_PUBLIC_MESSAGE);
       expect(out.phase).toBe('tool_message_persist');
     });
 
@@ -44,8 +51,7 @@ describe('formatErrorEventData', () => {
       const out = formatErrorEventData(err, 'persist');
 
       expect(out.errorType).toBe('pg_23505');
-      expect(out.error).toContain('PG 23505');
-      expect(out.error).toContain('constraint=messages_pkey');
+      expect(out.error).toBe(DATABASE_ERROR_PUBLIC_MESSAGE);
     });
 
     it('unwraps PG info from .cause (drizzle + postgres-js wrapper)', () => {
@@ -59,7 +65,21 @@ describe('formatErrorEventData', () => {
       const out = formatErrorEventData(err, 'persist');
 
       expect(out.errorType).toBe('pg_54000');
-      expect(out.error).toBe('PG 54000 · ERROR · row is too big: size X, maximum size Y');
+      expect(out.error).toBe(DATABASE_ERROR_PUBLIC_MESSAGE);
+      // The driver detail goes to the server log, not to the client.
+      expect(String(consoleError.mock.calls[0][0])).toContain('row is too big');
+    });
+
+    it('sends no SQL or parameters for a Drizzle failure without a PG cause', () => {
+      const err = new Error(
+        'Failed query: select "id" from "messages" where "id" = $1\nparams: msg_q9Utuc2kAGXSkuMutD',
+      );
+      (err as any).cause = new Error('Connection terminated unexpectedly');
+
+      const out = formatErrorEventData(err, 'step_execution');
+
+      expect(out.error).toBe(DATABASE_ERROR_PUBLIC_MESSAGE);
+      expect(JSON.stringify(out)).not.toMatch(/select|msg_q9Utuc2kAGXSkuMutD/);
     });
   });
 

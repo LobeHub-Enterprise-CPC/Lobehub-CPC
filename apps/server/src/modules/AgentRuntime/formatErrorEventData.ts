@@ -1,8 +1,9 @@
 import { ModelEmptyError, ModelRefusalError } from '@lobechat/model-runtime';
 import { pickNonEmptyString, toRecord } from '@lobechat/utils/object';
+import { DATABASE_ERROR_PUBLIC_MESSAGE, toPublicErrorText } from '@lobechat/utils/queryError';
 
-import { formatErrorForState } from './formatErrorForState';
-import { formatPgError, pgErrorType, unwrapPgError } from './pgError';
+import { formatErrorForState, logInternalError } from './formatErrorForState';
+import { pgErrorType, unwrapPgError } from './pgError';
 
 const isErrorType = (value: unknown): value is string | number =>
   typeof value === 'string' || typeof value === 'number';
@@ -20,7 +21,8 @@ const isErrorType = (value: unknown): value is string | number =>
  *   2. PostgreSQL errors — detected anywhere in the `.cause` chain OR at the
  *      top level (driver classes like `PostgresError` / `DatabaseError`
  *      carry their own `name` but no business-typed `errorType`). Emitted as
- *      `pg_<sqlstate>` with a formatted single-line diagnostic.
+ *      `pg_<sqlstate>` with a generic message; SQL and driver detail stay in
+ *      server logs, since the client shows this event on the message.
  *   3. Anything else — falls back to `error.message` + `error.name`, or
  *      `"Unknown error"` when the value isn't even an Error.
  *
@@ -77,14 +79,19 @@ export const formatErrorEventData = (error: unknown, phase: string) => {
   if (!hasPayloadErrorType) {
     const pg = unwrapPgError(error);
     if (pg) {
-      errorMessage = formatPgError(pg);
+      errorMessage = DATABASE_ERROR_PUBLIC_MESSAGE;
       errorType = pgErrorType(pg);
+      if (error instanceof Error) logInternalError(error, errorType, pg);
     }
   }
 
+  const publicMessage = toPublicErrorText(errorMessage);
+  if (publicMessage !== errorMessage && error instanceof Error) logInternalError(error, errorType);
+
   return {
     ...(body === undefined ? {} : { body }),
-    error: errorMessage,
+    // The client overlays this onto the visible message.
+    error: publicMessage,
     errorType,
     phase,
   };

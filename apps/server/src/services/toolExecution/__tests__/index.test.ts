@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { executeToolWithRetry } from '@lobechat/agent-runtime';
 import { CloudSandboxExecutionRuntime } from '@lobechat/builtin-tool-cloud-sandbox/executionRuntime';
+import { DATABASE_ERROR_PUBLIC_MESSAGE } from '@lobechat/utils/queryError';
 import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -99,6 +100,32 @@ describe('ToolExecutionService', () => {
     expect(result.content).toContain('Budget exceeded');
     expect(result.content).toContain('InsufficientBudgetForModel');
     expect(result.error).toMatchObject({ errorType: 'InsufficientBudgetForModel' });
+  });
+
+  it('keeps the SQL of a database failure out of the tool result', async () => {
+    const sql =
+      'Failed query: select "id" from "messages" where "id" = $1\nparams: msg_q9Utuc2kAGXSkuMutD';
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const service = new ToolExecutionService({
+      builtinToolsExecutor: { execute: vi.fn().mockRejectedValue(new Error(sql)) } as any,
+      mcpService: {} as any,
+    });
+
+    const result = await service.executeTool(
+      {
+        apiName: 'viewTask',
+        arguments: '{}',
+        id: 'call_db',
+        identifier: 'lobe-task',
+        type: 'builtin',
+      },
+      { toolManifestMap: {} },
+    );
+    consoleError.mockRestore();
+
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result)).not.toMatch(/select|msg_q9Utuc2kAGXSkuMutD|Failed query/);
+    expect(result.content).toBe(DATABASE_ERROR_PUBLIC_MESSAGE);
   });
 
   it('keeps a failed command HTTP status as command output', async () => {

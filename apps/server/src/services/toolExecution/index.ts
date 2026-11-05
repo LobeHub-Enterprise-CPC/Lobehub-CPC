@@ -3,6 +3,7 @@ import { DEFAULT_TOOL_RESULT_MAX_LENGTH, truncateToolResult } from '@lobechat/pr
 import { type ChatToolPayload } from '@lobechat/types';
 import { safeParseJSON } from '@lobechat/utils';
 import { isDeviceOnlyMcpEndpoint } from '@lobechat/utils/mcpEndpoint';
+import { isQueryError, toPublicErrorText } from '@lobechat/utils/queryError';
 import debug from 'debug';
 
 import { ConnectorToolPermission } from '@/database/schemas';
@@ -87,7 +88,7 @@ const normalizeExecutionError = (error: unknown, fallbackMessage: string) => {
       return {
         code: normalized.code,
         kind: normalized.kind,
-        message: clampErrorMessage(error.message) || message,
+        message: clampErrorMessage(toPublicErrorText(error.message)) || message,
         name: error.name,
       };
     }
@@ -100,7 +101,8 @@ const normalizeExecutionError = (error: unknown, fallbackMessage: string) => {
       // A runtime may know that side effects already happened; retry keywords
       // must not override its explicit refusal to replay the operation.
       kind: plainError.kind === 'stop' ? 'stop' : normalized.kind,
-      message: clampErrorMessage(plainError.message as string | undefined) || message,
+      message:
+        clampErrorMessage(toPublicErrorText(plainError.message as string | undefined)) || message,
     };
   }
 
@@ -281,7 +283,11 @@ export class ToolExecutionService {
     } catch (error) {
       const executionTime = Date.now() - startTime;
       log('Error executing tool %s:%s: %O', identifier, apiName, error);
-      const errorMessage = getThrownErrorText(error);
+      // The tool result is shown on the message: a database failure keeps its
+      // SQL and parameters in the server log only.
+      if (isQueryError(error))
+        console.error('Tool %s:%s database error:', identifier, apiName, error);
+      const errorMessage = toPublicErrorText(getThrownErrorText(error));
       telemetry?.complete({ thrown: error, viaDevice: route.viaDevice });
       const denial = getToolAccessDeniedError(error, errorMessage);
       const content = denial ? JSON.stringify({ error: denial }) : errorMessage;
