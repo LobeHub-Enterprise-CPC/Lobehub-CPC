@@ -15,6 +15,7 @@ import { resolveChannelMembers } from '@/server/services/channel/members';
 import { checkChannelNativeAvailability } from '@/server/services/channel/native/capabilities';
 import { watchChannel } from '@/server/services/channel/watch';
 import { resolveAttachmentMetadata } from '@/server/services/file/resolveAttachments';
+import { redisService } from '@/server/services/redis';
 
 const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next, type }) => {
   if (ctx.workspaceId)
@@ -31,6 +32,10 @@ const channelProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, n
       message: 'Channel service is unavailable',
     });
   const result = await next({ ctx: { channelModel: new ChannelModel(ctx.serverDB, ctx.userId) } });
+  // Every Channel write commits before its procedure resolves. Messages, jobs, routing retries,
+  // resumes and stop/cleanup requests all need the worker; an idle tenant would otherwise wait
+  // for its backoff. Fire and forget: the signal must never delay or fail the request.
+  if (type === 'mutation' && result.ok) void redisService.channelWake.wake();
   if (!result.ok && result.error.cause instanceof ChannelError) {
     throw new TRPCError({ code: result.error.cause.code, message: result.error.cause.message });
   }

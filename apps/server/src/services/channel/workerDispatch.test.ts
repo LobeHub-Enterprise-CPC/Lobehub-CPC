@@ -453,7 +453,7 @@ describe('Channel dispatch isolation', () => {
         ],
       ),
     );
-    await expect(worker.tick()).resolves.toBeUndefined();
+    await expect(worker.tick()).resolves.toBe(true);
     expect(methods.advanceDiscussions).toHaveBeenCalledWith('healthy');
     expect(methods.claim).toHaveBeenCalledWith(channel.id, 'queued', 3);
   });
@@ -687,5 +687,50 @@ describe('Channel unconfirmed writer isolation', () => {
     // Nothing can confirm an orphaned native writer, so an isolated one is not re-diagnosed.
     expect(methods.executionUnknown).not.toHaveBeenCalled();
     expect(methods.isolate).not.toHaveBeenCalled();
+  });
+});
+
+describe('Channel worker activity report', () => {
+  const run = {
+    channel,
+    memberActive: true,
+    config: { runtime: 'native' },
+    run: {
+      id: 'live',
+      channelId: channel.id,
+      createdAt: new Date(),
+      draft: null,
+      executionConfig: { runtime: 'native' },
+      fence: 1,
+      isolatedAt: null,
+      publicationRevoked: false,
+      writerReleased: false,
+    },
+  };
+  const pending = { message: { id: 'message', channelId: channel.id }, ownerId: channel.ownerId };
+  const job = { channel, config: { runtime: 'native' }, revision: 3, job: { id: 'queued' } };
+
+  it('reports an empty tick so an idle tenant can back off', async () => {
+    await expect(new ChannelWorker(database([[], [], []])).tick()).resolves.toBe(false);
+  });
+
+  it.each([
+    ['a run to reconcile', [[run], [], []], []],
+    ['a message to route', [[], [pending], []], []],
+    ['a discussion to advance', [[], [], []], [{ channelId: channel.id, ownerId: 'owner' }]],
+    ['a queued job', [[], [], [job]], []],
+  ])('reports work when it finds %s', async (_, rows, discussing) => {
+    await expect(new ChannelWorker(database(rows, discussing)).tick()).resolves.toBe(true);
+  });
+
+  it('reports work while a native run is active or still finalizing in memory', async () => {
+    const worker = new ChannelWorker(database([[], [], [], [], [], []]));
+    worker['active'].set('native', { abort: new AbortController(), done: Promise.resolve() });
+    await expect(worker.tick()).resolves.toBe(true);
+    worker['active'].clear();
+    worker['finalizing'].set('native', async () => {
+      throw new Error('database unavailable');
+    });
+    await expect(worker.tick()).resolves.toBe(true);
   });
 });

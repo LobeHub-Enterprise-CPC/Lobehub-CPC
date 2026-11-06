@@ -1,4 +1,5 @@
 import { agentSignal } from './agentSignal';
+import { channelWake } from './channelWake';
 import { deviceSystemInfo } from './deviceSystemInfo';
 import { gatewayAuthorization } from './gatewayAuthorization';
 import { linear } from './linear';
@@ -13,6 +14,7 @@ import { workspaceRescan } from './workspaceRescan';
 /** Business Redis API. Providers, keys and expiry policy stay inside each domain. */
 export const redisService = {
   agentSignal,
+  channelWake,
   deviceSystemInfo,
   gatewayAuthorization,
   linear,
