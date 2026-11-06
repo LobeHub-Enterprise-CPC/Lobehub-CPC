@@ -216,19 +216,22 @@ export const uploadRouter = router({
         });
       }
 
-      const { id } = await ctx.serverDB.transaction(async (trx) => {
-        let shouldRefreshGlobalFile = false;
-        if (isExist && existingFile.url && existingFile.url !== input.url) {
-          shouldRefreshGlobalFile = !(await isStoredObjectAvailable(
-            ctx.fileService,
-            existingFile.url,
-          ));
-        }
+      // A user may re-upload the same bytes after the old object key was removed: the global
+      // hash pointer then follows the new object so future dedup checks do not resolve back to
+      // the stale key. Probe before the transaction so no pooled connection waits on storage.
+      const missingHashUrl =
+        isExist &&
+        existingFile.url &&
+        existingFile.url !== input.url &&
+        !(await isStoredObjectAvailable(ctx.fileService, existingFile.url))
+          ? existingFile.url
+          : undefined;
 
-        if (shouldRefreshGlobalFile) {
-          // A user may re-upload the same bytes after the old object key was
-          // removed. Keep the global hash pointer on the newly uploaded object so
-          // future dedup checks do not resolve back to the stale key.
+      const { id } = await ctx.serverDB.transaction(async (trx) => {
+        // The probe only describes the mapping it saw. When the row has moved since, decide from
+        // the current row and leave a replaced pointer as is; the next upload probes it again.
+        const currentFile = await ctx.fileModel.checkHash(input.hash!, trx);
+        if (missingHashUrl && currentFile.isExist && currentFile.url === missingHashUrl) {
           await ctx.fileModel.updateGlobalFile(
             input.hash!,
             {
@@ -258,7 +261,7 @@ export const uploadRouter = router({
               ...(resolvedVisibility ? { visibility: resolvedVisibility } : {}),
             },
             // if the file is not exist in global file, create a new one
-            !isExist,
+            !currentFile.isExist,
             trx,
           );
 

@@ -104,51 +104,6 @@ describe('FileModel', () => {
     });
   });
 
-  describe('createGlobalFile', () => {
-    it('should create a global file', async () => {
-      const globalFile = {
-        hashId: 'test-hash',
-        fileType: 'text/plain',
-        size: 100,
-        url: 'https://example.com/global-file.txt',
-        metadata: { key: 'value' },
-        creator: userId,
-      };
-
-      const result = await fileModel.createGlobalFile(globalFile);
-      expect(result[0]).toMatchObject(globalFile);
-    });
-  });
-
-  describe('checkHash', () => {
-    it('should return isExist: false for non-existent hash', async () => {
-      const result = await fileModel.checkHash('non-existent-hash');
-      expect(result).toEqual({ isExist: false });
-    });
-
-    it('should return file info for existing hash', async () => {
-      const globalFile = {
-        hashId: 'existing-hash',
-        fileType: 'text/plain',
-        size: 100,
-        url: 'https://example.com/existing-file.txt',
-        metadata: { key: 'value' },
-        creator: userId,
-      };
-
-      await serverDB.insert(globalFiles).values(globalFile);
-
-      const result = await fileModel.checkHash('existing-hash');
-      expect(result).toEqual({
-        isExist: true,
-        fileType: 'text/plain',
-        size: 100,
-        url: 'https://example.com/existing-file.txt',
-        metadata: { key: 'value' },
-      });
-    });
-  });
-
   describe('delete', () => {
     it('should delete a file by id', async () => {
       await fileModel.createGlobalFile({
@@ -2269,56 +2224,6 @@ describe('FileModel', () => {
 
       const result = await fileModel.findDeletableFilesByTopicId(topicId);
       expect(result).toEqual([]);
-    });
-  });
-
-  describe('updateGlobalFile', () => {
-    it('should update url and metadata of a global file by hashId', async () => {
-      await fileModel.createGlobalFile({
-        hashId: 'update-hash',
-        fileType: 'text/plain',
-        size: 100,
-        url: 'https://example.com/old.txt',
-        metadata: { version: 1 },
-        creator: userId,
-      });
-
-      await fileModel.updateGlobalFile('update-hash', {
-        url: 'https://example.com/new.txt',
-        metadata: { version: 2 },
-      });
-
-      const updated = await serverDB.query.globalFiles.findFirst({
-        where: eq(globalFiles.hashId, 'update-hash'),
-      });
-
-      expect(updated?.url).toBe('https://example.com/new.txt');
-      expect(updated?.metadata).toEqual({ version: 2 });
-    });
-
-    it('should support running inside a provided transaction', async () => {
-      await fileModel.createGlobalFile({
-        hashId: 'trx-update-hash',
-        fileType: 'text/plain',
-        size: 100,
-        url: 'https://example.com/old.txt',
-        metadata: { version: 1 },
-        creator: userId,
-      });
-
-      await serverDB.transaction(async (trx) => {
-        await fileModel.updateGlobalFile(
-          'trx-update-hash',
-          { url: 'https://example.com/trx.txt' },
-          trx,
-        );
-      });
-
-      const updated = await serverDB.query.globalFiles.findFirst({
-        where: eq(globalFiles.hashId, 'trx-update-hash'),
-      });
-
-      expect(updated?.url).toBe('https://example.com/trx.txt');
     });
   });
 

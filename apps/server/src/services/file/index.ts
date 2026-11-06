@@ -25,6 +25,18 @@ export interface FileAccessUrlItem {
   url?: string | null;
 }
 
+interface FileRecordParams {
+  fileHash: string;
+  fileType: string;
+  id?: string;
+  metadata?: Record<string, unknown>;
+  name: string;
+  size: number;
+  source?: FileItem['source'];
+  url: string;
+  visibility?: FileItem['visibility'];
+}
+
 /**
  * File service class
  * Provides file operation services using a modular implementation approach
@@ -226,59 +238,71 @@ export class FileService {
    * @returns File record and proxy URL
    */
   public async createFileRecord(
-    params: {
-      fileHash: string;
-      fileType: string;
-      id?: string;
-      metadata?: Record<string, unknown>;
-      name: string;
-      size: number;
-      source?: FileItem['source'];
-      url: string;
-      visibility?: FileItem['visibility'];
-    },
-    trx?: Transaction,
+    params: FileRecordParams,
   ): Promise<{ fileId: string; url: string }> {
-    // Check if hash already exists in globalFiles
-    const existingFile = await this.fileModel.checkHash(params.fileHash);
-    const { isExist } = existingFile;
+    const id = await this.writeFileRecord(params);
 
-    let shouldRefreshGlobalFile = false;
-    if (isExist && existingFile.url && existingFile.url !== params.url) {
-      shouldRefreshGlobalFile = !(await this.isStoredFileAvailable(existingFile.url));
-    }
+    return { fileId: id, url: await this.getFileAccessUrl({ id, url: params.url }) };
+  }
 
-    if (shouldRefreshGlobalFile) {
-      // Keep global hash dedup usable when the same file is uploaded again to a
-      // fresh object key after the previous storage object has been removed.
-      await this.fileModel.updateGlobalFile(params.fileHash, {
-        metadata: params.metadata,
-        url: params.url,
-      });
-    }
+  /**
+   * Writes the file row, and the globalFiles row its hash needs, in one transaction.
+   *
+   * The storage probe of an existing hash runs before that transaction: a HeadObject round trip
+   * must not keep a pooled connection checked out, and every query inside goes through `trx`, so
+   * the write never borrows a second connection from the pool it already holds one of.
+   *
+   * @param beforeRecord - Runs first inside the transaction (e.g. an admission check holding the
+   *   owner lock); a rejection rolls the write back.
+   */
+  private async writeFileRecord(
+    params: FileRecordParams,
+    beforeRecord?: (trx: Transaction) => Promise<void>,
+  ): Promise<string> {
+    const observed = await this.fileModel.checkHash(params.fileHash);
+    // An existing hash row whose object is gone follows this upload, so hash dedup keeps
+    // resolving to a live object after the previous one was removed.
+    const missingHashUrl =
+      observed.isExist &&
+      observed.url &&
+      observed.url !== params.url &&
+      !(await this.isStoredFileAvailable(observed.url))
+        ? observed.url
+        : undefined;
 
-    // Create database record
-    // If hash doesn't exist, also create globalFiles record
-    const { id } = await this.fileModel.create(
-      {
-        fileHash: params.fileHash,
-        fileType: params.fileType,
-        id: params.id, // Use custom ID if provided
-        metadata: params.metadata,
-        name: params.name,
-        size: params.size,
-        source: params.source,
-        url: params.url,
-        visibility: params.visibility,
-      },
-      !isExist, // insertToGlobalFiles
-      trx,
-    );
+    const { id } = await this.db.transaction(async (trx) => {
+      await beforeRecord?.(trx);
 
-    return {
-      fileId: id,
-      url: await this.getFileAccessUrl({ id, url: params.url }),
-    };
+      // The probe only describes the mapping it saw. When the row has moved since (another upload
+      // replaced or removed it), decide from the current row and leave a replaced pointer as is:
+      // it was not probed, and the next upload of these bytes probes it again.
+      const current = await this.fileModel.checkHash(params.fileHash, trx);
+      if (missingHashUrl && current.isExist && current.url === missingHashUrl) {
+        await this.fileModel.updateGlobalFile(
+          params.fileHash,
+          { metadata: params.metadata, url: params.url },
+          trx,
+        );
+      }
+
+      return this.fileModel.create(
+        {
+          fileHash: params.fileHash,
+          fileType: params.fileType,
+          id: params.id, // Use custom ID if provided
+          metadata: params.metadata,
+          name: params.name,
+          size: params.size,
+          source: params.source,
+          url: params.url,
+          visibility: params.visibility,
+        },
+        !current.isExist, // insertToGlobalFiles
+        trx,
+      );
+    });
+
+    return id;
   }
 
   /**
@@ -454,33 +478,29 @@ export class FileService {
     const filename = parts.pop() || name;
     const dirname = parts.join('/');
 
-    const { fileId: createdId, url } = await this.db
-      .transaction(async (trx) => {
-        await beforeRecord?.(trx);
-
-        return this.createFileRecord(
-          {
-            fileHash: hash,
-            fileType: mimeType,
-            id: fileId,
-            metadata: {
-              date: new Date().toISOString().slice(0, 10),
-              dirname,
-              filename,
-              path: pathname,
-            },
-            name,
-            size,
-            url: key,
-            ...recordOptions,
-          },
-          trx,
-        );
-      })
-      .catch(async (error) => {
-        await this.deleteFile(key).catch(() => {});
-        throw error;
-      });
+    const createdId = await this.writeFileRecord(
+      {
+        fileHash: hash,
+        fileType: mimeType,
+        id: fileId,
+        metadata: {
+          date: new Date().toISOString().slice(0, 10),
+          dirname,
+          filename,
+          path: pathname,
+        },
+        name,
+        size,
+        url: key,
+        ...recordOptions,
+      },
+      beforeRecord,
+    ).catch(async (error) => {
+      // A failed write leaves no row pointing at the object, so the object is ours to remove.
+      await this.deleteFile(key).catch(() => {});
+      throw error;
+    });
+    const url = await this.getFileAccessUrl({ id: createdId, url: key });
 
     return { fileId: createdId, key, url };
   }

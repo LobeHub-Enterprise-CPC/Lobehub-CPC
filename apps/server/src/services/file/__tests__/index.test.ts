@@ -57,7 +57,8 @@ vi.mock('@lobechat/utils', async (importOriginal) => {
 
 describe('FileService', () => {
   let service: FileService;
-  const mockDb = { transaction: (run: (tx: unknown) => unknown) => run({}) } as any;
+  const recordTx = { name: 'record-tx' };
+  const mockDb = { transaction: (run: (tx: unknown) => unknown) => run(recordTx) } as any;
   const mockUserId = 'test-user';
   let mockFileModel: any;
   let mockTempManager: any;
@@ -392,7 +393,7 @@ describe('FileService', () => {
           }),
         }),
         expect.any(Boolean),
-        undefined,
+        recordTx,
       );
     });
 
@@ -420,7 +421,7 @@ describe('FileService', () => {
           }),
         }),
         expect.any(Boolean),
-        undefined,
+        recordTx,
       );
     });
   });
@@ -562,7 +563,7 @@ describe('FileService', () => {
           fileHash: 'new-hash',
         }),
         true, // insertToGlobalFiles = true when hash doesn't exist
-        undefined,
+        recordTx,
       );
     });
 
@@ -583,7 +584,7 @@ describe('FileService', () => {
           fileHash: 'existing-hash',
         }),
         false, // insertToGlobalFiles = false when hash exists
-        undefined,
+        recordTx,
       );
       expect(mockFileModel.updateGlobalFile).not.toHaveBeenCalled();
     });
@@ -603,17 +604,21 @@ describe('FileService', () => {
         url: 'new/path.txt',
       });
 
-      expect(mockFileModel.updateGlobalFile).toHaveBeenCalledWith('existing-hash', {
-        metadata: { dirname: 'new', filename: 'test.txt', path: 'new/path.txt' },
-        url: 'new/path.txt',
-      });
+      expect(mockFileModel.updateGlobalFile).toHaveBeenCalledWith(
+        'existing-hash',
+        {
+          metadata: { dirname: 'new', filename: 'test.txt', path: 'new/path.txt' },
+          url: 'new/path.txt',
+        },
+        recordTx,
+      );
       expect(mockFileModel.create).toHaveBeenCalledWith(
         expect.objectContaining({
           fileHash: 'existing-hash',
           url: 'new/path.txt',
         }),
         false,
-        undefined,
+        recordTx,
       );
       consoleSpy.mockRestore();
     });
@@ -642,8 +647,112 @@ describe('FileService', () => {
           url: 'new/path.txt',
         }),
         false,
-        undefined,
+        recordTx,
       );
+    });
+  });
+
+  /**
+   * The record step of an upload must stay on one connection: a tenant pool connection held by
+   * the record transaction plus a second one borrowed for a hash query can wait on each other when
+   * the pool is full, and a storage round trip inside the transaction keeps the connection checked
+   * out for as long as storage takes.
+   */
+  describe('record transaction', () => {
+    const upload = {
+      fileHash: 'existing-hash',
+      fileType: 'image/png',
+      metadata: { path: 'images/new.png' },
+      name: 'new.png',
+      size: 5,
+      url: 'images/new.png',
+    };
+    let inTransaction: boolean;
+    let txService: FileService;
+
+    beforeEach(() => {
+      inTransaction = false;
+      const trackingDb = {
+        transaction: async (run: (trx: unknown) => Promise<unknown>) => {
+          inTransaction = true;
+          try {
+            return await run(recordTx);
+          } finally {
+            inTransaction = false;
+          }
+        },
+      } as any;
+      txService = new FileService(trackingDb, mockUserId);
+      mockFileModel.checkHash = vi.fn();
+      mockFileModel.create = vi.fn().mockResolvedValue({ id: 'file-id' });
+      vi.mocked(txService['impl'].uploadBuffer).mockResolvedValue({ key: 'images/new.png' });
+    });
+
+    it('runs the globalFiles queries of an upload on the record transaction', async () => {
+      const beforeRecord = vi.fn(async () => {});
+      mockFileModel.checkHash.mockResolvedValue({ isExist: true, url: 'images/old.png' });
+      vi.mocked(txService['impl'].getFileMetadata).mockRejectedValue(new Error('NoSuchKey'));
+
+      await txService.uploadFromBuffer(
+        Buffer.from('image'),
+        'image/png',
+        'images/new.png',
+        beforeRecord,
+      );
+
+      expect(beforeRecord).toHaveBeenCalledWith(recordTx);
+      expect(mockFileModel.checkHash).toHaveBeenLastCalledWith(expect.any(String), recordTx);
+      expect(mockFileModel.updateGlobalFile).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ url: 'images/new.png' }),
+        recordTx,
+      );
+      expect(mockFileModel.create).toHaveBeenCalledWith(expect.anything(), false, recordTx);
+    });
+
+    it('probes the stored object of an existing hash while no transaction is open', async () => {
+      const probedInTransaction: boolean[] = [];
+      mockFileModel.checkHash.mockResolvedValue({ isExist: true, url: 'images/old.png' });
+      vi.mocked(txService['impl'].getFileMetadata).mockImplementation(async () => {
+        probedInTransaction.push(inTransaction);
+        throw new Error('NoSuchKey');
+      });
+
+      await txService.uploadFromBuffer(Buffer.from('image'), 'image/png', 'images/new.png');
+      await txService.createFileRecord(upload);
+
+      expect(probedInTransaction).toEqual([false, false]);
+      expect(mockFileModel.updateGlobalFile).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not apply a probe of a hash pointer that another upload replaced meanwhile', async () => {
+      mockFileModel.checkHash
+        .mockResolvedValueOnce({ isExist: true, url: 'images/old.png' })
+        .mockResolvedValueOnce({ isExist: true, url: 'images/other.png' });
+      vi.mocked(txService['impl'].getFileMetadata).mockRejectedValue(new Error('NoSuchKey'));
+
+      await txService.createFileRecord(upload);
+
+      expect(txService['impl'].getFileMetadata).toHaveBeenCalledWith('images/old.png');
+      expect(mockFileModel.updateGlobalFile).not.toHaveBeenCalled();
+      expect(mockFileModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({ fileHash: 'existing-hash', url: 'images/new.png' }),
+        false,
+        recordTx,
+      );
+    });
+
+    it('recreates the global row when the probed hash row was removed meanwhile', async () => {
+      mockFileModel.checkHash
+        .mockResolvedValueOnce({ isExist: true, url: 'images/old.png' })
+        .mockResolvedValueOnce({ isExist: false });
+      vi.mocked(txService['impl'].getFileMetadata).mockResolvedValue({ contentLength: 5 });
+
+      await txService.createFileRecord(upload);
+
+      expect(mockFileModel.updateGlobalFile).not.toHaveBeenCalled();
+      // files.file_hash references global_files, so the row must exist when the file row lands.
+      expect(mockFileModel.create).toHaveBeenCalledWith(expect.anything(), true, recordTx);
     });
   });
 
