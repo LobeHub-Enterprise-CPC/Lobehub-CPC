@@ -21,6 +21,15 @@ Confirm and record each item before enabling Hatchet delivery.
    - `agent.async_tool_resume.republished`, `agent.async_tool_resume.republish_exhausted`
    - `subagent.bridge.rejected`
 
+## Executor (web pods that only publish)
+
+A deployment can take agent steps and deliveries off its web pods so a web rollout no longer waits for in-flight steps:
+
+- Run the same image as a second Deployment (the executor) with the default `HATCHET_WORKERS` (`on`). It serves `cpc-agent-step`, `cpc-delivery` and the recurring jobs exactly as a web pod does, including the loopback call to its own Next server, so it needs the same configuration and port, but no Service in front of it. Set `HATCHET_WORKER_HEALTH_PORT` and point its readiness probe at `GET /healthz` there: it answers 200 only while both workers are registered, started and not draining, so a rollout cannot replace a consuming pod with one whose workers never came up. Keep liveness on the app port, so an engine outage does not restart a pod with paid work in flight. Readiness relies on SDK 1.45's `InternalWorker.start()` assigning `listener` only once `createListener()` has returned; recheck that order (and the `isServing` tests in `worker.test.ts`) when upgrading `@hatchet-dev/typescript-sdk`.
+- Set `HATCHET_WORKERS=off` on the web pods: they keep publishing but register no worker, and shutdown still waits for their own publishes and post-response work (`after()`, up to 30 s per round). In-flight HTTP requests are not waited for. Any value other than `on` / `off` stops the process at start.
+- Anything that admits callers by pod selector (for example an MCP server's trusted callers) has to admit the executor pods too, because tool calls now come from them, and keep admitting terminating pods while they drain (a headless discovery Service needs `publishNotReadyAddresses`).
+- **First rollout**: start the executor and see its `cpc-steps-*` / `cpc-delivery-*` workers registered, then roll the web pods with `HATCHET_WORKERS=off`. Old web pods drain what they already took; nothing is published to a task without a consumer.
+
 ## Memory worker
 
 Memory workflow deliveries (`/orgs/{slug}/api/workflows/memory-user-memory/…`) run outside the web pods, so memory extraction scales and rolls out on its own:

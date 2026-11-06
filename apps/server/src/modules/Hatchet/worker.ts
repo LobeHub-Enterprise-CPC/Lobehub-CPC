@@ -256,7 +256,10 @@ interface WorkerPlan {
 
 /** What a health check can ask of this process's workers. */
 export interface HatchetWorkersStatus {
-  /** Every worker is registered, started, and still connected as far as the SDK knows. */
+  /**
+   * Every worker is registered, holds its action listener from the engine, has not given
+   * up on it, and the process is not draining.
+   */
   isServing: () => boolean;
 }
 
@@ -349,12 +352,17 @@ const startWorkers = (
       running &&
       !isDrainingAgentSteps() &&
       roles.length === plans.length &&
-      roles.every((role) => role.active),
+      // Started is not serving: the SDK sets its listener only once the engine has
+      // accepted the worker and the action stream is open (status HEALTHY in 1.45).
+      roles.every((role) => role.active && role.worker._internal.listener !== undefined),
   };
 };
 
+let prepared = false;
+
 /** Requires the signing key and waits for publishes and post-response work on shutdown. */
 const prepare = (): void => {
+  if (prepared) return;
   // Every delivery to our own routes is signed with it, and every receiver checks it.
   if (!getDeliverySigningKey()) throw new Error('DELIVERY_SIGNING_KEY is required in queue mode');
 
@@ -366,11 +374,18 @@ const prepare = (): void => {
       await Promise.all([settleHostWork(), settlePendingPublishes()]);
     },
   });
+  prepared = true;
 };
+
+/**
+ * A process that publishes but does not consume (`HATCHET_WORKERS=off`, web pods beside an
+ * executor): no worker, but shutdown still waits for its own publishes and post-response work.
+ */
+export const startHatchetPublisher = (): void => prepare();
 
 const workerId = () => `${hostname()}-${process.pid}`;
 
-let started = false;
+let status: HatchetWorkersStatus | undefined;
 
 /**
  * Start this process's Hatchet workers without holding up server start: Next
@@ -382,15 +397,14 @@ let started = false;
  * Memory workflow deliveries routed to `cpc-memory-delivery` are not served
  * here: the memory worker process takes them.
  */
-export const startHatchetWorkers = (): void => {
-  if (started) return;
+export const startHatchetWorkers = (): HatchetWorkersStatus => {
+  if (status) return status;
   prepare();
-  started = true;
 
   const capacity = getHatchetCapacity();
   const id = workerId();
   let failedProbes = 0;
-  startWorkers(
+  status = startWorkers(
     [
       { name: `cpc-steps-${id}`, slots: capacity.stepSlots, workflows: [getAgentStepTask()] },
       // Recurring jobs only publish deliveries, so they share the delivery worker.
@@ -414,6 +428,7 @@ export const startHatchetWorkers = (): void => {
       return ready;
     },
   );
+  return status;
 };
 
 /**
