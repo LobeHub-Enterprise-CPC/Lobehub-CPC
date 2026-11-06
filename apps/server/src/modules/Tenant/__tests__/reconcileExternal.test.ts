@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   directory: undefined as any,
   /** What the Market SDK received: the signed payloads and the tokens sent. */
   market: { payloads: [] as any[], tokens: [] as string[] },
+  poolConfigs: [] as Record<string, unknown>[],
   runBuildInTool: vi.fn(),
   userFindById: vi.fn(),
   work: undefined as any,
@@ -34,8 +35,12 @@ vi.mock('@/envs/sandbox', () => ({
   },
 }));
 // The tenant business database the operator opens (read-only) to look a user up.
-vi.mock('pg', () => ({
+vi.mock('pg', async (original) => ({
+  ...(await original<object>()),
   Pool: class {
+    constructor(config: Record<string, unknown>) {
+      state.poolConfigs.push(config);
+    }
     connect = async () => ({ release: () => {} });
     end = async () => {};
   },
@@ -130,6 +135,7 @@ describe('operator reconciliation against a local HTTP provider', () => {
     httpStatus = 200;
     state.market.payloads = [];
     state.market.tokens = [];
+    state.poolConfigs = [];
     state.directory = {
       credentialBundleVersion: 1,
       database: 'db',
@@ -250,6 +256,12 @@ describe('operator reconciliation against a local HTTP provider', () => {
       });
 
       expect(state.userFindById).toHaveBeenCalledWith(expect.anything(), 'user');
+      // The read-only tenant connection names itself in pg_stat_activity (the session's
+      // own `Pool({ max: 1 })` is a facade that never connects).
+      expect(state.poolConfigs[0]).toMatchObject({
+        application_name: expect.stringMatching(/^tw-.+\/reconcile\//),
+        max: 1,
+      });
       expect(state.market.payloads).toHaveLength(1);
       expect(state.market.payloads[0]).toMatchObject({
         email: 'owner@example.com',

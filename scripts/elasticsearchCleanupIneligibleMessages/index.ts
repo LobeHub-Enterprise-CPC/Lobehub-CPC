@@ -6,6 +6,7 @@ import { and, asc, count, gt, not, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 
+import { dbApplicationName } from '../../packages/database/src/observability/applicationName';
 import { FtsSearchSyncOutboxRepository } from '../../packages/database/src/repositories/ftsSearchSyncOutbox';
 import { messages } from '../../packages/database/src/schemas';
 import * as schema from '../../packages/database/src/schemas';
@@ -123,7 +124,11 @@ export const runIneligibleMessageCleanupCli = async (args = process.argv.slice(2
   }
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+  const pool = new Pool({
+    application_name: dbApplicationName('fts-cleanup'),
+    connectionString: process.env.DATABASE_URL,
+    max: 1,
+  });
   try {
     const db = drizzle(pool, { schema });
     const outbox = new FtsSearchSyncOutboxRepository(db);

@@ -1,3 +1,4 @@
+import { dbApplicationName } from '@lobechat/database/observability';
 import {
   getPlatformDB,
   tenantDirectory,
@@ -54,6 +55,7 @@ async function withTenantReadScope<T>(
     throw new Error('TENANT_DIRECTORY_MISMATCH');
   const pool = new Pool({
     ...connectionFromDirectory(directory),
+    application_name: dbApplicationName('reconcile'),
     options: '-c default_transaction_read_only=on',
     max: 1,
     connectionTimeoutMillis: 5000,

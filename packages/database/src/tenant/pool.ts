@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 
 import { Pool, type PoolConfig } from 'pg';
 
+import { dbApplicationName } from '../observability/applicationName';
+import { PoolGroup, type PoolGroupStats } from '../observability/poolStats';
 import { TenantDatabaseError } from './errors';
 import { isTenantSchemaName } from './names';
 
@@ -61,6 +63,22 @@ type ManagedPool = {
   pool: Pool;
   retired: boolean;
   routeKey: string;
+  untrack: () => void;
+};
+
+/** `db.pool.stats` of the tenant pools: totals over every tenant, never per tenant. */
+export interface TenantPoolStats extends PoolGroupStats {
+  /** Pools that take new leases. */
+  activePools: number;
+  /** Retired pools still draining or closing; they hold connections until closed. */
+  closingPools: number;
+  /** Tenants with an active pool. */
+  tenants: number;
+}
+
+const APPLICATION_PURPOSE: Record<TenantPoolPurpose, string> = {
+  maintenance: 'tenant-maint',
+  request: 'tenant',
 };
 
 export interface TenantPoolManagerOptions {
@@ -83,6 +101,7 @@ export class TenantPoolManager {
   private readonly maxPools: number;
   private readonly onPoolError: (event: { phase: 'close' | 'idle' }) => void;
   private readonly statementTimeoutMs: number;
+  private readonly meters = new PoolGroup();
   private closed = false;
   private timer?: ReturnType<typeof setTimeout>;
 
@@ -150,6 +169,8 @@ export class TenantPoolManager {
       const { connection } = config;
       const pool = this.createPool({
         allowExitOnIdle: true,
+        application_name: dbApplicationName(APPLICATION_PURPOSE[config.purpose]),
+        Client: this.meters.Client,
         connectionTimeoutMillis: 10_000,
         database: connection.database,
         host: connection.host,
@@ -175,6 +196,7 @@ export class TenantPoolManager {
         pool,
         retired: false,
         routeKey,
+        untrack: this.meters.track(pool),
       };
       pool.on('error', () => this.reportError('idle'));
       this.entries.set(key, created);
@@ -216,6 +238,17 @@ export class TenantPoolManager {
     return this.entries.size;
   }
 
+  /** Counts for the `db.pool.stats` line; starts the next interval. */
+  stats(): TenantPoolStats {
+    const active = [...this.entries.values()].filter((entry) => !entry.retired);
+    return {
+      ...this.meters.take(),
+      activePools: active.length,
+      closingPools: this.entries.size - active.length,
+      tenants: new Set(active.map((entry) => JSON.parse(entry.routeKey)[0])).size,
+    };
+  }
+
   private retire(key: string, entry: ManagedPool) {
     entry.retired = true;
     if (entry.leases === 0) this.closeEntry(key, entry);
@@ -227,7 +260,10 @@ export class TenantPoolManager {
     // A failed close keeps its capacity slot: its connections may still be open.
     const finish = (failed: boolean) => {
       if (failed) this.reportError('close');
-      else this.entries.delete(key);
+      else {
+        this.entries.delete(key);
+        entry.untrack();
+      }
       entry.finish();
     };
     try {

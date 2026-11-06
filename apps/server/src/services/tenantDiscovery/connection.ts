@@ -1,6 +1,6 @@
+import { createObservedPool } from '@lobechat/database/observability';
 import { getTenantDiscoveryConfig } from '@lobechat/env/tenantDiscovery';
-import type { PoolClient } from 'pg';
-import { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import { serverDBEnv } from '@/config/db';
 
@@ -12,9 +12,9 @@ const pool = () => {
   if (lookupPool) return lookupPool;
   const connectionString = getTenantDiscoveryConfig().ACCOUNT_LOOKUP_DATABASE_URL;
   if (!connectionString) throw unavailable();
-  lookupPool = new Pool({
+  lookupPool = createObservedPool('discovery-lookup', {
     connectionString,
-    max: 2,
+    max: serverDBEnv.DB_DISCOVERY_LOOKUP_POOL_MAX,
     connectionTimeoutMillis: 2000,
     statement_timeout: 5000,
     idle_in_transaction_session_timeout: 5000,
@@ -73,9 +73,9 @@ export const withDiscoveryPlatformClient = <T>(
 ) => {
   if (!platformPool) {
     if (!serverDBEnv.DATABASE_URL) throw unavailable();
-    platformPool = new Pool({
+    platformPool = createObservedPool('discovery-platform', {
       connectionString: serverDBEnv.DATABASE_URL,
-      max: 4,
+      max: serverDBEnv.DB_DISCOVERY_PLATFORM_POOL_MAX,
       connectionTimeoutMillis: 2000,
       statement_timeout: 5000,
       idle_in_transaction_session_timeout: 5000,

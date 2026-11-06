@@ -7,6 +7,7 @@ import pg from 'pg';
 
 import { ElasticsearchFtsSearchHttpClient } from '../../apps/server/src/services/ftsSearch/elasticsearch';
 import { FtsSearchSyncService } from '../../apps/server/src/services/ftsSearchSync/service';
+import { dbApplicationName } from '../../packages/database/src/observability/applicationName';
 import {
   FTS_SEARCH_DOCUMENT_ENTITIES,
   FTS_SEARCH_INDEX_DEFINITIONS,
@@ -259,7 +260,10 @@ const telemetrySdk = process.env.ENABLE_TELEMETRY
       name: 'lobehub-fts-search-reindex',
     })
   : undefined;
-const pool = new Pool({ connectionString: databaseUrl });
+const pool = new Pool({
+  application_name: dbApplicationName('fts-reindex'),
+  connectionString: databaseUrl,
+});
 const db = drizzle(pool, { schema });
 const outbox = new FtsSearchSyncOutboxRepository(db);
 const repository = new FtsSearchReindexFileRepository({

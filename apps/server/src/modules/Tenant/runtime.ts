@@ -1,3 +1,4 @@
+import { registerPoolStats } from '@lobechat/database/observability';
 import type { PlatformDatabase } from '@lobechat/database/platform';
 import { getPlatformDB } from '@lobechat/database/platform';
 import {
@@ -12,6 +13,7 @@ import debug from 'debug';
 import { sql } from 'drizzle-orm';
 import { LRUCache } from 'lru-cache';
 
+import { serverDBEnv } from '@/config/db';
 import { observeBorrowedClientErrors } from '@/database/tenant/session';
 
 import type { TenantClaims } from './claims';
@@ -346,11 +348,13 @@ let runtime: TenantRuntime | null = null;
 
 /** The process-wide tenant runtime over the platform database. */
 export const getTenantRuntime = (): TenantRuntime => {
-  runtime ??= new TenantRuntime(
-    getPlatformDB,
-    new TenantPoolManager(),
-    () => new Date(),
-    tenantClaims,
-  );
+  if (runtime) return runtime;
+  const pools = new TenantPoolManager({
+    idleTimeoutMs: serverDBEnv.DB_TENANT_POOL_IDLE_TIMEOUT_MS,
+    maxConnectionsPerPool: serverDBEnv.DB_TENANT_POOL_MAX_CONNECTIONS,
+    maxPools: serverDBEnv.DB_TENANT_POOL_MAX_POOLS,
+  });
+  registerPoolStats('tenant', () => pools.stats());
+  runtime = new TenantRuntime(getPlatformDB, pools, () => new Date(), tenantClaims);
   return runtime;
 };

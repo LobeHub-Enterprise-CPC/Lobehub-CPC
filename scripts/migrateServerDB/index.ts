@@ -7,6 +7,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate as nodeMigrate } from 'drizzle-orm/node-postgres/migrator';
 import { Client } from 'pg';
 
+import { dbApplicationName } from '../../packages/database/src/observability/applicationName';
 import * as platformSchema from '../../packages/database/src/platform/schemas';
 // @ts-ignore tsgo handle esm import cjs and compatibility issues
 import { DB_FAIL_INIT_HINT, DUPLICATE_EMAIL_HINT, PGVECTOR_HINT } from './errorHint';
@@ -107,6 +108,7 @@ const runMigrations = async () => {
 
   const time = Date.now();
   const client = new Client({
+    application_name: dbApplicationName('migrate'),
     connectionString: process.env.DATABASE_URL,
     connectionTimeoutMillis: 10_000,
   });
