@@ -3,11 +3,13 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TenantDatabaseTarget } from '../../../apps/server/src/services/tenantControlPlane/tenantDatabases';
 import { tenantFtsSearchNamespace, tenantHash } from '../../../packages/database/src/tenant/names';
+import { StatefulElasticsearch } from '../runtime/__tests__/migrationLock.testUtils';
 import { FtsSearchReindexFileRepository } from '../runtime/checkpointRepository';
+import { FtsSearchMigrationLockClient } from '../runtime/migrationLock';
 import { deleteNamespaceIndices, runTenantReindex, tenantDatabaseUrl } from '../tenants';
 
 const target = (tenantId: string, h24: string): TenantDatabaseTarget => ({
@@ -27,6 +29,14 @@ const target = (tenantId: string, h24: string): TenantDatabaseTarget => ({
 });
 
 const directories: string[] = [];
+let elasticsearch: StatefulElasticsearch;
+beforeEach(() => {
+  elasticsearch = new StatefulElasticsearch();
+  vi.stubGlobal('fetch', vi.fn(elasticsearch.fetch));
+  vi.stubEnv('ES_URL', 'http://localhost:9200');
+  vi.stubEnv('ES_ALLOW_INSECURE_HTTP', 'true');
+  vi.stubEnv('ES_REINDEX_BOOTSTRAP_STALE_LOCK_SECONDS', '4200');
+});
 const tempDirectory = async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'fts-tenants-'));
   directories.push(directory);
@@ -53,6 +63,9 @@ const checkpoint = async (state: string, tenantId: string, h24: string, ready = 
 };
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   await Promise.all(directories.splice(0).map((d) => rm(d, { force: true, recursive: true })));
 });
 
@@ -107,6 +120,258 @@ describe('runTenantReindex', () => {
 
   describe('--new-tenants-only', () => {
     const argv = ['--apply', '--fresh-run', '--yes', '--new-tenants-only'];
+    const namespace = tenantFtsSearchNamespace('cpc-mt', 'a');
+    const owner = 'bootstrap:00000000-0000-4000-8000-000000000001';
+    const client = (ns = namespace, token?: string) =>
+      new FtsSearchMigrationLockClient({
+        namespace: ns,
+        owner: token,
+        allowInsecureHttp: true,
+        url: 'http://localhost:9200',
+      });
+    const lock = async (token = owner, ageSeconds = 5000) => {
+      await client(namespace, token).acquire('apply');
+      elasticsearch.indexes.get(`${namespace}-fts-search-control`)!.document!.source.acquiredAt =
+        new Date(Date.now() - ageSeconds * 1000).toISOString();
+    };
+    const options = async (pending = false) => {
+      const state = await tempDirectory();
+      if (pending) await checkpoint(state, 'a', 'aaa', false);
+      return {
+        argv,
+        environment: {
+          ...process.env,
+          ES_REINDEX_BOOTSTRAP_STALE_LOCK_SECONDS:
+            process.env.ES_REINDEX_BOOTSTRAP_STALE_LOCK_SECONDS,
+          ES_INDEX_NAMESPACE: 'cpc-mt',
+          ES_REINDEX_STATE_DIR: state,
+        },
+        installCapture: vi.fn(),
+        listDestroyedTenants: async () => [],
+        listTargets: async () => [target('a', 'aaa')],
+        parseTenants: () => [],
+        log: vi.fn(),
+      };
+    };
+
+    it('releases only its exact exited child owner after checking namespace tasks, keeping this round failed', async () => {
+      const opts = await options();
+      let childOwner: string | undefined;
+      const run = vi.fn(async (_args, environment) => {
+        childOwner = environment.ES_REINDEX_LOCK_OWNER;
+        expect(childOwner).toMatch(
+          /^bootstrap:[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/,
+        );
+        await client(namespace, childOwner).acquire('apply');
+        return 1;
+      });
+      expect(await runTenantReindex({ ...opts, run })).toBe(1);
+      expect(childOwner).toBeDefined();
+      expect(await client().read()).toBeNull();
+      expect(elasticsearch.requests.some(({ pathname }) => pathname.startsWith('/_tasks?'))).toBe(
+        true,
+      );
+      expect(opts.log.mock.calls.flat().join(' ')).toContain(childOwner);
+    });
+
+    it.each(['indices:data/write/bulk', 'indices:admin/create'])(
+      'retains the exited child lock while %s tasks involve the namespace',
+      async (action) => {
+        const opts = await options();
+        const run = vi.fn(async (_args, environment) => {
+          await client(namespace, environment.ES_REINDEX_LOCK_OWNER).acquire('apply');
+          elasticsearch.tasks = {
+            nodes: {
+              node: {
+                tasks: { 'node:1': { action, description: `indices[${namespace}-agents-v1]` } },
+              },
+            },
+          };
+          return 1;
+        });
+        expect(await runTenantReindex({ ...opts, run })).toBe(1);
+        expect(await client().read()).not.toBeNull();
+        expect(elasticsearch.requests.some(({ method }) => method === 'DELETE')).toBe(false);
+      },
+    );
+
+    it('never releases a lock belonging to a different owner after a failed child', async () => {
+      const opts = await options();
+      const run = vi.fn(async () => {
+        await client().acquire('manual apply');
+        return 1;
+      });
+      expect(await runTenantReindex({ ...opts, run })).toBe(1);
+      expect(elasticsearch.requests.some(({ method }) => method === 'DELETE')).toBe(false);
+      expect(elasticsearch.requests.some(({ pathname }) => pathname.startsWith('/_tasks?'))).toBe(
+        false,
+      );
+    });
+
+    it.each([false, true])(
+      'recovers an expired bootstrap lock before starting a child (checkpoint=%s)',
+      async (pending) => {
+        const opts = await options(pending);
+        await lock();
+        const run = vi.fn(async (args, environment) => {
+          expect(await client().read()).toBeNull();
+          expect(args.includes('--fresh-run')).toBe(!pending);
+          expect(environment.ES_REINDEX_LOCK_OWNER).not.toBe(owner);
+          return 0;
+        });
+        expect(await runTenantReindex({ ...opts, run })).toBe(0);
+        expect(run).toHaveBeenCalledOnce();
+        expect(elasticsearch.requests.some(({ method }) => method === 'DELETE')).toBe(true);
+      },
+    );
+
+    it.each(['recent', 'manual', 'busy'])(
+      'keeps a %s lock, fails this tenant and still runs other tenants',
+      async (kind) => {
+        const opts = await options(true);
+        if (kind === 'manual') await client().acquire('manual apply');
+        else await lock(owner, kind === 'recent' ? 1 : 5000);
+        if (kind === 'busy')
+          elasticsearch.tasks = {
+            nodes: {
+              node: {
+                tasks: {
+                  'node:1': {
+                    action: 'indices:data/write/bulk',
+                    description: `indices[${namespace}-agents-v1]`,
+                  },
+                },
+              },
+            },
+          };
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const run = vi.fn(async (_args: string[], _environment: NodeJS.ProcessEnv) => 0);
+        expect(
+          await runTenantReindex({
+            ...opts,
+            listTargets: async () => [target('a', 'aaa'), target('b', 'bbb')],
+            run,
+          }),
+        ).toBe(1);
+        expect(run).toHaveBeenCalledOnce();
+        expect(run.mock.calls[0][1].ES_INDEX_NAMESPACE).toBe(
+          tenantFtsSearchNamespace('cpc-mt', 'b'),
+        );
+        expect(elasticsearch.requests.some(({ method }) => method === 'DELETE')).toBe(false);
+        const messages = error.mock.calls.flat().join(' ');
+        expect(messages).toContain('acquired');
+        expect(messages).toContain('--release-lock=');
+        expect(messages).toContain('--yes');
+      },
+    );
+
+    it.each(['tasks', 'read', 'release'])(
+      'fails closed when %s fails during stale lock recovery',
+      async (failure) => {
+        const opts = await options(true);
+        await lock();
+        if (failure === 'tasks') elasticsearch.tasksStatus = 503;
+        if (failure === 'read') elasticsearch.lockReadStatus = 503;
+        if (failure === 'release')
+          elasticsearch.beforeNextDelete = () => {
+            throw new Error('connection dropped');
+          };
+        const run = vi.fn();
+        expect(await runTenantReindex({ ...opts, run })).toBe(1);
+        expect(run).not.toHaveBeenCalled();
+        expect(
+          elasticsearch.indexes.get(`${namespace}-fts-search-control`)!.document,
+        ).toBeDefined();
+      },
+    );
+
+    it('does not release a failed child lock when the task query fails', async () => {
+      const opts = await options();
+      const run = vi.fn(async (_args, environment) => {
+        await client(namespace, environment.ES_REINDEX_LOCK_OWNER).acquire('apply');
+        elasticsearch.tasksStatus = 503;
+        return 1;
+      });
+      expect(await runTenantReindex({ ...opts, run })).toBe(1);
+      expect(elasticsearch.requests.some(({ method }) => method === 'DELETE')).toBe(false);
+      expect(await client().read()).not.toBeNull();
+    });
+
+    it.each([undefined, '', '0', '-1', '1.5', '1e3', '9007199254740992', '4200\n'])(
+      'requires a positive integer bootstrap stale threshold (%j)',
+      async (value) => {
+        const opts = await options();
+        opts.environment.ES_REINDEX_BOOTSTRAP_STALE_LOCK_SECONDS = value;
+        const listTargets = vi.fn();
+        await expect(runTenantReindex({ ...opts, listTargets, run: vi.fn() })).rejects.toThrow(
+          'ES_REINDEX_BOOTSTRAP_STALE_LOCK_SECONDS',
+        );
+        expect(listTargets).not.toHaveBeenCalled();
+      },
+    );
+
+    it('leaves manual --tenant commands unmarked and never attempts automatic recovery', async () => {
+      const opts = await options(true);
+      await lock();
+      elasticsearch.requests.length = 0;
+      opts.environment.ES_REINDEX_BOOTSTRAP_STALE_LOCK_SECONDS = undefined;
+      const run = vi.fn(async (_args, environment) => {
+        expect(environment.ES_REINDEX_LOCK_OWNER).toBeUndefined();
+        return 1;
+      });
+      expect(
+        await runTenantReindex({ ...opts, argv: ['--apply', '--yes', '--tenant=a'], run }),
+      ).toBe(1);
+      expect(run).toHaveBeenCalledOnce();
+      expect(elasticsearch.requests).toEqual([]);
+    });
+
+    it('requires --yes before any bootstrap lock recovery or tenant work', async () => {
+      const opts = await options(true);
+      await lock();
+      elasticsearch.requests.length = 0;
+      const listTargets = vi.fn();
+      await expect(
+        runTenantReindex({
+          ...opts,
+          argv: argv.filter((arg) => arg !== '--yes'),
+          listTargets,
+          run: vi.fn(),
+        }),
+      ).rejects.toThrow('--yes');
+      expect(listTargets).not.toHaveBeenCalled();
+      expect(elasticsearch.requests).toEqual([]);
+    });
+
+    it('does not take over a bootstrap lock exactly at the stale threshold', async () => {
+      const opts = await options(true);
+      vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00.000Z'));
+      await lock(owner, 4200);
+      const run = vi.fn();
+      expect(await runTenantReindex({ ...opts, run })).toBe(1);
+      expect(run).not.toHaveBeenCalled();
+      expect(elasticsearch.requests.some(({ method }) => method === 'DELETE')).toBe(false);
+    });
+
+    it.each(['read', 'release'])(
+      'keeps a failed child failed when lock %s fails',
+      async (failure) => {
+        const opts = await options();
+        const run = vi.fn(async (_args, environment) => {
+          await client(namespace, environment.ES_REINDEX_LOCK_OWNER).acquire('apply');
+          if (failure === 'read') elasticsearch.lockReadStatus = 503;
+          else
+            elasticsearch.beforeNextDelete = () => {
+              throw new Error('connection dropped');
+            };
+          return 1;
+        });
+        expect(await runTenantReindex({ ...opts, run })).toBe(1);
+        expect(
+          elasticsearch.indexes.get(`${namespace}-fts-search-control`)!.document,
+        ).toBeDefined();
+      },
+    );
 
     it('does no capture, Elasticsearch or child work when there are no tenants to process', async () => {
       const state = await tempDirectory();

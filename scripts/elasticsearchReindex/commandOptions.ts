@@ -1,3 +1,5 @@
+import { isFtsSearchBootstrapLockOwner } from './runtime/migrationLock';
+
 export type FtsSearchMigrationCommand =
   'apply' | 'promote' | 'purge' | 'release-lock' | 'retire' | 'skip-failure' | 'startup' | 'status';
 
@@ -12,8 +14,13 @@ export const resolveFtsSearchMigrationCommand = (args: readonly string[]) => {
   if (releaseArguments.length > 1) throw new Error('--release-lock may only be provided once');
   const releaseLockOwner = releaseArguments[0]?.slice('--release-lock='.length);
   if (releaseLockOwner !== undefined) {
-    if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(releaseLockOwner)) {
-      throw new Error('--release-lock requires the exact owner UUID reported by --status');
+    if (
+      !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(releaseLockOwner) &&
+      !isFtsSearchBootstrapLockOwner(releaseLockOwner)
+    ) {
+      throw new Error(
+        '--release-lock requires the exact owner UUID or bootstrap:<UUID v4> reported by --status',
+      );
     }
     modes.push('release-lock');
   }

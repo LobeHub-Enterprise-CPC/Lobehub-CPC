@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -11,9 +12,16 @@ import { z } from 'zod';
 import type { TenantDatabaseTarget } from '../../apps/server/src/services/tenantControlPlane/tenantDatabases';
 import { resolveElasticsearchTransport } from '../../packages/database/src/repositories/ftsSearch/elasticsearch/url';
 import { tenantFtsSearchNamespace, tenantHash } from '../../packages/database/src/tenant/names';
-import { resolveFtsSearchReindexElasticsearchEnvironment } from './options';
+import {
+  assertFtsSearchReindexElasticsearchHostname,
+  resolveFtsSearchReindexElasticsearchEnvironment,
+} from './options';
 import { summarizeFtsSearchReindexError } from './runtime/auditLogger';
 import { listFtsSearchReindexCheckpoints } from './runtime/checkpointRepository';
+import {
+  FtsSearchMigrationLockClient,
+  isFtsSearchBootstrapLockOwner,
+} from './runtime/migrationLock';
 
 const env = process.env.NODE_ENV || 'development';
 dotenvExpand.expand(dotenv.config());
@@ -95,10 +103,97 @@ const runChild = (args: string[], childEnv: NodeJS.ProcessEnv) =>
       stdio: 'inherit',
     });
     child.on('error', reject);
-    child.on('close', (code) => resolve(code ?? 1));
+    child.on('close', (code, signal) => {
+      // The development runner may have a child of its own. A signal is not proof it stopped;
+      // leave recovery to the Pod-deadline-based stale check instead of releasing immediately.
+      if (signal)
+        reject(
+          new Error(
+            `Reindex child terminated by ${signal}; retaining any bootstrap lock until stale recovery`,
+          ),
+        );
+      else resolve(code ?? 1);
+    });
   });
 
 const NEW_TENANTS_ONLY = '--new-tenants-only';
+
+const bootstrapStaleLockSeconds = (value: string | undefined) => {
+  const seconds = Number(value);
+  if (!value || !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(seconds * 1000))
+    throw new Error(
+      'ES_REINDEX_BOOTSTRAP_STALE_LOCK_SECONDS is required with --new-tenants-only and must be a positive integer',
+    );
+  // Deployment must set this beyond the bootstrap Job's activeDeadlineSeconds (4200 > 3600),
+  // so Kubernetes has terminated the old Pod before an idle bootstrap lock can be recovered.
+  return seconds;
+};
+
+const bootstrapLockClient = (namespace: string, argv: string[], environment: NodeJS.ProcessEnv) => {
+  const { apiKeyEnvironmentName, expectedHostPrefix, urlEnvironmentName } =
+    resolveFtsSearchReindexElasticsearchEnvironment(argv);
+  const url = environment[urlEnvironmentName] ?? '';
+  const client = new FtsSearchMigrationLockClient({
+    namespace,
+    url,
+    apiKey: environment[apiKeyEnvironmentName],
+    allowInsecureHttp: environment.ES_ALLOW_INSECURE_HTTP === 'true',
+  });
+  assertFtsSearchReindexElasticsearchHostname(new URL(url).hostname, expectedHostPrefix);
+  return client;
+};
+
+/** Only bootstrap calls this; manual migration locks retain their existing recovery contract. */
+const recoverBootstrapLock = async (
+  client: FtsSearchMigrationLockClient,
+  tenantId: string,
+  staleSeconds: number,
+  log: (...values: unknown[]) => void,
+  exitedOwner?: string,
+) => {
+  let lock;
+  try {
+    lock = await client.read();
+  } catch (cause) {
+    throw new Error(
+      `Cannot inspect migration lock for tenant ${tenantId}, exited owner ${exitedOwner ?? 'not observed'}; no recovery: ${summarizeFtsSearchReindexError(cause)}`,
+      { cause },
+    );
+  }
+  if (!lock) return;
+  const details = `tenant ${tenantId}, owner ${lock.owner}, command ${lock.command}, acquiredAt ${lock.acquiredAt}`;
+  const manual = `node /app/fts-search-elasticsearch-reindex-tenants.cjs --tenant=${tenantId} --release-lock=${lock.owner} --yes`;
+  let reason: string;
+  if (exitedOwner !== undefined) {
+    if (lock.owner !== exitedOwner)
+      throw new Error(
+        `Retaining migration lock (${details}): exited child owner ${exitedOwner} does not match; manual recovery after confirming the owner stopped: ${manual}`,
+      );
+    reason = 'matching child has closed with a non-zero exit';
+  } else {
+    if (!isFtsSearchBootstrapLockOwner(lock.owner))
+      throw new Error(
+        `Retaining migration lock (${details}): not a bootstrap owner; manual recovery after confirming the owner stopped: ${manual}`,
+      );
+    if (Date.parse(lock.acquiredAt) >= Date.now() - staleSeconds * 1000)
+      throw new Error(
+        `Retaining migration lock (${details}): bootstrap owner has not exceeded ${staleSeconds}s; manual recovery after confirming the owner stopped: ${manual}`,
+      );
+    reason = `bootstrap owner is older than ${staleSeconds}s (beyond the Job/Pod termination deadline)`;
+  }
+  try {
+    await client.assertNoNamespaceTasks();
+    await client.release(lock.owner);
+  } catch (cause) {
+    throw new Error(
+      `Migration lock recovery refused or failed (${details}); no takeover: ${summarizeFtsSearchReindexError(cause)}; manual recovery after confirming the owner stopped: ${manual}`,
+      { cause },
+    );
+  }
+  log(
+    `♻ Recovered migration lock (${details}): ${reason}; namespace write/admin task check was empty`,
+  );
+};
 
 export interface RunTenantReindexOptions {
   argv: string[];
@@ -131,9 +226,19 @@ export const runTenantReindex = async ({
   const newTenantsOnly = argv.includes(NEW_TENANTS_ONLY);
   if (
     newTenantsOnly &&
-    !(environment.ES_REINDEX_STATE_DIR && argv.includes('--apply') && argv.includes('--fresh-run'))
+    !(
+      environment.ES_REINDEX_STATE_DIR &&
+      argv.includes('--apply') &&
+      argv.includes('--fresh-run') &&
+      argv.includes('--yes')
+    )
   )
-    throw new Error(`${NEW_TENANTS_ONLY} requires ES_REINDEX_STATE_DIR, --apply and --fresh-run`);
+    throw new Error(
+      `${NEW_TENANTS_ONLY} requires ES_REINDEX_STATE_DIR, --apply, --fresh-run and --yes`,
+    );
+  const staleSeconds = newTenantsOnly
+    ? bootstrapStaleLockSeconds(environment.ES_REINDEX_BOOTSTRAP_STALE_LOCK_SECONDS)
+    : undefined;
   const passthrough = argv.filter(
     (argument, index) =>
       !argument.startsWith('--tenant=') &&
@@ -176,6 +281,7 @@ export const runTenantReindex = async ({
       ? path.join(environment.ES_REINDEX_STATE_DIR, target.h24)
       : undefined;
     let childArgs = passthrough;
+    let lockClient: FtsSearchMigrationLockClient | undefined;
     try {
       if (newTenantsOnly) {
         const checkpoints = await listFtsSearchReindexCheckpoints(stateDirectory!);
@@ -184,7 +290,6 @@ export const runTenantReindex = async ({
           throw new Error(
             `FTS reindex checkpoint namespace does not match tenant ${target.tenantId}`,
           );
-        await installCapture(target.tenantId);
         if (checkpoints.length > 0) {
           const pending = checkpoints.filter(
             ({ checkpoint }) =>
@@ -193,22 +298,35 @@ export const runTenantReindex = async ({
                 ({ status, failedCount }) => status !== 'completed' || failedCount > 0,
               ),
           );
-          if (pending.length === 0) continue;
+          if (pending.length === 0) {
+            await installCapture(target.tenantId);
+            continue;
+          }
           // Never turn a retry into a new run or change the explicit CLI fresh-run contract.
           childArgs = passthrough.filter((argument) => argument !== '--fresh-run');
         }
+        // Also cover a crash between acquiring the first lock and persisting the first checkpoint.
+        lockClient = bootstrapLockClient(tenantNamespace, argv, environment);
+        await recoverBootstrapLock(lockClient, target.tenantId, staleSeconds!, log);
+        await installCapture(target.tenantId);
       }
       if (stateDirectory) await mkdir(stateDirectory, { mode: 0o700, recursive: true });
 
       processed += 1;
       log('🔎 Elasticsearch reindex for tenant %s', target.tenantId);
+      const owner = newTenantsOnly ? `bootstrap:${randomUUID()}` : undefined;
       const code = await run(childArgs, {
         ...environment,
         DATABASE_URL: await tenantDatabaseUrl(target.clientConfig, stateDirectory),
         ES_INDEX_NAMESPACE: tenantFtsSearchNamespace(namespace, target.tenantId),
         ...(stateDirectory && { ES_REINDEX_STATE_DIR: stateDirectory }),
+        ...(owner && { ES_REINDEX_LOCK_OWNER: owner }),
       });
-      if (code !== 0) failed.push(target.tenantId);
+      if (code !== 0) {
+        if (lockClient)
+          await recoverBootstrapLock(lockClient, target.tenantId, staleSeconds!, log, owner);
+        failed.push(target.tenantId);
+      }
     } catch (error) {
       console.error(
         '❌ Elasticsearch onboarding failed for tenant %s:',

@@ -284,6 +284,7 @@ const createMigrationLockClient = () =>
     allowInsecureHttp,
     apiKey: elasticsearchApiKey,
     namespace,
+    owner: process.env.ES_REINDEX_LOCK_OWNER,
     requestTimeoutMs,
     url: elasticsearchUrl!,
   });

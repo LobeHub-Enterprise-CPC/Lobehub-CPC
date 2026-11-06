@@ -10,6 +10,24 @@ const LOCK_DOCUMENT_ID = 'migration-lock';
 const MAX_INDEX_NAME_BYTES = 255;
 const INVALID_INDEX_NAME_CHARACTERS = /[\\/*?"<>|,\s#:]/u;
 
+export const isFtsSearchBootstrapLockOwner = (owner: string) =>
+  /^bootstrap:[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/.test(owner);
+
+const tasksResponseSchema = z.object({
+  nodes: z.record(
+    z.string(),
+    z.object({
+      tasks: z.record(
+        z.string(),
+        z.object({ action: z.string().min(1), description: z.string().optional() }),
+      ),
+    }),
+  ),
+  node_failures: z.array(z.unknown()).optional(),
+  task_failures: z.array(z.unknown()).optional(),
+  timed_out: z.boolean().optional(),
+});
+
 const controlMapping = {
   _meta: {
     [CONTROL_INDEX_MARKER]: true,
@@ -62,6 +80,8 @@ export interface FtsSearchMigrationLockClientOptions {
   /** Required unless `allowInsecureHttp` is enabled; never sent over plaintext HTTP. */
   apiKey?: string;
   namespace: string;
+  /** Internal bootstrap child token. Manual commands omit it and retain random UUID owners. */
+  owner?: string;
   requestTimeoutMs?: number;
   url: string;
 }
@@ -115,8 +135,8 @@ const assertLegalIndexName = (index: string) => {
 /**
  * A namespace-wide, non-expiring Elasticsearch mutex for mapping migration operations.
  *
- * The lock deliberately has no lease or automatic takeover. An operator must establish that the
- * previous owner has stopped before releasing a residual lock with its exact owner token.
+ * The lock itself has no lease or automatic takeover. Manual owners require explicit recovery.
+ * Only the bootstrap parent may release its marked tokens after its exit/deadline and task checks.
  */
 export class FtsSearchMigrationLockClient {
   readonly controlIndex: string;
@@ -124,21 +144,28 @@ export class FtsSearchMigrationLockClient {
   private readonly authorizationHeader: string | undefined;
   private readonly requestTimeoutMs: number;
   private readonly url: URL;
+  private readonly namespace: string;
+  private readonly owner?: string;
 
   constructor({
     allowInsecureHttp,
     apiKey,
     namespace,
+    owner,
     requestTimeoutMs = 30_000,
     url,
   }: FtsSearchMigrationLockClientOptions) {
     const controlIndex = `${namespace}-fts-search-control`;
     assertLegalIndexName(controlIndex);
+    if (owner !== undefined && !isFtsSearchBootstrapLockOwner(owner))
+      throw new FtsSearchMigrationLockError('ES_REINDEX_LOCK_OWNER must be bootstrap:<UUID v4>');
     const transport = resolveElasticsearchTransport({ allowInsecureHttp, apiKey, url });
     this.authorizationHeader = transport.authorizationHeader;
     this.controlIndex = controlIndex;
     this.requestTimeoutMs = requestTimeoutMs;
     this.url = transport.url;
+    this.namespace = namespace;
+    this.owner = owner;
   }
 
   private async request(path: string, init: RequestInit = {}) {
@@ -281,7 +308,7 @@ export class FtsSearchMigrationLockClient {
     }
     await this.ensureControlIndex();
 
-    const owner = randomUUID();
+    const owner = this.owner ?? randomUUID();
     const source = { acquiredAt: new Date().toISOString(), command, owner };
     let response: Response;
     try {
@@ -357,6 +384,71 @@ export class FtsSearchMigrationLockClient {
       );
     }
     return this.readResponse(response);
+  }
+
+  /** A failed, partial or opaque observation never proves that namespace mutations are idle. */
+  async assertNoNamespaceTasks(): Promise<void> {
+    const query = new URLSearchParams({
+      detailed: 'true',
+      actions: 'indices:data/write/*,indices:admin/*',
+    });
+    const response = await this.request(`/_tasks?${query}`, { method: 'GET' });
+    if (!response.ok)
+      throw new FtsSearchMigrationLockError(
+        `Elasticsearch migration task query failed (${response.status})`,
+        { status: response.status },
+      );
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch (cause) {
+      throw new FtsSearchMigrationLockError(
+        'Elasticsearch migration task response has invalid JSON',
+        { cause },
+      );
+    }
+    const parsed = tasksResponseSchema.safeParse(body);
+    if (
+      !parsed.success ||
+      parsed.data.node_failures?.length ||
+      parsed.data.task_failures?.length ||
+      parsed.data.timed_out
+    )
+      throw new FtsSearchMigrationLockError(
+        'Elasticsearch migration task observation is incomplete or failed',
+      );
+    for (const node of Object.values(parsed.data.nodes)) {
+      for (const task of Object.values(node.tasks)) {
+        if (
+          !task.action.startsWith('indices:data/write/') &&
+          !task.action.startsWith('indices:admin/')
+        )
+          continue;
+        const description = task.description ?? '';
+        // Cover every occurrence, including source/destination fields of reindex tasks.
+        if (description.includes(`${this.namespace}-`))
+          throw new FtsSearchMigrationLockError(
+            `Namespace ${this.namespace} has in-flight write/admin tasks (${task.action})`,
+          );
+        const groups = [
+          ...description.matchAll(
+            /\b(?:indices|index|create-index|delete-index|open-index|close-index)\s*\{?\[([^\]]*)\]/g,
+          ),
+        ];
+        const names = groups.flatMap(([, names]) =>
+          names.split(/[,\s]+/).map((name) => name.replaceAll(/^["']|["']$/g, '')),
+        );
+        // Even detailed ES tasks can omit descriptions. Wildcards, _all, omitted targets and
+        // unfamiliar descriptions cannot exclude this tenant, so none permit automatic release.
+        if (
+          groups.length === 0 ||
+          names.some((name) => !/^[a-z\d_.-]+$/.test(name) || name === '_all')
+        )
+          throw new FtsSearchMigrationLockError(
+            `Cannot determine namespace targets of in-flight task (${task.action}); retaining migration lock`,
+          );
+      }
+    }
   }
 
   async assertOwner(handle: FtsSearchMigrationLockHandle): Promise<void> {

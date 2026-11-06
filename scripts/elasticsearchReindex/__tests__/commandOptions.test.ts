@@ -44,6 +44,16 @@ describe('migration command intent', () => {
     ).toThrow('exactly one');
   });
 
+  it('allows an exact bootstrap token for manual release, retaining UUID validation', () => {
+    const owner = 'bootstrap:00000000-0000-4000-8000-000000000001';
+    expect(
+      resolveFtsSearchMigrationCommand([`--release-lock=${owner}`, '--yes']).releaseLockOwner,
+    ).toBe(owner);
+    expect(() =>
+      resolveFtsSearchMigrationCommand(['--release-lock=bootstrap:anything', '--yes']),
+    ).toThrow('UUID');
+  });
+
   it.each([
     ['--in-place'],
     ['--apply', '--in-place', '--fresh-run', '--yes'],

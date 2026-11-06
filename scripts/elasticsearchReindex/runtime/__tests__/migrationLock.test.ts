@@ -2,111 +2,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FtsSearchMigrationLockClient, FtsSearchMigrationLockError } from '../migrationLock';
+import { jsonResponse, StatefulElasticsearch } from './migrationLock.testUtils';
 
-interface StoredDocument {
-  primaryTerm: number;
-  seqNo: number;
-  source: { acquiredAt: string; command: string; owner: string };
-}
-
-interface StoredIndex {
-  document?: StoredDocument;
-  mappings: Record<string, unknown>;
-}
-
-const jsonResponse = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    headers: { 'Content-Type': 'application/json' },
-    status,
-  });
-
-class StatefulElasticsearch {
-  readonly indexes = new Map<string, StoredIndex>();
-  readonly requests: Array<{ body?: string; method: string; pathname: string }> = [];
-
-  beforeNextDelete?: () => void;
-  createAcknowledged = true;
-  createFailure?: { body: unknown; status: number };
-  lockCreateError?: Error;
-  lockDeleteBody?: unknown;
-  lockReadBody?: unknown;
-  lockReadStatus?: number;
-
-  fetch = async (input: string | URL | Request, init: RequestInit = {}) => {
-    const url = new URL(input instanceof Request ? input.url : input.toString());
-    const method = init.method ?? 'GET';
-    this.requests.push({
-      body: typeof init.body === 'string' ? init.body : undefined,
-      method,
-      pathname: `${url.pathname}${url.search}`,
-    });
-    const [rawIndex, operation, rawDocumentId] = url.pathname.split('/').filter(Boolean);
-    const indexName = rawIndex ? decodeURIComponent(rawIndex) : '';
-    const index = this.indexes.get(indexName);
-
-    if (method === 'PUT' && operation === undefined) {
-      if (this.createFailure) {
-        return jsonResponse(this.createFailure.body, this.createFailure.status);
-      }
-      if (index) return jsonResponse({ error: { type: 'resource_already_exists_exception' } }, 400);
-      const body = JSON.parse(String(init.body)) as { mappings: Record<string, unknown> };
-      this.indexes.set(indexName, { mappings: body.mappings });
-      return jsonResponse({ acknowledged: this.createAcknowledged, index: indexName });
-    }
-
-    if (method === 'GET' && operation === '_mapping') {
-      if (!index) return jsonResponse({ found: false }, 404);
-      return jsonResponse({ [indexName]: { mappings: index.mappings } });
-    }
-
-    if (method === 'PUT' && operation === '_create' && rawDocumentId === 'migration-lock') {
-      if (this.lockCreateError) throw this.lockCreateError;
-      if (!index) return jsonResponse({ found: false }, 404);
-      if (index.document)
-        return jsonResponse({ error: { type: 'version_conflict_engine_exception' } }, 409);
-      index.document = {
-        primaryTerm: 1,
-        seqNo: 0,
-        source: JSON.parse(String(init.body)),
-      };
-      return jsonResponse({ _primary_term: 1, _seq_no: 0, result: 'created' }, 201);
-    }
-
-    if (method === 'GET' && operation === '_doc' && rawDocumentId === 'migration-lock') {
-      if (this.lockReadStatus) return jsonResponse(this.lockReadBody ?? {}, this.lockReadStatus);
-      if (this.lockReadBody !== undefined) return jsonResponse(this.lockReadBody);
-      if (!index?.document) return jsonResponse({ found: false }, 404);
-      return jsonResponse({
-        _primary_term: index.document.primaryTerm,
-        _seq_no: index.document.seqNo,
-        _source: index.document.source,
-        found: true,
-      });
-    }
-
-    if (method === 'DELETE' && operation === '_doc' && rawDocumentId === 'migration-lock') {
-      this.beforeNextDelete?.();
-      this.beforeNextDelete = undefined;
-      const current = this.indexes.get(indexName)?.document;
-      if (!current) return jsonResponse({ result: 'not_found' }, 404);
-      if (
-        Number(url.searchParams.get('if_seq_no')) !== current.seqNo ||
-        Number(url.searchParams.get('if_primary_term')) !== current.primaryTerm
-      ) {
-        return jsonResponse({ error: { type: 'version_conflict_engine_exception' } }, 409);
-      }
-      delete this.indexes.get(indexName)?.document;
-      return jsonResponse(this.lockDeleteBody ?? { result: 'deleted' });
-    }
-
-    return jsonResponse({ error: { type: 'unhandled_request' } }, 500);
-  };
-}
-
-const createClient = (namespace: string) =>
+const createClient = (namespace: string, owner?: string) =>
   new FtsSearchMigrationLockClient({
     allowInsecureHttp: true,
     namespace,
+    owner,
     url: 'http://localhost:9200',
   });
 
@@ -115,6 +17,110 @@ afterEach(() => {
 });
 
 describe('FtsSearchMigrationLockClient', () => {
+  it('uses an explicitly supplied bootstrap v4 owner and otherwise generates an unmarked UUID', async () => {
+    const elasticsearch = new StatefulElasticsearch();
+    vi.stubGlobal('fetch', vi.fn(elasticsearch.fetch));
+    const owner = 'bootstrap:00000000-0000-4000-8000-000000000001';
+    expect((await createClient('bootstrap', owner).acquire('apply')).owner).toBe(owner);
+    expect((await createClient('manual').acquire('apply')).owner).toMatch(
+      /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/,
+    );
+  });
+
+  it('retains the lock when the namespace also appears outside a recognized indices group', async () => {
+    const elasticsearch = new StatefulElasticsearch();
+    elasticsearch.tasks = {
+      nodes: {
+        node: {
+          tasks: {
+            'node:1': {
+              action: 'indices:data/write/reindex',
+              description: 'indices[other-agents-v1], source[test-agents-v1]',
+            },
+          },
+        },
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(elasticsearch.fetch));
+    await expect(createClient('test').assertNoNamespaceTasks()).rejects.toThrow('in-flight');
+  });
+
+  it.each([
+    '',
+    'manual-owner',
+    'bootstrap:00000000-0000-1000-8000-000000000001',
+    'bootstrap:00000000-0000-4000-7000-000000000001',
+    'BOOTSTRAP:00000000-0000-4000-8000-000000000001',
+    'bootstrap:00000000-0000-4000-8000-000000000001\n',
+  ])('rejects invalid bootstrap owner %j before making a request', async (owner) => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    await expect(async () => createClient('test', owner).acquire('apply')).rejects.toThrow(
+      'bootstrap',
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('only permits recovery when the detailed task list excludes namespace writes and admin work', async () => {
+    const elasticsearch = new StatefulElasticsearch();
+    vi.stubGlobal('fetch', vi.fn(elasticsearch.fetch));
+    await expect(createClient('test').assertNoNamespaceTasks()).resolves.toBeUndefined();
+    expect(elasticsearch.requests[0].pathname).toContain('detailed=true');
+    const tasksUrl = new URL(elasticsearch.requests[0].pathname, 'http://localhost');
+    expect(tasksUrl.searchParams.get('actions')).toBe('indices:data/write/*,indices:admin/*');
+    elasticsearch.tasks = {
+      nodes: {
+        node: {
+          tasks: {
+            'node:1': {
+              action: 'indices:data/write/bulk',
+              description: 'requests[1], indices[other-agents-v1]',
+            },
+          },
+        },
+      },
+    };
+    await expect(createClient('test').assertNoNamespaceTasks()).resolves.toBeUndefined();
+    elasticsearch.tasks = {
+      nodes: {
+        node: {
+          tasks: {
+            'node:1': {
+              action: 'indices:admin/create',
+              description: 'create-index [test-agents-v1], cause [api]',
+            },
+          },
+        },
+      },
+    };
+    await expect(createClient('test').assertNoNamespaceTasks()).rejects.toThrow('in-flight');
+  });
+
+  it.each([
+    {},
+    { nodes: {}, node_failures: [{}] },
+    { nodes: {}, task_failures: [{}] },
+    { nodes: {}, timed_out: true },
+    { nodes: { node: { tasks: { 'node:1': { action: 'indices:data/write/bulk' } } } } },
+    {
+      nodes: {
+        node: {
+          tasks: {
+            'node:1': { action: 'indices:data/write/bulk', description: 'requests[1], indices[*]' },
+          },
+        },
+      },
+    },
+  ])(
+    'keeps recovery blocked for incomplete, failed or ambiguous task observations (%j)',
+    async (tasks) => {
+      const elasticsearch = new StatefulElasticsearch();
+      elasticsearch.tasks = tasks;
+      vi.stubGlobal('fetch', vi.fn(elasticsearch.fetch));
+      await expect(createClient('test').assertNoNamespaceTasks()).rejects.toThrow();
+    },
+  );
+
   it('allows only one owner across clients that use the same namespace', async () => {
     const elasticsearch = new StatefulElasticsearch();
     vi.stubGlobal('fetch', vi.fn(elasticsearch.fetch));
