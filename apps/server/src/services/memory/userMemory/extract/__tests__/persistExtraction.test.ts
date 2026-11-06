@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { getTestDB } from '@lobechat/database/test-utils';
 import { LobeChatTopicResultRecorder } from '@lobechat/memory-user-memory';
+import type { ChatTopicMetadata } from '@lobechat/types';
 import { eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,6 +13,8 @@ import { LayersEnum, MemorySourceType, TypesEnum } from '@/types/userMemory';
 import { MemoryExtractionExecutor } from '../index';
 
 const serverDB: LobeChatDatabase = await getTestDB();
+
+type RunState = NonNullable<ChatTopicMetadata['userMemoryExtractRunState']>;
 
 const userId = 'memory-persist-user';
 const topicId = 'memory-persist-topic';
@@ -85,35 +88,45 @@ const persist = (
   executor: MemoryExtractionExecutor,
   layerOutputs: Record<string, unknown>,
   commit?: (tx: LobeChatDatabase, result: any) => Promise<void>,
+  runtimeBundle: unknown = runtimes,
 ) =>
   (executor as any).persistExtraction(
     job,
     ['message-1'],
     { outputs: layerOutputs },
-    runtimes,
+    runtimeBundle,
     memoryServiceConfig,
     serverDB,
     commit,
   );
 
-const recorder = () =>
+const recorder = (currentMetadata: ChatTopicMetadata = {}) =>
   new LobeChatTopicResultRecorder({
-    currentMetadata: {},
+    currentMetadata,
     database: serverDB,
     extractedThrough: '2026-11-06T00:00:00.000Z',
     lastMessageAt: '2026-11-06T00:00:00.000Z',
     messageCount: 2,
+    previousExtractedThrough: currentMetadata.userMemoryExtractRunState?.extractedThrough,
     topicId,
   });
+const completeWith =
+  (topicRecorder: LobeChatTopicResultRecorder) => (tx: LobeChatDatabase, persisted: any) =>
+    topicRecorder.recordComplete(
+      job,
+      { ...persisted, processedMemoryCount: persisted.createdIds.length },
+      tx,
+    );
 
 const memoryTitles = async () =>
   (await serverDB.select({ title: userMemories.title }).from(userMemories))
     .map((row) => row.title)
     .sort();
 
-const watermark = async () =>
+const runState = async () =>
   (await serverDB.query.topics.findFirst({ where: eq(topics.id, topicId) }))?.metadata
-    ?.userMemoryExtractRunState?.extractedThrough;
+    ?.userMemoryExtractRunState;
+const watermark = async () => (await runState())?.extractedThrough;
 
 beforeEach(async () => {
   vi.restoreAllMocks();
@@ -222,5 +235,150 @@ describe('persistExtraction', () => {
     });
     expect(await memoryTitles()).toEqual(['First', 'Second', 'Tea']);
     expect(commit).toHaveBeenCalledOnce();
+  });
+
+  it('writes nothing when the embedding service fails behind the real helper', async () => {
+    // No spy on generateEmbeddings: the request goes through the helper to the runtime.
+    // @ts-ignore accessing private constructor for testing
+    const executor = new MemoryExtractionExecutor(
+      { aiProvider: {}, memory: {} } as any,
+      privateConfig,
+    );
+    const embeddings = vi.fn().mockRejectedValue(new Error('embedding upstream 503'));
+    const commit = vi.fn();
+
+    await expect(
+      persist(executor, outputs, commit, { embeddings: { embeddings } }),
+    ).rejects.toThrow('embedding upstream 503');
+    expect(embeddings).toHaveBeenCalled();
+    expect(await memoryTitles()).toEqual([]);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when the embedding service returns fewer vectors than asked', async () => {
+    // @ts-ignore accessing private constructor for testing
+    const executor = new MemoryExtractionExecutor(
+      { aiProvider: {}, memory: {} } as any,
+      privateConfig,
+    );
+    const commit = vi.fn();
+
+    await expect(
+      persist(executor, outputs, commit, {
+        embeddings: { embeddings: vi.fn().mockResolvedValue([]) },
+      }),
+    ).rejects.toThrow();
+    expect(await memoryTitles()).toEqual([]);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it('rolls the memories back when the watermark update matches no topic', async () => {
+    const executor = createExecutor();
+    const topicRecorder = recorder();
+    await serverDB.delete(topics);
+
+    await expect(persist(executor, outputs, completeWith(topicRecorder))).rejects.toThrow();
+    expect(await memoryTitles()).toEqual([]);
+  });
+
+  it('keeps a committed watermark when the failure is recorded afterwards', async () => {
+    const executor = createExecutor();
+    const previous: ChatTopicMetadata = {
+      userMemoryExtractRunState: { extractedThrough: '2026-11-05T00:00:00.000Z' },
+      userMemoryExtractStatus: 'completed',
+    };
+    await serverDB.update(topics).set({ metadata: previous }).where(eq(topics.id, topicId));
+    const topicRecorder = recorder(previous);
+
+    // The commit reached the database; the caller then saw an error and records a failure.
+    await persist(executor, outputs, completeWith(topicRecorder));
+    await topicRecorder.recordFail(job, new Error('connection lost after COMMIT'));
+
+    expect(await watermark()).toBe('2026-11-06T00:00:00.000Z');
+    expect(await memoryTitles()).toEqual(['First', 'Second', 'Tea']);
+  });
+
+  it('counts a failure after a rolled-back watermark on top of earlier failures', async () => {
+    const executor = createExecutor();
+    const previous: ChatTopicMetadata = {
+      userMemoryExtractRunState: {
+        error: 'earlier',
+        extractedThrough: '2026-11-05T00:00:00.000Z',
+        failedRuns: 3,
+        lastMessageAt: '2026-11-06T00:00:00.000Z',
+        lastRunAt: '2026-11-06T01:00:00.000Z',
+      },
+      userMemoryExtractStatus: 'failed',
+    };
+    await serverDB.update(topics).set({ metadata: previous }).where(eq(topics.id, topicId));
+    const topicRecorder = recorder(previous);
+
+    await expect(
+      persist(executor, outputs, async (tx, persisted) => {
+        await completeWith(topicRecorder)(tx, persisted);
+        throw new Error('connection lost before commit');
+      }),
+    ).rejects.toThrow('connection lost before commit');
+    await topicRecorder.recordFail(job, new Error('connection lost before commit'));
+
+    expect(await runState()).toMatchObject({
+      extractedThrough: '2026-11-05T00:00:00.000Z',
+      failedRuns: 4,
+    });
+    expect(await memoryTitles()).toEqual([]);
+  });
+});
+
+describe('LobeChatTopicResultRecorder.recordFail', () => {
+  const failing = async (runState: RunState, lastMessageAt: string) => {
+    const metadata: ChatTopicMetadata = {
+      userMemoryExtractRunState: runState,
+      userMemoryExtractStatus: 'failed',
+    };
+    await serverDB.update(topics).set({ metadata }).where(eq(topics.id, topicId));
+    const topicRecorder = new LobeChatTopicResultRecorder({
+      currentMetadata: metadata,
+      database: serverDB,
+      extractedThrough: '2026-11-06T00:00:00.000Z',
+      lastMessageAt,
+      previousExtractedThrough: runState.extractedThrough,
+      topicId,
+    });
+    await topicRecorder.recordFail(job, new Error('504 Gateway Time-out'));
+    return runState;
+  };
+
+  it('keeps the watermark where it was, so a retry resumes there', async () => {
+    await failing({ extractedThrough: '2026-11-05T00:00:00.000Z' }, '2026-11-06T00:00:00.000Z');
+    expect(await runState()).toMatchObject({
+      error: '504 Gateway Time-out',
+      extractedThrough: '2026-11-05T00:00:00.000Z',
+    });
+  });
+
+  it('leaves no watermark on a topic that never had one', async () => {
+    await failing({}, '2026-11-06T00:00:00.000Z');
+    expect(await runState()).not.toHaveProperty('extractedThrough');
+    expect(await runState()).toMatchObject({ failedRuns: 1 });
+  });
+
+  it('counts consecutive failed runs on a conversation that has not moved', async () => {
+    await failing(
+      {
+        failedRuns: 2,
+        lastMessageAt: '2026-11-05T09:00:00.000Z',
+        lastRunAt: '2026-11-05T12:00:00.000Z',
+      },
+      '2026-11-05T09:00:00.000Z',
+    );
+    expect(await runState()).toMatchObject({ failedRuns: 3 });
+  });
+
+  it('starts the failure count over when new conversation arrived since the last run', async () => {
+    await failing(
+      { failedRuns: 4, lastRunAt: '2026-11-05T12:00:00.000Z' },
+      '2026-11-06T08:00:00.000Z',
+    );
+    expect(await runState()).toMatchObject({ failedRuns: 1 });
   });
 });

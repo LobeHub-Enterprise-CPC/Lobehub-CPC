@@ -2,7 +2,7 @@ import type { LobeChatDatabase } from '@lobechat/database';
 import { topics } from '@lobechat/database/schemas';
 import type { OpenAIChatMessage } from '@lobechat/model-runtime';
 import type { ChatTopicMetadata } from '@lobechat/types';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { u } from 'unist-builder';
 import { toXml } from 'xast-util-to-xml';
 import type { Child } from 'xastscript';
@@ -17,6 +17,9 @@ import type {
 } from '../types';
 
 type RunState = NonNullable<ChatTopicMetadata['userMemoryExtractRunState']>;
+
+/** Where a topic's extraction watermark lives in `topics.metadata`. */
+const WATERMARK_PATH = sql.raw(`'{userMemoryExtractRunState,extractedThrough}'::text[]`);
 
 export interface ChatTopicProviderOptions {
   conversations: (OpenAIChatMessage & { createdAt: Date })[];
@@ -165,14 +168,8 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
     const existingMetadata = (this.options.currentMetadata as ChatTopicMetadata | undefined) ?? {};
 
     const now = new Date().toISOString();
-    const memoryExtraction: RunState = existingMetadata.userMemoryExtractRunState ?? {
-      error: undefined,
-      lastMessageAt: this.options.lastMessageAt,
-      lastRunAt: now,
-      messageCount: this.options.messageCount,
-      processedMemoryCount: result.processedMemoryCount,
-      traceId: this.options.traceId,
-    };
+    // A copy: the snapshot must survive a rolled-back transaction for `recordFail`.
+    const memoryExtraction: RunState = { ...existingMetadata.userMemoryExtractRunState };
 
     // An earlier failed run left its error and count behind; a completed topic has neither.
     delete memoryExtraction.error;
@@ -190,24 +187,22 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
       userMemoryExtractStatus: 'completed',
     };
 
-    await database
+    const updated = await database
       .update(topics)
       .set({ metadata: updatedMetadata, updatedAt: topics.updatedAt })
-      .where(and(eq(topics.id, this.options.topicId), eq(topics.userId, job.userId)));
+      .where(and(eq(topics.id, this.options.topicId), eq(topics.userId, job.userId)))
+      .returning({ id: topics.id });
+    // No watermark moved (topic deleted or not this user's): the memories must not commit alone.
+    if (updated.length !== 1) {
+      throw new Error(`Memory extraction watermark not recorded for topic ${this.options.topicId}`);
+    }
   }
 
   async recordFail(job: MemoryExtractionJob, error: Error): Promise<void> {
     const existingMetadata = (this.options.currentMetadata as ChatTopicMetadata | undefined) ?? {};
 
     const now = new Date().toISOString();
-    const memoryExtraction: RunState = existingMetadata.userMemoryExtractRunState ?? {
-      error: error.message,
-      lastMessageAt: this.options.lastMessageAt,
-      lastRunAt: now,
-      messageCount: this.options.messageCount,
-      processedMemoryCount: 0,
-      traceId: this.options.traceId,
-    };
+    const memoryExtraction: RunState = { ...existingMetadata.userMemoryExtractRunState };
 
     // Count failures on the same conversation; new messages since the last run start it over.
     const previousRunAt = existingMetadata.userMemoryExtractRunState?.lastRunAt;
@@ -217,7 +212,6 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
       new Date(this.options.lastMessageAt) > new Date(previousRunAt);
     memoryExtraction.failedRuns = conversationMoved ? 1 : (memoryExtraction.failedRuns ?? 0) + 1;
     memoryExtraction.error = error.message;
-    memoryExtraction.extractedThrough = this.options.previousExtractedThrough;
     memoryExtraction.lastMessageAt = this.options.lastMessageAt;
     memoryExtraction.lastRunAt = now;
     memoryExtraction.messageCount = this.options.messageCount;
@@ -230,9 +224,17 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
       userMemoryExtractStatus: 'failed',
     };
 
+    // The watermark stays as stored: a run that failed did not move it, and one whose commit
+    // went through before the error must not be moved back and extracted again.
     await this.options.database
       .update(topics)
-      .set({ metadata: updatedMetadata, updatedAt: topics.updatedAt })
+      .set({
+        metadata: sql`case
+          when ${topics.metadata} #> ${WATERMARK_PATH} is null then ${JSON.stringify(updatedMetadata)}::jsonb #- ${WATERMARK_PATH}
+          else jsonb_set(${JSON.stringify(updatedMetadata)}::jsonb, ${WATERMARK_PATH}, ${topics.metadata} #> ${WATERMARK_PATH})
+        end`,
+        updatedAt: topics.updatedAt,
+      })
       .where(and(eq(topics.id, this.options.topicId), eq(topics.userId, job.userId)));
   }
 }

@@ -78,8 +78,8 @@ export async function prepareActivityMemories(
     const normalizedItem = normalizeActivityMemoryCandidate(rawItem);
 
     const parsedItem = ActivityMemoryItemSchema.safeParse(normalizedItem);
-    // A malformed item stays malformed on a retry, which would also extract (and pay for) the
-    // whole segment again: skip it and keep the rest.
+    // Policy: drop a malformed item and keep the rest. Failing the segment instead would pay to
+    // extract all of it again, and the item is not guaranteed to come back well-formed.
     if (!parsedItem.success) {
       console.warn({
         error: parsedItem.error.message,

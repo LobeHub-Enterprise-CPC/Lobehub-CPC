@@ -128,6 +128,19 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
             traceId: span.spanContext().traceId,
           };
         }
+        // A workspace member's public topic is readable, but its words are not this user's, and
+        // its watermark is the owner's: extracting it would write memories that never mark it done.
+        if (topic.userId !== job.userId) {
+          span.setStatus({ code: SpanStatusCode.OK, message: 'topic_not_owned' });
+          topicProcessed = true;
+          return {
+            extracted: false,
+            reason: 'topic_not_owned',
+            layers: {},
+            memoryIds: [],
+            traceId: span.spanContext().traceId,
+          };
+        }
         if ((job.from && topic.createdAt < job.from) || (job.to && topic.createdAt > job.to)) {
           span.setStatus({ code: SpanStatusCode.OK, message: 'topic_out_of_range' });
           topicProcessed = true;
@@ -444,7 +457,7 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
         noteActivity({ phase: 'persist' });
         const recorder = resultRecorder;
         const persistJob = extractionJob;
-        // The watermark commits with the memories: a segment is written exactly once.
+        // The watermark commits with the memories: a failed segment leaves nothing to duplicate.
         const persistedRes = await ctx.persistExtraction(
           extractionJob,
           messageIds,

@@ -118,6 +118,12 @@ export async function generateEmbeddings(
           vectors[request.index] = embedding;
         }
       });
+      // A memory written without the vectors it asked for is never searched by meaning, and its
+      // segment would not be extracted again: a short answer fails like a failed request.
+      const missing = requests.filter((request) => !vectors[request.index]?.length).length;
+      if (missing > 0) {
+        throw new Error(`Embedding response is missing ${missing} of ${requests.length} vectors`);
+      }
 
       span.setAttribute('memory.embedding.response_count', response?.length ?? 0);
       span.setStatus({ code: SpanStatusCode.OK });
@@ -131,7 +137,7 @@ export async function generateEmbeddings(
       span.recordException(error as Error);
       console.error('[memory-extraction] failed to generate embeddings', error, 'model:', model);
 
-      return texts.map(() => null);
+      throw error;
     } finally {
       span.end();
     }
