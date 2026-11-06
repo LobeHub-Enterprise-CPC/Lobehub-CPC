@@ -26,6 +26,7 @@ const setup = () => {
       syncBootstrapOwner: async () => {},
       verify: async () => {},
       verifyDiscovery: async () => {},
+      verifyProvisionCapture: async () => {},
     },
     destruction: { clock: () => 0, drainBudgetMs: 0, sleep: async () => {} },
     isRegistrableSlug: () => true,

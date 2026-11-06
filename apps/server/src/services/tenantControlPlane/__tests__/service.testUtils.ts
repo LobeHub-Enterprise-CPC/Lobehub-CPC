@@ -80,6 +80,7 @@ export const database = () =>
     ),
     verify: vi.fn(async () => {}),
     verifyDiscovery: vi.fn(async () => {}),
+    verifyProvisionCapture: vi.fn(async () => {}),
   }) satisfies TenantDatabaseExecutor;
 
 /** The checks Console runs on every lifecycle result (RESPONSE_MISMATCH otherwise). */
