@@ -218,6 +218,58 @@ const pendingProgress = (
 const isMissingFileError = (error: unknown) => isRecord(error) && error.code === 'ENOENT';
 const isExistingFileError = (error: unknown) => isRecord(error) && error.code === 'EEXIST';
 
+const readCheckpointIfExists = async (
+  checkpointPath: string,
+): Promise<FtsSearchReindexCheckpointFile | undefined> => {
+  let source: string;
+  try {
+    source = await readFile(checkpointPath, 'utf8');
+  } catch (error) {
+    if (isMissingFileError(error)) return;
+    throw error;
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`FTS reindex checkpoint is not valid JSON: ${checkpointPath}`, {
+      cause: error,
+    });
+  }
+  const parsed = checkpointSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error(`FTS reindex checkpoint is invalid: ${checkpointPath}`, {
+      cause: parsed.error,
+    });
+  }
+  return parsed.data;
+};
+
+/** Read-only discovery shared by the CLI repository and tenant bootstrap. */
+export const listFtsSearchReindexCheckpoints = async (
+  stateDirectory: string,
+  namespace?: string,
+) => {
+  const files = await readdir(stateDirectory).catch((error) => {
+    if (isMissingFileError(error)) return [];
+    throw error;
+  });
+  const runs: { checkpointPath: string; checkpoint: FtsSearchReindexCheckpointFile }[] = [];
+  for (const file of files.filter(
+    (item) => item.startsWith(CHECKPOINT_FILE_PREFIX) && item.endsWith('.json'),
+  )) {
+    const checkpointPath = path.join(stateDirectory, file);
+    const checkpoint = await readCheckpointIfExists(checkpointPath);
+    if (!checkpoint) throw new Error(`FTS reindex checkpoint disappeared: ${checkpointPath}`);
+    if (namespace && checkpoint.run.namespace !== namespace) continue;
+    runs.push({ checkpointPath, checkpoint });
+  }
+  return runs.sort((left, right) =>
+    left.checkpoint.run.createdAt.localeCompare(right.checkpoint.run.createdAt),
+  );
+};
+
 /** Local, atomically written checkpoint storage for the one-shot Elasticsearch reindex CLI. */
 export class FtsSearchReindexFileRepository {
   private readonly runPaths = new Map<string, string>();
@@ -270,36 +322,8 @@ export class FtsSearchReindexFileRepository {
     return stateOf(checkpoint);
   }
 
-  private async readCheckpointIfExists(
-    checkpointPath: string,
-  ): Promise<FtsSearchReindexCheckpointFile | undefined> {
-    let source: string;
-    try {
-      source = await readFile(checkpointPath, 'utf8');
-    } catch (error) {
-      if (isMissingFileError(error)) return;
-      throw error;
-    }
-
-    let json: unknown;
-    try {
-      json = JSON.parse(source);
-    } catch (error) {
-      throw new Error(`FTS reindex checkpoint is not valid JSON: ${checkpointPath}`, {
-        cause: error,
-      });
-    }
-    const parsed = checkpointSchema.safeParse(json);
-    if (!parsed.success) {
-      throw new Error(`FTS reindex checkpoint is invalid: ${checkpointPath}`, {
-        cause: parsed.error,
-      });
-    }
-    return parsed.data;
-  }
-
   private async readCheckpoint(checkpointPath: string): Promise<FtsSearchReindexCheckpointFile> {
-    const checkpoint = await this.readCheckpointIfExists(checkpointPath);
+    const checkpoint = await readCheckpointIfExists(checkpointPath);
     if (!checkpoint) throw new Error(`FTS reindex checkpoint does not exist: ${checkpointPath}`);
     return checkpoint;
   }
@@ -528,7 +552,7 @@ export class FtsSearchReindexFileRepository {
       return changed;
     };
     const checkpointPath = this.checkpointPath(namespace, schemaVersion, runId);
-    const existing = await this.readCheckpointIfExists(checkpointPath);
+    const existing = await readCheckpointIfExists(checkpointPath);
     if (existing) {
       this.assertCaptureFingerprint(existing, await this.readCaptureFingerprint());
       assertTargets(existing);
@@ -555,7 +579,7 @@ export class FtsSearchReindexFileRepository {
       throw new Error('Failed to reserve a valid search reindex base revision');
     }
     return this.withCheckpointLock(checkpointPath, async () => {
-      const concurrentlyCreated = await this.readCheckpointIfExists(checkpointPath);
+      const concurrentlyCreated = await readCheckpointIfExists(checkpointPath);
       const captureFingerprint = await this.readCaptureFingerprint();
       if (concurrentlyCreated) {
         this.assertCaptureFingerprint(concurrentlyCreated, captureFingerprint);
@@ -596,7 +620,7 @@ export class FtsSearchReindexFileRepository {
     runId?: string,
   ): Promise<FtsSearchReindexRunState | undefined> {
     const checkpointPath = this.checkpointPath(namespace, schemaVersion, runId);
-    const checkpoint = await this.readCheckpointIfExists(checkpointPath);
+    const checkpoint = await readCheckpointIfExists(checkpointPath);
     return checkpoint ? this.stateOf(checkpointPath, checkpoint) : undefined;
   }
 
@@ -613,20 +637,9 @@ export class FtsSearchReindexFileRepository {
   }
 
   async listRuns(namespace?: string): Promise<FtsSearchReindexRunState[]> {
-    const files = await readdir(this.stateDirectory).catch((error) => {
-      if (isMissingFileError(error)) return [];
-      throw error;
-    });
-    const runs: FtsSearchReindexRunState[] = [];
-    for (const file of files.filter(
-      (item) => item.startsWith(CHECKPOINT_FILE_PREFIX) && item.endsWith('.json'),
-    )) {
-      const checkpointPath = path.join(this.stateDirectory, file);
-      const checkpoint = await this.readCheckpoint(checkpointPath);
-      if (namespace && checkpoint.run.namespace !== namespace) continue;
-      runs.push(this.stateOf(checkpointPath, checkpoint));
-    }
-    return runs.sort((left, right) => left.run.createdAt.localeCompare(right.run.createdAt));
+    return (await listFtsSearchReindexCheckpoints(this.stateDirectory, namespace)).map(
+      ({ checkpointPath, checkpoint }) => this.stateOf(checkpointPath, checkpoint),
+    );
   }
 
   async getRun(runId: string): Promise<FtsSearchReindexRunState | undefined> {

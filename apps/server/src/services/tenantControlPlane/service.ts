@@ -430,6 +430,7 @@ export class TenantControlPlaneService {
       case 'verify': {
         await db.verify({ bundle: ctx.bundle, tenantId: ctx.tenantId });
         await db.verifyDiscovery({ bundle: ctx.bundle, tenantId: ctx.tenantId });
+        await db.verifyProvisionCapture({ bundle: ctx.bundle, tenantId: ctx.tenantId });
         return this.repository.transaction(ctx.tenantId, async (tx) => {
           const operation = await tx.getOperation(ctx.operationId);
           if (operation?.leaseToken !== leaseToken || operation.status !== 'applying')

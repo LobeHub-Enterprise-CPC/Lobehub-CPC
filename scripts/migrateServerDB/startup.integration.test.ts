@@ -124,6 +124,7 @@ suite('startup migrations on disposable PostgreSQL', () => {
               ),
             verify: async () => undefined,
             verifyDiscovery: async () => undefined,
+            verifyProvisionCapture: async () => undefined,
           },
         }),
     });

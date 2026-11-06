@@ -94,4 +94,6 @@ export interface TenantDatabaseExecutor {
   verify: (ctx: { bundle: DatasourceBundle; tenantId: string }) => Promise<void>;
   /** Lookup readiness is certified only at provision, upgrade and actual recovery. */
   verifyDiscovery: (ctx: { bundle: DatasourceBundle; tenantId: string }) => Promise<void>;
+  /** Provision only: verifies capture when Elasticsearch is selected, without installing it. */
+  verifyProvisionCapture: (ctx: { bundle: DatasourceBundle; tenantId: string }) => Promise<void>;
 }

@@ -49,6 +49,7 @@ const setup = (configured = true) => {
       syncBootstrapOwner: async () => {},
       verify: async () => {},
       verifyDiscovery: async () => {},
+      verifyProvisionCapture: async () => {},
     },
     isRegistrableSlug: (slug) => slug !== 'admin',
     repository: repo,

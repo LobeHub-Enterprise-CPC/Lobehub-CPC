@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   upgrade: vi.fn(),
   verify: vi.fn().mockResolvedValue(undefined),
   verifyDiscovery: vi.fn().mockResolvedValue(undefined),
+  verifyProvisionCapture: vi.fn().mockResolvedValue(undefined),
   verifyMigrations: vi.fn().mockResolvedValue(undefined),
 }));
 

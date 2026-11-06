@@ -19,6 +19,7 @@ import {
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Client, type ClientConfig } from 'pg';
 
+import { ftsSearchEnv } from '@/envs/ftsSearch';
 import { tenantPgConnection } from '@/server/modules/Tenant/directoryConnection';
 
 import {
@@ -64,8 +65,14 @@ const withClient = async <T>(
   bundle: DatasourceBundle,
   role: 'owner' | 'runtime',
   fn: (client: Client) => Promise<T>,
+  schemaName?: string,
 ): Promise<T> => {
-  const client = new Client(bundleClientConfig(bundle, role));
+  const client = new Client({
+    ...bundleClientConfig(bundle, role),
+    ...(schemaName && {
+      options: `-c search_path=${[schemaName, ...TENANT_EXTENSION_SCHEMAS].join(',')}`,
+    }),
+  });
   // A dropped connection must reject the step, not crash the process.
   client.on('error', () => undefined);
   try {
@@ -158,6 +165,33 @@ export class PostgresTenantDatabaseExecutor implements TenantDatabaseExecutor {
         await migrator.run(client, { schemaName, tenantId: ctx.tenantId });
       await this.applyOwnerGrants(client, { ownerUsername, runtimeUsername, schemaName });
     });
+    // Keep the persisted migrate step: a failed installation retries before seed.
+    await this.capture(ctx, 'installCaptureInfrastructure');
+  }
+
+  private async capture(
+    { bundle, tenantId }: { bundle: DatasourceBundle; tenantId: string },
+    operation: 'assertCaptureInfrastructure' | 'installCaptureInfrastructure',
+  ) {
+    if (ftsSearchEnv.FTS_SEARCH_PROVIDER !== 'elasticsearch') return;
+    if (validateDatasourceBundle(tenantId, bundle))
+      throw new TenantReadinessError('DATASOURCE_BINDING_INVALID');
+    // This executor is also loaded by the migration CLI; keep database imports lazy.
+    const { FtsSearchSyncOutboxRepository } =
+      await import('@/database/repositories/ftsSearchSyncOutbox');
+    await withClient(
+      bundle,
+      operation === 'installCaptureInfrastructure' ? 'owner' : 'runtime',
+      async (client) => {
+        await new FtsSearchSyncOutboxRepository(drizzle(client))[operation]();
+      },
+      bundle.schemaName,
+    );
+  }
+
+  /** Provision-only: ES availability never gates database readiness. */
+  async verifyProvisionCapture(ctx: { bundle: DatasourceBundle; tenantId: string }) {
+    await this.capture(ctx, 'assertCaptureInfrastructure');
   }
 
   /**

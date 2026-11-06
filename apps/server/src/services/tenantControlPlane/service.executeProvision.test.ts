@@ -69,7 +69,14 @@ describe('executeProvision', () => {
       fn.mockImplementation(async () => void order.push(name));
 
     const result = await provisionApplied();
-    expect(order).toEqual(['checkOwnership', 'migrate', 'seed', 'verify', 'verifyDiscovery']);
+    expect(order).toEqual([
+      'checkOwnership',
+      'migrate',
+      'seed',
+      'verify',
+      'verifyDiscovery',
+      'verifyProvisionCapture',
+    ]);
     expect(result).toEqual({
       credentialBundleVersion: 1,
       datasourceReady: true,
@@ -95,6 +102,7 @@ describe('executeProvision', () => {
     ['seed', 'TENANT_PROVISION_FAILED'],
     ['verify', 'DATASOURCE_INVALID'],
     ['verifyDiscovery', 'DATASOURCE_INVALID'],
+    ['verifyProvisionCapture', 'DATASOURCE_INVALID'],
   ])('fails with the code of the step that failed (%s → %s)', async (step, code) => {
     db[step].mockRejectedValueOnce(new Error('boom'));
     const result = await provisionApplied();
