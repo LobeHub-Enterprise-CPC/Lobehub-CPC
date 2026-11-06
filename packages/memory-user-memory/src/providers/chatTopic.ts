@@ -20,6 +20,15 @@ type RunState = NonNullable<ChatTopicMetadata['userMemoryExtractRunState']>;
 
 /** Where a topic's extraction watermark lives in `topics.metadata`. */
 const WATERMARK_PATH = sql.raw(`'{userMemoryExtractRunState,extractedThrough}'::text[]`);
+/**
+ * The stored progress, as `readWatermark` reads it: the explicit watermark, or for a topic
+ * completed before the watermark existed, the last message its run saw.
+ */
+const storedWatermark = sql`coalesce(
+  ${topics.metadata} #> ${WATERMARK_PATH},
+  case when ${topics.metadata} ->> 'userMemoryExtractStatus' = 'completed'
+    then ${topics.metadata} #> '{userMemoryExtractRunState,lastMessageAt}'::text[] end
+)`;
 
 export interface ChatTopicProviderOptions {
   conversations: (OpenAIChatMessage & { createdAt: Date })[];
@@ -224,14 +233,16 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
       userMemoryExtractStatus: 'failed',
     };
 
-    // The watermark stays as stored: a run that failed did not move it, and one whose commit
-    // went through before the error must not be moved back and extracted again.
+    // The watermark stays as stored (computed from the row, not this run's snapshot): a run that
+    // failed did not move it, one whose commit went through before the error must not be moved
+    // back, and a topic completed before the watermark existed keeps its progress explicitly
+    // once its status turns `failed`.
     await this.options.database
       .update(topics)
       .set({
         metadata: sql`case
-          when ${topics.metadata} #> ${WATERMARK_PATH} is null then ${JSON.stringify(updatedMetadata)}::jsonb #- ${WATERMARK_PATH}
-          else jsonb_set(${JSON.stringify(updatedMetadata)}::jsonb, ${WATERMARK_PATH}, ${topics.metadata} #> ${WATERMARK_PATH})
+          when ${storedWatermark} is null then ${JSON.stringify(updatedMetadata)}::jsonb #- ${WATERMARK_PATH}
+          else jsonb_set(${JSON.stringify(updatedMetadata)}::jsonb, ${WATERMARK_PATH}, ${storedWatermark})
         end`,
         updatedAt: topics.updatedAt,
       })

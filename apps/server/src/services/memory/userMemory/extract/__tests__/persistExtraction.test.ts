@@ -330,10 +330,14 @@ describe('persistExtraction', () => {
 });
 
 describe('LobeChatTopicResultRecorder.recordFail', () => {
-  const failing = async (runState: RunState, lastMessageAt: string) => {
+  const failing = async (
+    runState: RunState,
+    lastMessageAt: string,
+    status: ChatTopicMetadata['userMemoryExtractStatus'] = 'failed',
+  ) => {
     const metadata: ChatTopicMetadata = {
       userMemoryExtractRunState: runState,
-      userMemoryExtractStatus: 'failed',
+      userMemoryExtractStatus: status,
     };
     await serverDB.update(topics).set({ metadata }).where(eq(topics.id, topicId));
     const topicRecorder = new LobeChatTopicResultRecorder({
@@ -353,6 +357,19 @@ describe('LobeChatTopicResultRecorder.recordFail', () => {
     expect(await runState()).toMatchObject({
       error: '504 Gateway Time-out',
       extractedThrough: '2026-11-05T00:00:00.000Z',
+    });
+  });
+
+  it('keeps the progress of a topic completed before the watermark existed', async () => {
+    // Completed earlier with only lastMessageAt; a new segment then fails.
+    await failing(
+      { lastMessageAt: '2026-11-05T00:00:00.000Z' },
+      '2026-11-06T00:00:00.000Z',
+      'completed',
+    );
+    expect(await runState()).toMatchObject({
+      extractedThrough: '2026-11-05T00:00:00.000Z',
+      failedRuns: 1,
     });
   });
 
