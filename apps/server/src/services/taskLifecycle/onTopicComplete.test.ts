@@ -1,9 +1,17 @@
 // @vitest-environment node
+import { JUDGE_BRIEF_EMIT_SCHEMA_NAME } from '@lobechat/prompts';
 import type { TaskItem } from '@lobechat/types';
 import { DATABASE_ERROR_PUBLIC_MESSAGE } from '@lobechat/utils/queryError';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TaskLifecycleService } from './index';
+import { TaskLifecycleService, TOPIC_COMPLETE_HOOK_TIMEOUT_S } from './index';
+
+// The best-effort synthesis calls (handoff, brief judge, brief generate) go
+// through this runtime. Default: the model is unreachable, as before the mock.
+const { generateObject } = vi.hoisted(() => ({ generateObject: vi.fn() }));
+vi.mock('@/server/modules/ModelRuntime', () => ({
+  initModelRuntimeFromDB: vi.fn(async () => ({ generateObject })),
+}));
 
 const fakeScheduler = {
   cancelScheduled: vi.fn().mockResolvedValue(undefined),
@@ -85,6 +93,7 @@ describe('TaskLifecycleService.onTopicComplete', () => {
   let getReviewConfig: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    generateObject.mockReset().mockRejectedValue(new Error('model unavailable in unit tests'));
     fakeScheduler.scheduleNextTopic.mockClear().mockResolvedValue('msg-new');
     notifyCompleted.mockReset().mockResolvedValue(undefined);
     notifyFailed.mockReset().mockResolvedValue(undefined);
@@ -1093,6 +1102,59 @@ describe('TaskLifecycleService.onTopicComplete', () => {
       expect(notifyFailed).toHaveBeenCalledWith(
         expect.objectContaining({ consecutiveFailures: 3, paused: true, runTrigger: 'heartbeat' }),
       );
+    });
+  });
+
+  describe('LLM synthesis deadline', () => {
+    it('a model that never answers cannot hold the delivery past its timeout', async () => {
+      // Each LLM call gets its own deadline signal; expire every one at once so
+      // a call without a deadline would hang this test instead of returning.
+      const deadlinesMs: number[] = [];
+      vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+        deadlinesMs.push(ms);
+        return AbortSignal.abort(new DOMException('deadline', 'TimeoutError'));
+      });
+      generateObject.mockImplementation(
+        (payload: { schema: { name: string } }, options?: { signal?: AbortSignal }) => {
+          // The judge answers so the brief generation call is reached too.
+          if (payload.schema.name === JUDGE_BRIEF_EMIT_SCHEMA_NAME)
+            return Promise.resolve({ emit: true });
+          return new Promise((_, reject) => {
+            if (options?.signal?.aborted) return reject(options.signal.reason);
+            options?.signal?.addEventListener('abort', () => reject(options.signal!.reason));
+          });
+        },
+      );
+      const internals = service as any;
+      internals.systemAgentService.getTaskModelConfig = vi
+        .fn()
+        .mockResolvedValue({ model: 'm', provider: 'p' });
+      internals.taskTopicModel.findByTopicId = vi.fn().mockResolvedValue(null);
+      internals.taskTopicModel.updateBriefDecision = vi.fn().mockResolvedValue(undefined);
+      internals.taskModel.getDocumentsPinnedSince = vi.fn().mockResolvedValue([]);
+      findById.mockResolvedValue(baseTask({ automationMode: 'heartbeat' }));
+
+      await service.onTopicComplete({
+        lastAssistantContent:
+          'I have completed the analysis and produced a multi-page report covering all sections.',
+        operationId: 'op-1',
+        reason: 'done',
+        taskId: 'task-1',
+        taskIdentifier: 'TASK-1',
+        topicId: 'topic-1',
+      });
+
+      // handoff + brief judge + brief generate all ran, each under a deadline…
+      expect(generateObject).toHaveBeenCalledTimes(3);
+      for (const [, options] of generateObject.mock.calls) {
+        expect(options?.signal?.aborted).toBe(true);
+      }
+      // …the lifecycle still settled the task…
+      expect(updateStatus).toHaveBeenCalledWith('task-1', 'scheduled', { error: null });
+      // …and every call at its deadline still fits inside one delivery attempt,
+      // so a slow model never gets the whole lifecycle redelivered.
+      const worstCaseMs = deadlinesMs.reduce((sum, ms) => sum + ms, 0);
+      expect(worstCaseMs).toBeLessThan(TOPIC_COMPLETE_HOOK_TIMEOUT_S * 1000);
     });
   });
 });

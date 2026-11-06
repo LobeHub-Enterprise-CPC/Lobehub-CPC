@@ -7,6 +7,7 @@ import { createTaskRunHooks } from './runHooks';
 const { onTopicComplete } = vi.hoisted(() => ({ onTopicComplete: vi.fn() }));
 
 vi.mock('@/server/services/taskLifecycle', () => ({
+  TOPIC_COMPLETE_HOOK_TIMEOUT_S: 777,
   TaskLifecycleService: vi.fn().mockImplementation(function () {
     return { onTopicComplete };
   }),
@@ -63,6 +64,20 @@ describe('createTaskRunHooks', () => {
     await hook.handler?.({ operationId: 'op-1', topicId: 'tpc-1' } as any);
 
     expect(onTopicComplete).toHaveBeenCalledWith(expect.objectContaining({ reason: 'done' }));
+  });
+
+  it('gives the delivery the lifecycle timeout, not the 30s webhook default', () => {
+    // The lifecycle makes its LLM calls inside the delivery; a shorter attempt
+    // timeout redelivers it and reruns every paid call.
+    const [hook] = createTaskRunHooks({
+      db,
+      taskId: 'task-1',
+      taskIdentifier: 'T-1',
+      userId: 'user-1',
+    });
+
+    // The lifecycle owns the value (its test checks it covers its LLM calls).
+    expect(hook.webhook?.timeout).toBe(777);
   });
 
   it('carries the run in the static webhook body, so a lost socket still settles it', () => {

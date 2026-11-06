@@ -2,7 +2,10 @@ import type { TaskRunTrigger } from '@lobechat/types';
 
 import type { LobeChatDatabase } from '@/database/type';
 import type { AgentHook } from '@/server/services/agentRuntime/hooks/types';
-import { TaskLifecycleService } from '@/server/services/taskLifecycle';
+import {
+  TaskLifecycleService,
+  TOPIC_COMPLETE_HOOK_TIMEOUT_S,
+} from '@/server/services/taskLifecycle';
 
 export interface TaskRunHookParams {
   db: LobeChatDatabase;
@@ -57,6 +60,10 @@ export const createTaskRunHooks = (params: TaskRunHookParams): AgentHook[] => {
         body: { runTrigger: trigger, taskId, taskIdentifier, userId },
         delivery: 'qstash' as const,
         fallback: 'none' as const,
+        // The handler makes the lifecycle's LLM calls inline; under the 30s
+        // default a slow model timed the attempt out and the redelivery reran
+        // every paid call.
+        timeout: TOPIC_COMPLETE_HOOK_TIMEOUT_S,
         url: '/api/workflows/task/on-topic-complete',
       },
     },
