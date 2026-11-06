@@ -298,7 +298,7 @@ export const describeGatewayRequestFailure = (
   if (error instanceof DeviceExecutionUnknownError) {
     return {
       code: DeviceTransportErrorCode.GatewayError,
-      content: `The device gateway stopped waiting for the device before it answered this ${operation}, so it is unknown whether the device ran it: do NOT automatically repeat the call; check the current state before attempting any operation with side effects.`,
+      content: `The device gateway could not confirm whether the device ran this ${operation}: do NOT automatically repeat the call; check the current state before attempting any operation with side effects.`,
       error: `${DeviceTransportErrorCode.GatewayError}: EXECUTION_UNKNOWN (outcome ${String(error.outcome)})`,
       executionUnknown: true,
     };
