@@ -123,6 +123,32 @@ describe('HatchetPublisher', () => {
     expect(options.additionalMetadata).toEqual({ kind: 'delivery', tenantId: 'acme' });
   });
 
+  it('sends memory workflow deliveries of this app to cpc-memory-delivery and nothing else', async () => {
+    const memory =
+      'https://app.example.com/orgs/acme/api/workflows/memory-user-memory/pipelines/chat-topic/process-user-topics';
+    const internalMemory =
+      'http://cpc-internal:3210/orgs/acme/api/workflows/memory-user-memory/call-cron-hourly-analysis';
+    // Same path on someone else's host, a memory route without a tenant, and a sibling route.
+    const others = [
+      'https://hooks.example.com/orgs/acme/api/workflows/memory-user-memory/pipelines/x',
+      'https://app.example.com/api/workflows/memory-user-memory/pipelines/x',
+      'https://app.example.com/orgs/acme/api/workflows/memory-user-memory-other/x',
+      url,
+    ];
+
+    for (const target of [memory, internalMemory]) {
+      await publisher.publishJSON({ body: {}, url: target });
+      expect(lastRun()[0]).toBe('cpc-memory-delivery');
+      expect(lastRun()[1].tenantKey).toBe('acme');
+    }
+    await publisher.publishJSON({ body: {}, delay: 60, url: memory });
+    expect(hatchet.schedule.mock.calls.at(-1)![0]).toBe('cpc-memory-delivery');
+    for (const target of others) {
+      await publisher.publishJSON({ body: {}, url: target });
+      expect(lastRun()[0]).toBe('cpc-delivery');
+    }
+  });
+
   it('falls back to QStash defaults and serializes any body as JSON, as publishJSON does', async () => {
     await publisher.publishJSON({ body: 'hello', url });
     await publisher.publishJSON({ timeout: '2m', url });

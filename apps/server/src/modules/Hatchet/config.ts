@@ -5,6 +5,11 @@ export const isHatchetDeliveryEnabled = (): boolean => appEnv.enableQueueAgentRu
 
 export const AGENT_STEP_TASK = 'cpc-agent-step';
 export const DELIVERY_TASK = 'cpc-delivery';
+/**
+ * Memory workflow deliveries. Only the memory worker process serves this task, so every
+ * queue-mode deployment runs one; the web pods never take memory work.
+ */
+export const MEMORY_DELIVERY_TASK = 'cpc-memory-delivery';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -68,5 +73,6 @@ const positiveInt = (name: string, fallback: number): number => {
 /** Per-worker scheduling capacity. Scale workers/resources rather than imposing tenant quotas. */
 export const getHatchetCapacity = () => ({
   deliverySlots: positiveInt('HATCHET_DELIVERY_SLOTS', 50),
+  memorySlots: positiveInt('HATCHET_MEMORY_SLOTS', 20),
   stepSlots: positiveInt('HATCHET_STEP_SLOTS', 50),
 });

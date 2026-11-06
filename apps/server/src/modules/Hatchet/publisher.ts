@@ -4,11 +4,13 @@ import { isRecord } from '@lobechat/utils/object';
 
 import { getHatchetClient } from './client';
 import { HATCHET_TIMING } from './config';
+import { appOrigins, memoryWorkflowTenantSlug } from './memoryRoute';
 import { STEP_METADATA_KEYS } from './purpose';
 import {
   assertRetryPolicy,
   deliveryDedupKey,
   getDeliveryTask,
+  getMemoryDeliveryTask,
   RUN_ID_PREFIX,
   SCHEDULE_ID_PREFIX,
   triggerDelivery,
@@ -90,15 +92,7 @@ const headersOf = ({ headers }: DirectPublishRequest): Record<string, string> =>
 
 /** A tenant-prefixed app address names its tenant; otherwise the publishing request's tenant. */
 const tenantKeyOf = (url: URL): string => {
-  // The app's own origins, as deliveries tell them apart (resolveDeliveryTarget).
-  const appOrigins = [
-    process.env.APP_URL,
-    process.env.INTERNAL_APP_URL,
-    process.env.AGENT_RUNTIME_BASE_URL,
-  ]
-    .filter((value): value is string => !!value)
-    .map((value) => new URL(value).origin);
-  const tenantSlug = appOrigins.includes(url.origin)
+  const tenantSlug = appOrigins().includes(url.origin)
     ? parseTenantPath(url.pathname).tenantSlug
     : undefined;
   return tenantSlug ?? currentTenantScope()?.tenantId ?? '_';
@@ -150,7 +144,8 @@ export const toDeliveryInput = (
 /**
  * Direct deliveries through the `cpc-delivery` task, in place of the QStash
  * client: the same request shape, each one signed and delivered by a Hatchet
- * worker like a QStash message would be.
+ * worker like a QStash message would be. Memory workflow deliveries go to
+ * `cpc-memory-delivery`, which only the memory worker serves.
  */
 export class HatchetPublisher {
   /**
@@ -172,7 +167,10 @@ export class HatchetPublisher {
 
   async publishJSON(request: DirectPublishRequest): Promise<{ messageId: string }> {
     const { delayMs, input } = toDeliveryInput(request);
-    const messageId = await triggerDelivery(getDeliveryTask(), input, {
+    const task = memoryWorkflowTenantSlug(new URL(input.url))
+      ? getMemoryDeliveryTask()
+      : getDeliveryTask();
+    const messageId = await triggerDelivery(task, input, {
       additionalMetadata: {
         [STEP_METADATA_KEYS.kind]: 'delivery',
         [STEP_METADATA_KEYS.tenantId]: input.tenantKey,
