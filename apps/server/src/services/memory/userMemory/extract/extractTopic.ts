@@ -442,6 +442,9 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
         }
 
         noteActivity({ phase: 'persist' });
+        const recorder = resultRecorder;
+        const persistJob = extractionJob;
+        // The watermark commits with the memories: a segment is written exactly once.
         const persistedRes = await ctx.persistExtraction(
           extractionJob,
           messageIds,
@@ -449,14 +452,16 @@ export async function extractTopic(ctx: MemoryExtractionExecutorContext, job: To
           runtimes,
           memoryServiceConfig,
           db,
+          (tx, persisted) =>
+            recorder.recordComplete(
+              persistJob,
+              { ...persisted, processedMemoryCount: persisted.createdIds.length },
+              tx,
+            ),
         );
         if (tracePayload) {
           tracePayload.result = { extraction, persisted: persistedRes };
         }
-        await resultRecorder.recordComplete(extractionJob, {
-          ...persistedRes,
-          processedMemoryCount: persistedRes.createdIds.length,
-        });
         ctx.recordJobMetrics(extractionJob, 'completed', Date.now() - startTime);
         span.setStatus({ code: SpanStatusCode.OK });
         span.setAttribute('memory.processed_memory_count', persistedRes.createdIds.length);

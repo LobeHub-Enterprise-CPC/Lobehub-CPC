@@ -2,6 +2,7 @@ import type { ModelRuntime } from '@lobechat/model-runtime';
 
 import type { ListTopicsForMemoryExtractorCursor } from '@/database/models/topic';
 import type { ListUsersForMemoryExtractorCursor } from '@/database/models/user';
+import type { LobeChatDatabase } from '@/database/type';
 import type { getServerGlobalConfig } from '@/server/globalConfig';
 import type {
   MemoryAgentConfig,
@@ -9,11 +10,13 @@ import type {
 } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import type { LayersEnum, MemorySourceType } from '@/types/userMemory';
 
-import type { MemoryExtractionTaskErrorItem } from './errors';
-
-export interface PersistLayerResult {
-  errors: MemoryExtractionTaskErrorItem[];
-  ids: string[];
+/**
+ * A layer's memories, validated and embedded, not yet written. `write` only touches the database,
+ * so all layers of a segment and its watermark can be written in one transaction.
+ */
+export interface PreparedLayer {
+  /** Writes the memories through `db`; resolves with the created memory ids. */
+  write: (db: LobeChatDatabase) => Promise<string[]>;
 }
 
 export type RuntimeBundle = {

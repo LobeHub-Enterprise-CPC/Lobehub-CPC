@@ -13,13 +13,14 @@ import {
 import { attributesCommon } from '@lobechat/observability-otel/node';
 
 import type { getServerDB } from '@/database/server';
+import type { LobeChatDatabase } from '@/database/type';
 import { LayersEnum } from '@/types/userMemory';
 
 import { LAYER_LABEL_MAP } from './constants';
 import type { MemoryExtractionExecutorContext } from './context';
 import type { MemoryExtractionTaskErrorItem } from './errors';
 import { makeTaskErrorItem, MemoryExtractionAggregateError } from './errors';
-import type { PersistLayerResult, ResolvedMemoryServiceConfig, RuntimeBundle } from './types';
+import type { PreparedLayer, ResolvedMemoryServiceConfig, RuntimeBundle } from './types';
 
 export function recordJobMetrics(
   job: MemoryExtractionJob,
@@ -57,6 +58,12 @@ export function normalizeLayerError(
   return new Error(`[${stage}] ${LAYER_LABEL_MAP[layer]}: ${message}`);
 }
 
+/**
+ * Writes a segment's extraction all at once. Layers are validated and embedded first, outside any
+ * transaction; then every layer's memories and `commit` (the topic watermark) are written in one
+ * transaction. A failure anywhere leaves nothing behind, so the retry that follows cannot write
+ * the segment's memories twice; once the watermark is committed the segment is never redone.
+ */
 export async function persistExtraction(
   ctx: MemoryExtractionExecutorContext,
   job: MemoryExtractionJob,
@@ -65,9 +72,8 @@ export async function persistExtraction(
   runtimes: RuntimeBundle,
   memoryServiceConfig: ResolvedMemoryServiceConfig,
   db: Awaited<ReturnType<typeof getServerDB>>,
+  commit?: (tx: LobeChatDatabase, result: PersistedMemoryResult) => Promise<void>,
 ): Promise<PersistedMemoryResult> {
-  const createdIds: string[] = [];
-  const perLayer: Partial<Record<LayersEnum, number>> = {};
   const errors: MemoryExtractionTaskErrorItem[] = [];
   const appendError = (
     layer: LayersEnum,
@@ -85,10 +91,24 @@ export async function persistExtraction(
       }),
     );
   };
+  const logPersistError = (layer: LayersEnum, error: unknown) =>
+    console.error(
+      '[memory-extraction] failed to persist memories',
+      error,
+      'layer:',
+      layer,
+      'source:',
+      job.source,
+      'sourceId:',
+      job.sourceId,
+      'userId:',
+      job.userId,
+    );
 
-  const persistWithSpan = async (
+  const prepared: { layer: LayersEnum; write: PreparedLayer['write'] }[] = [];
+  const prepareWithSpan = async (
     layer: LayersEnum,
-    persist: () => Promise<PersistLayerResult>,
+    prepare: () => Promise<PreparedLayer>,
   ): Promise<void> => {
     const attributes = {
       layer: LAYER_LABEL_MAP[layer],
@@ -99,38 +119,21 @@ export async function persistExtraction(
     };
 
     await tracer.startActiveSpan(
-      `Memory User Memory: Persist ${LAYER_LABEL_MAP[layer]}`,
+      `Memory User Memory: Prepare ${LAYER_LABEL_MAP[layer]}`,
       { attributes },
       async (span) => {
         try {
-          const { errors: persistErrors, ids } = await persist();
-
-          createdIds.push(...ids);
-          perLayer[layer] = ids.length;
-          errors.push(...persistErrors);
-          ctx.recordLayerEntries(job, layer, ids.length);
+          prepared.push({ layer, write: (await prepare()).write });
           span.setStatus({ code: SpanStatusCode.OK });
-          span.setAttribute('memory.persisted_count', ids.length);
         } catch (error) {
           appendError(layer, 'persist', error);
           span.setStatus({
             code: SpanStatusCode.ERROR,
             message:
-              error instanceof Error ? error.message : 'Failed to persist extracted memories',
+              error instanceof Error ? error.message : 'Failed to prepare extracted memories',
           });
           span.recordException(error as Error);
-          console.error(
-            '[memory-extraction] failed to persist memories',
-            error,
-            'layer:',
-            layer,
-            'source:',
-            job.source,
-            'sourceId:',
-            job.sourceId,
-            'userId:',
-            job.userId,
-          );
+          logPersistError(layer, error);
         } finally {
           span.end();
         }
@@ -138,106 +141,84 @@ export async function persistExtraction(
     );
   };
 
-  const activityOutput = extraction.outputs.activity;
-  if (activityOutput?.error) {
-    appendError(LayersEnum.Activity, 'extract', activityOutput.error);
+  const embedding = [
+    runtimes.embeddings,
+    memoryServiceConfig.modelConfig.embeddingsModel,
+    memoryServiceConfig.embeddingContextLimit,
+  ] as const;
+  const { activity, context, experience, identity, preference } = extraction.outputs;
+
+  if (activity?.error) appendError(LayersEnum.Activity, 'extract', activity.error);
+  if (activity?.data) {
+    const data = activity.data;
+    await prepareWithSpan(LayersEnum.Activity, () =>
+      ctx.prepareActivityMemories(job, messageIds, data, ...embedding),
+    );
   }
-  if (activityOutput?.data) {
-    await persistWithSpan(LayersEnum.Activity, () =>
-      ctx.persistActivityMemories(
-        job,
-        messageIds,
-        activityOutput.data,
-        runtimes.embeddings,
-        memoryServiceConfig.modelConfig.embeddingsModel,
-        memoryServiceConfig.embeddingContextLimit,
-        db,
-      ),
+  if (context?.error) appendError(LayersEnum.Context, 'extract', context.error);
+  if (context?.data) {
+    const data = context.data;
+    await prepareWithSpan(LayersEnum.Context, () =>
+      ctx.prepareContextMemories(job, messageIds, data, ...embedding),
+    );
+  }
+  if (experience?.error) appendError(LayersEnum.Experience, 'extract', experience.error);
+  if (experience?.data) {
+    const data = experience.data;
+    await prepareWithSpan(LayersEnum.Experience, () =>
+      ctx.prepareExperienceMemories(job, messageIds, data, ...embedding),
+    );
+  }
+  if (preference?.error) appendError(LayersEnum.Preference, 'extract', preference.error);
+  if (preference?.data) {
+    const data = preference.data;
+    await prepareWithSpan(LayersEnum.Preference, () =>
+      ctx.preparePreferenceMemories(job, messageIds, data, ...embedding),
+    );
+  }
+  if (identity?.error) appendError(LayersEnum.Identity, 'extract', identity.error);
+  if (identity?.data) {
+    const data = identity.data;
+    await prepareWithSpan(LayersEnum.Identity, () =>
+      ctx.prepareIdentityMemories(job, messageIds, data, ...embedding),
     );
   }
 
-  const contextOutput = extraction.outputs.context;
-  if (contextOutput?.error) {
-    appendError(LayersEnum.Context, 'extract', contextOutput.error);
-  }
-  if (contextOutput?.data) {
-    await persistWithSpan(LayersEnum.Context, () =>
-      ctx.persistContextMemories(
-        job,
-        messageIds,
-        contextOutput.data,
-        runtimes.embeddings,
-        memoryServiceConfig.modelConfig.embeddingsModel,
-        memoryServiceConfig.embeddingContextLimit,
-        db,
-      ),
-    );
-  }
-
-  const experienceOutput = extraction.outputs.experience;
-  if (experienceOutput?.error) {
-    appendError(LayersEnum.Experience, 'extract', experienceOutput.error);
-  }
-  if (experienceOutput?.data) {
-    await persistWithSpan(LayersEnum.Experience, () =>
-      ctx.persistExperienceMemories(
-        job,
-        messageIds,
-        experienceOutput.data,
-        runtimes.embeddings,
-        memoryServiceConfig.modelConfig.embeddingsModel,
-        memoryServiceConfig.embeddingContextLimit,
-        db,
-      ),
-    );
-  }
-
-  const preferenceOutput = extraction.outputs.preference;
-  if (preferenceOutput?.error) {
-    appendError(LayersEnum.Preference, 'extract', preferenceOutput.error);
-  }
-  if (preferenceOutput?.data) {
-    await persistWithSpan(LayersEnum.Preference, () =>
-      ctx.persistPreferenceMemories(
-        job,
-        messageIds,
-        preferenceOutput.data,
-        runtimes.embeddings,
-        memoryServiceConfig.modelConfig.embeddingsModel,
-        memoryServiceConfig.embeddingContextLimit,
-        db,
-      ),
-    );
-  }
-
-  const identityOutput = extraction.outputs.identity;
-  if (identityOutput?.error) {
-    appendError(LayersEnum.Identity, 'extract', identityOutput.error);
-  }
-  if (identityOutput?.data) {
-    await persistWithSpan(LayersEnum.Identity, () =>
-      ctx.persistIdentityMemories(
-        job,
-        messageIds,
-        identityOutput.data,
-        runtimes.embeddings,
-        memoryServiceConfig.modelConfig.embeddingsModel,
-        memoryServiceConfig.embeddingContextLimit,
-        db,
-      ),
-    );
-  }
-
-  if (errors.length) {
-    const detail = errors.map((error) => error.message).join('; ');
-    throw new MemoryExtractionAggregateError(
-      `Memory extraction encountered layer errors: ${detail}`,
+  const aggregate = () =>
+    new MemoryExtractionAggregateError(
+      `Memory extraction encountered layer errors: ${errors.map((error) => error.message).join('; ')}`,
       errors,
     );
+  // Nothing has been written yet: the whole segment is retried.
+  if (errors.length) throw aggregate();
+
+  let writing: LayersEnum | undefined;
+  let result: PersistedMemoryResult;
+  try {
+    result = await db.transaction(async (tx) => {
+      const createdIds: string[] = [];
+      const layers: PersistedMemoryResult['layers'] = {};
+      for (const { layer, write } of prepared) {
+        writing = layer;
+        const ids = await write(tx as LobeChatDatabase);
+        createdIds.push(...ids);
+        layers[layer] = ids.length;
+      }
+      writing = undefined;
+
+      const written = { createdIds, layers };
+      await commit?.(tx as LobeChatDatabase, written);
+      return written;
+    });
+  } catch (error) {
+    if (writing === undefined) throw error;
+    appendError(writing, 'persist', error);
+    logPersistError(writing, error);
+    throw aggregate();
   }
 
-  return {
-    createdIds,
-    layers: perLayer,
-  };
+  for (const [layer, count] of Object.entries(result.layers)) {
+    ctx.recordLayerEntries(job, layer as LayersEnum, count);
+  }
+  return result;
 }

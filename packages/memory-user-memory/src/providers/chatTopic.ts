@@ -156,9 +156,11 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
     this.options = options;
   }
 
+  /** `database` lets the watermark commit in the transaction that wrote the memories. */
   async recordComplete(
     job: MemoryExtractionJob,
     result: PersistedMemoryResult & { processedMemoryCount: number },
+    database: LobeChatDatabase = this.options.database,
   ): Promise<void> {
     const existingMetadata = (this.options.currentMetadata as ChatTopicMetadata | undefined) ?? {};
 
@@ -188,7 +190,7 @@ export class LobeChatTopicResultRecorder implements MemoryResultRecorder<{
       userMemoryExtractStatus: 'completed',
     };
 
-    await this.options.database
+    await database
       .update(topics)
       .set({ metadata: updatedMetadata, updatedAt: topics.updatedAt })
       .where(and(eq(topics.id, this.options.topicId), eq(topics.userId, job.userId)));
