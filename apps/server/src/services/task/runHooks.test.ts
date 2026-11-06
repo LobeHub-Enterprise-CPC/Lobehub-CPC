@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LobeChatDatabase } from '@/database/type';
+import { HATCHET_TIMING } from '@/server/modules/Hatchet/config';
 
 import { createTaskRunHooks } from './runHooks';
 
 const { onTopicComplete } = vi.hoisted(() => ({ onTopicComplete: vi.fn() }));
 
 vi.mock('@/server/services/taskLifecycle', () => ({
-  TOPIC_COMPLETE_HOOK_TIMEOUT_S: 777,
   TaskLifecycleService: vi.fn().mockImplementation(function () {
     return { onTopicComplete };
   }),
@@ -66,9 +66,9 @@ describe('createTaskRunHooks', () => {
     expect(onTopicComplete).toHaveBeenCalledWith(expect.objectContaining({ reason: 'done' }));
   });
 
-  it('gives the delivery the lifecycle timeout, not the 30s webhook default', () => {
-    // The lifecycle makes its LLM calls inside the delivery; a shorter attempt
-    // timeout redelivers it and reruns every paid call.
+  it('lets the delivery cover the slowest model call, not the 30s webhook default', () => {
+    // The lifecycle makes its model calls inside the delivery; a shorter attempt
+    // timeout redelivers it while it is still working and reruns every paid call.
     const [hook] = createTaskRunHooks({
       db,
       taskId: 'task-1',
@@ -76,8 +76,9 @@ describe('createTaskRunHooks', () => {
       userId: 'user-1',
     });
 
-    // The lifecycle owns the value (its test checks it covers its LLM calls).
-    expect(hook.webhook?.timeout).toBe(777);
+    // Same contract as a workflow delivery (timing.test.ts keeps it inside the
+    // delivery execution timeout the publisher enforces).
+    expect(hook.webhook?.timeout).toBe(HATCHET_TIMING.workflowDeliveryHttpTimeoutMs / 1000);
   });
 
   it('carries the run in the static webhook body, so a lost socket still settles it', () => {

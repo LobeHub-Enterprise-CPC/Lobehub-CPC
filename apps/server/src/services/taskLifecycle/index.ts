@@ -81,20 +81,6 @@ const isTerminal = (status: string) => TERMINAL_STATUSES.has(status);
 // for now; move to task.config later if it needs to be tunable per-task.
 const AUTOMATION_FAILURE_FUSE = 3;
 
-// onTopicComplete runs inside one webhook delivery and makes up to three
-// best-effort LLM calls in sequence (handoff, brief judge, brief generate).
-// A delivery that outlives its HTTP timeout is redelivered, and a redelivery
-// reruns the whole lifecycle — every paid call again. So each call gets a
-// deadline, and the delivery timeout covers all of them at their deadline plus
-// headroom for the database work around them.
-const TOPIC_COMPLETE_LLM_TIMEOUT_MS = 4 * 60_000;
-const TOPIC_COMPLETE_LLM_CALLS = 3;
-const TOPIC_COMPLETE_DB_HEADROOM_S = 180;
-
-/** Webhook timeout (seconds) for delivering `onTopicComplete`. */
-export const TOPIC_COMPLETE_HOOK_TIMEOUT_S =
-  (TOPIC_COMPLETE_LLM_CALLS * TOPIC_COMPLETE_LLM_TIMEOUT_MS) / 1000 + TOPIC_COMPLETE_DB_HEADROOM_S;
-
 export interface TopicCompleteParams {
   /** Structured terminal error type (e.g. `InsufficientBudgetForModel`) from the
    *  completion lifecycle event, forwarded to the failure notification. */
@@ -819,7 +805,6 @@ export class TaskLifecycleService {
         },
         {
           metadata: { trigger: RequestTrigger.Task },
-          signal: AbortSignal.timeout(TOPIC_COMPLETE_LLM_TIMEOUT_MS),
           tracing: {
             promptVersion: TASK_TOPIC_HANDOFF_PROMPT_VERSION,
             scenario: TRACING_SCENARIOS.TaskHandoff,
@@ -934,7 +919,6 @@ export class TaskLifecycleService {
           },
           {
             metadata: { trigger: RequestTrigger.Task },
-            signal: AbortSignal.timeout(TOPIC_COMPLETE_LLM_TIMEOUT_MS),
             tracing: {
               promptVersion: JUDGE_BRIEF_EMIT_PROMPT_VERSION,
               scenario: TRACING_SCENARIOS.TaskBriefJudge,
@@ -1010,7 +994,6 @@ export class TaskLifecycleService {
         },
         {
           metadata: { trigger: RequestTrigger.Task },
-          signal: AbortSignal.timeout(TOPIC_COMPLETE_LLM_TIMEOUT_MS),
           tracing: {
             promptVersion: GENERATE_BRIEF_PROMPT_VERSION,
             scenario: TRACING_SCENARIOS.TaskBrief,
