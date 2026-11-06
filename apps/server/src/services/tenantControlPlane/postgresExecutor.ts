@@ -3,6 +3,7 @@ import {
   businessTenantSeeders,
   registerBusinessTenantMigrators,
 } from '@lobechat/business-tenant';
+import { dbApplicationName } from '@lobechat/database/observability';
 import {
   getTenantMigrators,
   registerTenantMigrator,
@@ -53,6 +54,7 @@ export const bundleClientConfig = (
 ): ClientConfig => {
   const credential = role === 'owner' ? bundle.schemaOwner : bundle.runtimeCredential;
   return {
+    application_name: dbApplicationName(role === 'owner' ? 'control-owner' : 'control-runtime'),
     connectionTimeoutMillis: 10_000,
     ...tenantPgConnection(bundle, credential),
   };

@@ -14,9 +14,10 @@ async function main() {
     return 0;
   }
   // Disabled deployments must not initialize the database or agent runtime.
-  const [{ ChannelTenantWorker }, { serverDB }] = await Promise.all([
+  const [{ ChannelTenantWorker }, { serverDB }, { dbApplicationName }] = await Promise.all([
     import('../apps/server/src/services/channel/tenantWorker'),
     import('../packages/database/src/server'),
+    import('../packages/database/src/observability/applicationName'),
   ]);
   if (check) {
     console.info('[channel-worker] Runtime imports OK');
@@ -25,6 +26,7 @@ async function main() {
 
   // A coordinator process never diagnoses another live coordinator's Native tools as orphaned.
   const ownership = new Client({
+    application_name: dbApplicationName('channel-coordinator'),
     connectionString: process.env.DATABASE_URL,
     connectionTimeoutMillis: 10_000,
   });

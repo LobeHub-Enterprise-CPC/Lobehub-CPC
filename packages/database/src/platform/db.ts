@@ -1,8 +1,8 @@
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
 
 import { serverDBEnv } from '@/config/db';
 
+import { createObservedPool } from '../observability/poolStats';
 import * as platformSchema from './schemas';
 
 export type PlatformDatabase = NodePgDatabase<typeof platformSchema>;
@@ -23,8 +23,9 @@ export const getPlatformDB = (): PlatformDatabase => {
     throw new Error('`DATABASE_URL` is not set; the platform database is unavailable.');
 
   const statementTimeout = serverDBEnv.DATABASE_STATEMENT_TIMEOUT;
-  const pool = new Pool({
+  const pool = createObservedPool('platform', {
     connectionString,
+    max: serverDBEnv.DB_PLATFORM_POOL_MAX,
     ...(statementTimeout && {
       idle_in_transaction_session_timeout: statementTimeout,
       statement_timeout: statementTimeout,
