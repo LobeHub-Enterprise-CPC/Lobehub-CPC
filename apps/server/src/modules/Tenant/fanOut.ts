@@ -7,6 +7,8 @@ const log = debug('lobe-server:tenant-fan-out');
 
 export interface TenantFanOutResult<T> {
   failed: { reason: string; tenantId: string }[];
+  /** Available tenants left out by `skip`; they were not entered. */
+  skipped: string[];
   succeeded: { result: T; tenantId: string }[];
 }
 
@@ -15,14 +17,20 @@ export interface TenantFanOutResult<T> {
  * FR-AS-02): startup jobs and crons have no request, so each tenant gets its
  * own admitted scope and its own tenant database. Tenants run one after
  * another; one tenant failing is recorded and does not stop the others.
+ * A tenant for which `skip` returns true is listed as skipped without being entered.
  */
 export const forEachTenant = async <T>(
   job: string,
   operation: (tenantId: string) => Promise<T>,
+  { skip }: { skip?: (tenantId: string) => boolean } = {},
 ): Promise<TenantFanOutResult<T>> => {
-  const result: TenantFanOutResult<T> = { failed: [], succeeded: [] };
+  const result: TenantFanOutResult<T> = { failed: [], skipped: [], succeeded: [] };
   const tenantIds = await getTenantRuntime().listAvailableTenantIds();
   for (const tenantId of tenantIds) {
+    if (skip?.(tenantId)) {
+      result.skipped.push(tenantId);
+      continue;
+    }
     try {
       const value = await runInTenant(tenantId, () => operation(tenantId));
       result.succeeded.push({ result: value, tenantId });

@@ -14,11 +14,13 @@ async function main() {
     return 0;
   }
   // Disabled deployments must not initialize the database or agent runtime.
-  const [{ ChannelTenantWorker }, { serverDB }, { dbApplicationName }] = await Promise.all([
-    import('../apps/server/src/services/channel/tenantWorker'),
-    import('../packages/database/src/server'),
-    import('../packages/database/src/observability/applicationName'),
-  ]);
+  const [{ ChannelTenantWorker }, { channelWake }, { serverDB }, { dbApplicationName }] =
+    await Promise.all([
+      import('../apps/server/src/services/channel/tenantWorker'),
+      import('../apps/server/src/services/redis/channelWake'),
+      import('../packages/database/src/server'),
+      import('../packages/database/src/observability/applicationName'),
+    ]);
   if (check) {
     console.info('[channel-worker] Runtime imports OK');
     return 0;
@@ -30,9 +32,10 @@ async function main() {
     connectionString: process.env.DATABASE_URL,
     connectionTimeoutMillis: 10_000,
   });
-  // Channel data lives in tenant schemas: the coordinator enters every available tenant per tick.
+  // Channel data lives in tenant schemas: the coordinator enters every due tenant per round.
   // The ownership lock above stays on the platform database, one coordinator for all tenants.
   const worker = new ChannelTenantWorker(serverDB);
+  let closeWakes: (() => void) | undefined;
   let stopping = false;
   let exitCode = 0;
   let lastSuccess = 0;
@@ -71,6 +74,9 @@ async function main() {
     if (!lock.rows[0].acquired) throw new Error('A Channel coordinator is already running');
 
     for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, stop);
+    // Idle tenants back off to 30 s; a wake from the Web side makes one due on the next round.
+    // Without Redis the backoff alone still serves every tenant.
+    closeWakes = channelWake.subscribe((tenantId) => worker.wake(tenantId));
     health.listen(Number(process.env.CHANNEL_WORKER_PORT || 3211), '0.0.0.0');
     await once(health, 'listening');
     console.info('[channel-worker] Coordinator started');
@@ -88,6 +94,7 @@ async function main() {
     }
   } finally {
     stopping = true;
+    closeWakes?.();
     // Retain coordinator ownership until all active runs have been drained.
     try {
       await worker.close();

@@ -46,6 +46,8 @@ vi.mock('@/server/services/channel/native/capabilities', () => ({
   checkChannelNativeAvailability: vi.fn(),
 }));
 vi.mock('@/server/services/channel/watch', () => ({ watchChannel: vi.fn() }));
+const { wake } = vi.hoisted(() => ({ wake: vi.fn() }));
+vi.mock('@/server/services/redis', () => ({ redisService: { channelWake: { wake } } }));
 const { flags } = vi.hoisted(() => ({
   flags: { current: {} as Record<string, boolean | string[]> },
 }));
@@ -164,5 +166,28 @@ describe('Channel availability at the API boundary', () => {
     expect(procedures).toEqual(expect.arrayContaining(['page', 'remove', 'artifact']));
     for (const removed of ['approve', 'detail', 'archive'])
       expect(procedures).not.toContain(removed);
+  });
+
+  it('wakes the channel worker once a mutation has committed, never for reads or failed writes', async () => {
+    const input = {
+      channelId: 'channel',
+      content: 'hello',
+      mentions: [],
+      requestKey: '00000000-0000-4000-8000-000000000000',
+    };
+    let committed = false;
+    send.mockImplementationOnce(async () => {
+      committed = true;
+    });
+    wake.mockImplementation(() => {
+      expect(committed).toBe(true);
+    });
+    await caller().send(input);
+    expect(wake).toHaveBeenCalledOnce();
+
+    await caller().list();
+    send.mockRejectedValueOnce(new Error('conflict'));
+    await expect(caller().send(input)).rejects.toThrow();
+    expect(wake).toHaveBeenCalledOnce();
   });
 });

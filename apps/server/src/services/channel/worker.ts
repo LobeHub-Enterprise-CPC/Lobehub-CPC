@@ -42,11 +42,18 @@ export class ChannelWorker {
     private readonly availability = checkChannelNativeAvailability,
   ) {}
 
-  async tick() {
-    if (this.ticking) return;
+  /**
+   * Resolves true when this tenant has Channel work: runs to reconcile, messages to route,
+   * discussions to advance, queued jobs, or native runs active or finalizing in memory.
+   * The coordinator keeps such a tenant due every round and backs an idle one off.
+   */
+  async tick(): Promise<boolean> {
+    // A tick already in progress is work in progress.
+    if (this.ticking) return true;
     this.ticking = true;
     let reconciling: Promise<unknown> | undefined;
     try {
+      const rotating = this.jobCursor !== undefined;
       await Promise.all(
         [...this.finalizing.keys()]
           .filter((runId) => !this.active.has(runId))
@@ -389,6 +396,16 @@ export class ChannelWorker {
       );
       for (const result of jobResults)
         if (result.status === 'rejected') log('Job dispatch deferred: %s', result.reason);
+      return (
+        active.length > 0 ||
+        pending.length > 0 ||
+        discussing.length > 0 ||
+        jobs.length > 0 ||
+        // Candidates before the cursor were skipped this tick and are still queued.
+        rotating ||
+        this.active.size > 0 ||
+        this.finalizing.size > 0
+      );
     } finally {
       await reconciling;
       this.ticking = false;
