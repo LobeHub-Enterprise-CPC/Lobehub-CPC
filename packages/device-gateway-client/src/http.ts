@@ -14,6 +14,7 @@ import {
   describeGatewayRequestFailure,
   describeGatewayResponseFailure,
   DeviceDispatchSettlementError,
+  DeviceExecutionUnknownError,
   type DeviceTransportFailure,
   type DeviceUnavailableErrorData,
 } from './deviceTransportError';
@@ -609,7 +610,7 @@ export class GatewayHttpClient {
       binding.connectionGeneration < 1
     )
       throw new Error('ATTEMPT_CONFLICT');
-    if (wire.outcome !== 'completed') throw new Error('EXECUTION_UNKNOWN');
+    if (wire.outcome !== 'completed') throw new DeviceExecutionUnknownError(wire.outcome);
     if (!isRecord(wire.result)) throw new Error('INVALID_GATEWAY_MESSAGE');
     try {
       await this.options.settleDispatch!({

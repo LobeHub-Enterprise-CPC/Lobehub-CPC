@@ -14,7 +14,9 @@ const client = (settleDispatch?: GatewayHttpClientOptions['settleDispatch']) =>
   });
 const invoke = (subject: GatewayHttpClient) =>
   subject.invokeRpc({ userId: 'user-1' }, { method: 'read' });
-const fetchReply = () =>
+const fetchReply = (
+  reply: Record<string, unknown> = { outcome: 'completed', result: { success: true, data: 42 } },
+) =>
   vi.stubGlobal(
     'fetch',
     vi.fn(async (_url: string, options: RequestInit) => {
@@ -29,8 +31,7 @@ const fetchReply = () =>
             connectionGeneration: 1,
             authorizationId: 'authorization',
           },
-          outcome: 'completed',
-          result: { success: true, data: 42 },
+          ...reply,
         }),
         { headers: { 'X-LobeHub-Gateway-Tenancy': '1', 'X-LobeHub-Tenant-Id': 'tenant-test' } },
       );
@@ -96,5 +97,22 @@ describe('trusted synchronous settlement barrier', () => {
     expect(beforeSend.executionUnknown).not.toBe(true);
     expect(beforeSend.error).toContain(DeviceTransportErrorCode.GatewayUnreachable);
     expect(beforeSend.content).toContain('never ran');
+  });
+  it('reports a gateway executionUnknown outcome as unknown, not as a plain failure', async () => {
+    // The gateway answered (HTTP 200) after waiting out the device: it cannot tell whether
+    // the command ran. Callers need the structured flag, not just the error text.
+    fetchReply({ outcome: 'executionUnknown' });
+    const settle = vi.fn();
+    const subject = client(settle);
+    const result = await subject.executeToolCall(
+      { userId: 'user-1' },
+      { identifier: 'builtin', apiName: 'runCommand', arguments: '{}' },
+    );
+    expect(result).toMatchObject({ success: false, executionUnknown: true });
+    expect(result.error).toContain('EXECUTION_UNKNOWN');
+    expect(result.content).toContain('do NOT');
+    expect(result.content).not.toMatch(/never ran|Retry once/);
+    expect(settle).not.toHaveBeenCalled();
+    await expect(invoke(subject)).rejects.toThrow('EXECUTION_UNKNOWN');
   });
 });
