@@ -5,9 +5,11 @@ import { PGlite } from '@electric-sql/pglite';
 import { vector } from '@electric-sql/pglite/vector';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/pglite';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { installFtsSearchSyncCapture } from '../../../../../../scripts/installFtsSearchSyncCapture';
 import { materializeTenantMigrations } from '../../../tenant/migrator';
+import captureHistory from '../captureHistory.json';
 import { FtsSearchSyncOutboxRepository } from '../index';
 
 const SCHEMA = 'tenant_0123456789abcdef01234567';
@@ -30,6 +32,63 @@ const tenantDatabase = async () => {
 };
 
 describe('FTS search sync capture in a tenant schema', () => {
+  it('repairs missing and historical capture, validates current capture without DDL, and refuses tampering', async () => {
+    const pglite = await tenantDatabase();
+    const repository = new FtsSearchSyncOutboxRepository(
+      drizzle({ client: pglite }) as unknown as ConstructorParameters<
+        typeof FtsSearchSyncOutboxRepository
+      >[0],
+    );
+    const install = () =>
+      installFtsSearchSyncCapture({
+        env: { DATABASE_URL: 'postgres://unused' },
+        listTenants: async () => [
+          { tenantId: SCHEMA, open: async () => ({ repository, close: async () => {} }) },
+        ],
+      });
+    try {
+      await install();
+      await repository.assertCaptureInfrastructure();
+      const mutation = vi.spyOn(repository, 'installCaptureInfrastructure');
+      await install();
+      expect(mutation).not.toHaveBeenCalled();
+      mutation.mockRestore();
+
+      const historical = captureHistory.find(({ version }) => version === 1)!;
+      for (const fn of historical.functions)
+        await pglite.exec(`DROP FUNCTION ${fn.name}(${fn.identityArguments}) CASCADE`);
+      await pglite.exec('DELETE FROM fts_search_sync_capture_version');
+      for (const fn of historical.functions)
+        await pglite.exec(
+          `CREATE FUNCTION ${fn.name}(${fn.identityArguments}) RETURNS ${fn.result} AS $capture$ ${fn.body} $capture$ LANGUAGE plpgsql`,
+        );
+      for (const trigger of historical.triggers)
+        await pglite.exec(trigger.definition.replace(/ ON public\./, ` ON ${SCHEMA}.`));
+      await pglite.exec("INSERT INTO fts_search_sync_capture_version VALUES ('capture', 1)");
+      await install();
+      await repository.assertCaptureInfrastructure();
+
+      await pglite.exec(
+        'CREATE OR REPLACE FUNCTION capture_fts_search_sync_change() RETURNS trigger AS $$ BEGIN RETURN NULL; END $$ LANGUAGE plpgsql',
+      );
+      await expect(install()).rejects.toMatchObject({
+        cause: expect.objectContaining({
+          message: expect.stringContaining('Refusing to replace partial or unknown'),
+        }),
+      });
+      expect(
+        (
+          await pglite.query<{ prosrc: string }>(
+            "SELECT prosrc FROM pg_proc WHERE proname = 'capture_fts_search_sync_change' AND pronamespace = current_schema()::regnamespace",
+          )
+        ).rows[0].prosrc,
+      ).toContain('RETURN NULL');
+    } finally {
+      vi.restoreAllMocks();
+      await pglite.close();
+    }
+  }, 120_000);
+
   it('installs, verifies and captures inside the tenant schema only', async () => {
     const pglite = await tenantDatabase();
     const repository = new FtsSearchSyncOutboxRepository(drizzle({ client: pglite }) as never);

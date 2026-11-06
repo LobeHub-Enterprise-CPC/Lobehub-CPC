@@ -8,6 +8,7 @@ import {
 } from './index';
 
 const createRepository = (): FtsSearchSyncCaptureRepository => ({
+  assertCaptureInfrastructure: vi.fn().mockRejectedValue(new Error('not installed')),
   installCaptureInfrastructure: vi.fn().mockResolvedValue(undefined),
 });
 
@@ -23,6 +24,22 @@ const tenant = (tenantId: string, repository = createRepository()) => {
 const runWithLockRetry = () => vi.fn(async (operation: () => Promise<void>) => operation());
 
 describe('installFtsSearchSyncCapture', () => {
+  it('only reads capture definitions when the installation is already current', async () => {
+    const repository = createRepository();
+    vi.mocked(repository.assertCaptureInfrastructure).mockResolvedValue(undefined);
+    const existing = tenant('existing', repository);
+    const retry = runWithLockRetry();
+    await installFtsSearchSyncCapture({
+      env: { DATABASE_URL: 'postgres://unused' },
+      listTenants: async () => [existing.entry],
+      runWithLockRetry: retry,
+    });
+    expect(repository.assertCaptureInfrastructure).toHaveBeenCalledOnce();
+    expect(repository.installCaptureInfrastructure).not.toHaveBeenCalled();
+    expect(retry).not.toHaveBeenCalled();
+    expect(existing.close).toHaveBeenCalledOnce();
+  });
+
   it('installs capture in every tenant schema, one connection per tenant', async () => {
     const a = tenant('tenant-a');
     const b = tenant('tenant-b');
@@ -45,6 +62,7 @@ describe('installFtsSearchSyncCapture', () => {
 
   it('keeps going past a failing tenant and then fails naming it', async () => {
     const failing = tenant('tenant-a', {
+      ...createRepository(),
       installCaptureInfrastructure: vi.fn().mockRejectedValue(new Error('definition mismatch')),
     });
     const healthy = tenant('tenant-b');
@@ -104,12 +122,12 @@ describe('runFtsSearchSyncCaptureCli', () => {
     await expect(
       runFtsSearchSyncCaptureCli({
         env: { DATABASE_URL: 'postgres://platform' },
-        listTenants: vi
-          .fn()
-          .mockResolvedValue([
-            tenant('tenant-a', { installCaptureInfrastructure: vi.fn().mockRejectedValue(error) })
-              .entry,
-          ]),
+        listTenants: vi.fn().mockResolvedValue([
+          tenant('tenant-a', {
+            ...createRepository(),
+            installCaptureInfrastructure: vi.fn().mockRejectedValue(error),
+          }).entry,
+        ]),
         logError,
         logSuccess,
         runWithLockRetry: runWithLockRetry(),

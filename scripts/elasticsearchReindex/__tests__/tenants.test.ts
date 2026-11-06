@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TenantDatabaseTarget } from '../../../apps/server/src/services/tenantControlPlane/tenantDatabases';
 import { tenantFtsSearchNamespace, tenantHash } from '../../../packages/database/src/tenant/names';
+import { FtsSearchReindexFileRepository } from '../runtime/checkpointRepository';
 import { deleteNamespaceIndices, runTenantReindex, tenantDatabaseUrl } from '../tenants';
 
 const target = (tenantId: string, h24: string): TenantDatabaseTarget => ({
@@ -30,6 +31,25 @@ const tempDirectory = async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'fts-tenants-'));
   directories.push(directory);
   return directory;
+};
+
+const checkpoint = async (state: string, tenantId: string, h24: string, ready = true) => {
+  const repository = new FtsSearchReindexFileRepository({
+    readCaptureFingerprint: async () => 'capture',
+    readHighWaterRevision: async () => 1,
+    reserveRevisionWithWriteFence: async () => 1,
+    stateDirectory: path.join(state, h24),
+  });
+  const result = await repository.createOrResume(tenantFtsSearchNamespace('cpc-mt', tenantId), 1);
+  if (ready) {
+    for (const progress of result.progress)
+      await repository.completeEntity(result.run.id, progress.entity);
+    await repository.markReadyForIncrementalSync(
+      result.run.id,
+      result.progress.map(({ entity }) => entity),
+    );
+  }
+  return repository;
 };
 
 afterEach(async () => {
@@ -88,11 +108,36 @@ describe('runTenantReindex', () => {
   describe('--new-tenants-only', () => {
     const argv = ['--apply', '--fresh-run', '--yes', '--new-tenants-only'];
 
-    it('installs capture and backfills only tenants that have no checkpoint yet', async () => {
+    it('does no capture, Elasticsearch or child work when there are no tenants to process', async () => {
       const state = await tempDirectory();
-      // Already backfilled: a checkpoint exists.
-      await mkdir(path.join(state, 'aaa'));
-      await writeFile(path.join(state, 'aaa', 'reindex-cpc-mt-a-0123456789ab-v1.json'), '{}');
+      const installCapture = vi.fn();
+      const deleteIndices = vi.fn();
+      const run = vi.fn();
+      await expect(
+        runTenantReindex({
+          argv,
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: state,
+          },
+          installCapture,
+          deleteIndices,
+          listDestroyedTenants: async () => [],
+          listTargets: async () => [],
+          parseTenants: () => [],
+          log: vi.fn(),
+          run,
+        }),
+      ).resolves.toBe(0);
+      expect(installCapture).not.toHaveBeenCalled();
+      expect(deleteIndices).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it('checks capture for every tenant and only backfills unfinished tenants', async () => {
+      const state = await tempDirectory();
+      await checkpoint(state, 'a', 'aaa');
       // Only the database CA left by an earlier attempt: still a new tenant.
       await mkdir(path.join(state, 'ccc'));
       await writeFile(path.join(state, 'ccc', 'database-ca.pem'), 'CA');
@@ -118,12 +163,125 @@ describe('runTenantReindex', () => {
         }),
       ).resolves.toBe(0);
 
-      expect(installCapture.mock.calls).toEqual([['b'], ['c']]);
+      expect(installCapture.mock.calls).toEqual([['a'], ['b'], ['c']]);
       expect(run.mock.calls.map(([, childEnv]) => childEnv.ES_INDEX_NAMESPACE)).toEqual([
         tenantFtsSearchNamespace('cpc-mt', 'b'),
         tenantFtsSearchNamespace('cpc-mt', 'c'),
       ]);
       expect(run.mock.calls[0][0]).toEqual(['--apply', '--fresh-run', '--yes']);
+    });
+
+    it('resumes an unfinished checkpoint without passing --fresh-run', async () => {
+      const state = await tempDirectory();
+      await checkpoint(state, 'a', 'aaa', false);
+      const run = vi.fn().mockResolvedValue(0);
+      await expect(
+        runTenantReindex({
+          argv,
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: state,
+          },
+          installCapture: vi.fn(),
+          listDestroyedTenants: async () => [],
+          listTargets: async () => [target('a', 'aaa')],
+          parseTenants: () => [],
+          log: vi.fn(),
+          run,
+        }),
+      ).resolves.toBe(0);
+      expect(run).toHaveBeenCalledOnce();
+      expect(run.mock.calls[0][0]).toEqual(['--apply', '--yes']);
+    });
+
+    it('repairs capture even for a completed tenant, without starting a reindex or writing files', async () => {
+      const state = await tempDirectory();
+      await checkpoint(state, 'a', 'aaa');
+      const before = await stat(path.join(state, 'aaa'));
+      const installCapture = vi.fn();
+      const run = vi.fn();
+      await expect(
+        runTenantReindex({
+          argv,
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: state,
+          },
+          installCapture,
+          listDestroyedTenants: async () => [],
+          listTargets: async () => [target('a', 'aaa')],
+          parseTenants: () => [],
+          log: vi.fn(),
+          run,
+        }),
+      ).resolves.toBe(0);
+      expect(installCapture).toHaveBeenCalledExactlyOnceWith('a');
+      expect(run).not.toHaveBeenCalled();
+      expect((await stat(path.join(state, 'aaa'))).mtimeMs).toBe(before.mtimeMs);
+    });
+
+    it('reports tampered capture on a completed tenant and continues checking the others', async () => {
+      const state = await tempDirectory();
+      await checkpoint(state, 'a', 'aaa');
+      const run = vi.fn().mockResolvedValue(0);
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await expect(
+        runTenantReindex({
+          argv,
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: state,
+          },
+          installCapture: vi
+            .fn()
+            .mockRejectedValueOnce(
+              new Error(
+                'Refusing to replace partial or unknown FTS search sync capture infrastructure: function capture_fts_search_sync_change',
+              ),
+            )
+            .mockResolvedValue(undefined),
+          listDestroyedTenants: async () => [],
+          listTargets: async () => [target('a', 'aaa'), target('b', 'bbb')],
+          parseTenants: () => [],
+          log: vi.fn(),
+          run,
+        }),
+      ).resolves.toBe(1);
+      expect(run).toHaveBeenCalledOnce();
+      expect(error.mock.calls.flat().join(' ')).toContain('Refusing to replace partial or unknown');
+      error.mockRestore();
+    });
+
+    it('fails closed on corrupt checkpoints instead of silently skipping or overwriting them', async () => {
+      const state = await tempDirectory();
+      await mkdir(path.join(state, 'aaa'));
+      const file = path.join(state, 'aaa', 'reindex-broken.json');
+      await writeFile(file, '{}');
+      const run = vi.fn();
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await expect(
+        runTenantReindex({
+          argv,
+          environment: {
+            ...process.env,
+            ES_INDEX_NAMESPACE: 'cpc-mt',
+            ES_REINDEX_STATE_DIR: state,
+          },
+          installCapture: vi.fn(),
+          listDestroyedTenants: async () => [],
+          listTargets: async () => [target('a', 'aaa')],
+          parseTenants: () => [],
+          log: vi.fn(),
+          run,
+        }),
+      ).resolves.toBe(1);
+      expect(run).not.toHaveBeenCalled();
+      expect(await readFile(file, 'utf8')).toBe('{}');
+      expect(error.mock.calls.flat().join(' ')).toContain('checkpoint');
+      error.mockRestore();
     });
 
     it('does not backfill a tenant whose capture installation failed', async () => {
@@ -162,8 +320,7 @@ describe('runTenantReindex', () => {
       const destroyedState = path.join(state, tenantHash('gone'));
       await mkdir(destroyedState);
       await writeFile(path.join(destroyedState, 'reindex-x-v1.json'), '{}');
-      await mkdir(path.join(state, 'aaa'));
-      await writeFile(path.join(state, 'aaa', 'reindex-cpc-mt-a-0123456789ab-v1.json'), '{}');
+      await checkpoint(state, 'a', 'aaa');
       const deleteIndices = vi.fn().mockResolvedValue(['cpc-mt-x-messages-v1']);
 
       await expect(

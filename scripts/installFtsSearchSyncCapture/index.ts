@@ -18,6 +18,7 @@ dotenvExpand.expand(dotenv.config({ override: true, path: `.env.${env}` })); // 
 dotenvExpand.expand(dotenv.config({ override: true, path: `.env.${env}.local` })); // Load .env.[env].local and override
 
 export type FtsSearchSyncCaptureRepository = {
+  assertCaptureInfrastructure: () => Promise<void>;
   installCaptureInfrastructure: () => Promise<void>;
 };
 
@@ -105,7 +106,13 @@ export const installFtsSearchSyncCapture = async ({
     try {
       const { close, repository } = await tenant.open();
       try {
-        await runWithLockRetry(() => repository.installCaptureInfrastructure());
+        // Healthy tenants only pay read-only catalog checks on each bootstrap round.
+        try {
+          await repository.assertCaptureInfrastructure();
+        } catch {
+          // The installer upgrades known versions and refuses partial/unknown definitions.
+          await runWithLockRetry(() => repository.installCaptureInfrastructure());
+        }
       } finally {
         await close();
       }

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import * as dotenv from 'dotenv';
@@ -13,6 +13,7 @@ import { resolveElasticsearchTransport } from '../../packages/database/src/repos
 import { tenantFtsSearchNamespace, tenantHash } from '../../packages/database/src/tenant/names';
 import { resolveFtsSearchReindexElasticsearchEnvironment } from './options';
 import { summarizeFtsSearchReindexError } from './runtime/auditLogger';
+import { listFtsSearchReindexCheckpoints } from './runtime/checkpointRepository';
 
 const env = process.env.NODE_ENV || 'development';
 dotenvExpand.expand(dotenv.config());
@@ -34,8 +35,9 @@ dotenvExpand.expand(dotenv.config({ override: true, path: `.env.${env}.local` })
  * were provisioned after the initial backfill: it picks the tenants with no
  * checkpoint in their state directory, installs the capture triggers as the
  * tenant owner (the reindex runs as the runtime role, which cannot create
- * them), then runs the fresh backfill. Tenants that already have a checkpoint
- * are left alone; `--fresh-run` itself still refuses a target whose aliases
+ * them), then runs the fresh backfill. Existing tenants get read-only capture
+ * checks (installation/upgrades only when needed); unfinished checkpoints resume
+ * without `--fresh-run`. Ready tenants never start a reindex child. `--fresh-run` still refuses a target whose aliases
  * already exist. The same run removes what destroyed tenants left behind: a
  * tenant whose destruction completed (`tenant_destruction.completed_at`, the
  * Work terminal that outlives every other record) loses every index of its
@@ -98,21 +100,12 @@ const runChild = (args: string[], childEnv: NodeJS.ProcessEnv) =>
 
 const NEW_TENANTS_ONLY = '--new-tenants-only';
 
-/** A checkpoint file (see `checkpointRepository`) means the tenant was backfilled before. */
-const hasCheckpoint = async (stateDirectory: string) => {
-  const files = await readdir(stateDirectory).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === 'ENOENT') return [];
-    throw error;
-  });
-  return files.some((file) => file.startsWith('reindex-') && file.endsWith('.json'));
-};
-
 export interface RunTenantReindexOptions {
   argv: string[];
   /** Deletes every index of one tenant namespace and returns their names (`--new-tenants-only`). */
   deleteIndices?: (namespace: string) => Promise<string[]>;
   environment: NodeJS.ProcessEnv;
-  /** Installs the capture triggers in one tenant as its owner (`--new-tenants-only`). */
+  /** Checks capture, installing/upgrading it as owner only when necessary (`--new-tenants-only`). */
   installCapture?: (tenantId: string) => Promise<void>;
   /** Tenants whose destruction completed (`--new-tenants-only`). */
   listDestroyedTenants?: () => Promise<string[]>;
@@ -182,35 +175,51 @@ export const runTenantReindex = async ({
     const stateDirectory = environment.ES_REINDEX_STATE_DIR
       ? path.join(environment.ES_REINDEX_STATE_DIR, target.h24)
       : undefined;
-    if (newTenantsOnly) {
-      if (await hasCheckpoint(stateDirectory!)) continue;
-      log('🆕 Installing full-text search capture for new tenant %s', target.tenantId);
-      try {
+    let childArgs = passthrough;
+    try {
+      if (newTenantsOnly) {
+        const checkpoints = await listFtsSearchReindexCheckpoints(stateDirectory!);
+        const tenantNamespace = tenantFtsSearchNamespace(namespace, target.tenantId);
+        if (checkpoints.some(({ checkpoint }) => checkpoint.run.namespace !== tenantNamespace))
+          throw new Error(
+            `FTS reindex checkpoint namespace does not match tenant ${target.tenantId}`,
+          );
         await installCapture(target.tenantId);
-      } catch (error) {
-        console.error(
-          '❌ Capture installation failed for tenant %s:',
-          target.tenantId,
-          // The installer names the tenant; its cause is the actual failure.
-          summarizeFtsSearchReindexError(
-            error instanceof Error && error.cause !== undefined ? error.cause : error,
-          ),
-        );
-        failed.push(target.tenantId);
-        continue;
+        if (checkpoints.length > 0) {
+          const pending = checkpoints.filter(
+            ({ checkpoint }) =>
+              !['completed', 'ready_for_incremental_sync'].includes(checkpoint.run.status) ||
+              checkpoint.progress.some(
+                ({ status, failedCount }) => status !== 'completed' || failedCount > 0,
+              ),
+          );
+          if (pending.length === 0) continue;
+          // Never turn a retry into a new run or change the explicit CLI fresh-run contract.
+          childArgs = passthrough.filter((argument) => argument !== '--fresh-run');
+        }
       }
-    }
-    if (stateDirectory) await mkdir(stateDirectory, { mode: 0o700, recursive: true });
+      if (stateDirectory) await mkdir(stateDirectory, { mode: 0o700, recursive: true });
 
-    processed += 1;
-    log('🔎 Elasticsearch reindex for tenant %s', target.tenantId);
-    const code = await run(passthrough, {
-      ...environment,
-      DATABASE_URL: await tenantDatabaseUrl(target.clientConfig, stateDirectory),
-      ES_INDEX_NAMESPACE: tenantFtsSearchNamespace(namespace, target.tenantId),
-      ...(stateDirectory && { ES_REINDEX_STATE_DIR: stateDirectory }),
-    });
-    if (code !== 0) failed.push(target.tenantId);
+      processed += 1;
+      log('🔎 Elasticsearch reindex for tenant %s', target.tenantId);
+      const code = await run(childArgs, {
+        ...environment,
+        DATABASE_URL: await tenantDatabaseUrl(target.clientConfig, stateDirectory),
+        ES_INDEX_NAMESPACE: tenantFtsSearchNamespace(namespace, target.tenantId),
+        ...(stateDirectory && { ES_REINDEX_STATE_DIR: stateDirectory }),
+      });
+      if (code !== 0) failed.push(target.tenantId);
+    } catch (error) {
+      console.error(
+        '❌ Elasticsearch onboarding failed for tenant %s:',
+        target.tenantId,
+        summarizeFtsSearchReindexError(error),
+        ...(error instanceof Error && error.cause !== undefined
+          ? [summarizeFtsSearchReindexError(error.cause)]
+          : []),
+      );
+      failed.push(target.tenantId);
+    }
   }
 
   if (failed.length > 0) {
