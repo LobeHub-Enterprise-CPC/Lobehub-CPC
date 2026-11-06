@@ -24,6 +24,7 @@ vi.mock('@/server/services/channel/device', () => ({
     probe = probe;
     start = start;
     inspect = async () => null;
+    stop = async () => null;
   },
 }));
 vi.mock('@/server/services/channel/gate', () => ({ isChannelEnabled: vi.fn() }));
@@ -126,6 +127,60 @@ it('probes only idle FIFO heads, backs off offline devices and revisits them aft
     expect(jobs.find((job) => job.id === 'job-000')?.blockedReason).toBeNull();
     expect(start).toHaveBeenCalledTimes(2);
     await next.close();
+  } finally {
+    await client.close();
+  }
+}, 30_000);
+
+it('dispatches the next job of a member whose unconfirmed writer was isolated', async () => {
+  vi.clearAllMocks();
+  const client = new PGlite();
+  try {
+    await client.exec(
+      "CREATE TABLE users (id text PRIMARY KEY); INSERT INTO users VALUES ('owner');",
+    );
+    await client.exec(channelMigrationSql());
+    const db = drizzle(client, { schema }) as unknown as LobeChatDatabase;
+    vi.mocked(isChannelEnabled).mockResolvedValue(true);
+    probe.mockImplementation(async (cwd: string) => cwd);
+    start.mockResolvedValue(undefined);
+    const model = new ChannelModel(db, 'owner');
+    const channel = await model.create('owner', [
+      {
+        name: 'Worker',
+        config: {
+          runtime: 'codex',
+          model: '',
+          provider: 'codex',
+          deviceId: 'device',
+          workingDirectory: '/work',
+        },
+      },
+      { name: 'Peer', config: { runtime: 'native', model: 'fixture', provider: 'fixture' } },
+    ]);
+    const member = (await model.detail(channel.id)).members.find((m) => m.name === 'Worker')!;
+    const send = (i: number) =>
+      model.send(channel.id, {
+        content: `Request ${i}`,
+        mentions: [member.id],
+        requestKey: `r-${i}`,
+      });
+    await send(0);
+    const worker = new ChannelWorker(db);
+    await worker.tick();
+    expect(start).toHaveBeenCalledTimes(1);
+    const [lost] = await db.select().from(schema.channelRuns);
+    // The executor never confirms termination; the writer is isolated, not released.
+    await model.isolate(channel.id, lost.id, lost.fence, 'Termination was not confirmed');
+    await send(1);
+    await worker.tick();
+    await worker.tick();
+    expect(start).toHaveBeenCalledTimes(2);
+    const runs = await db.select().from(schema.channelRuns);
+    expect(runs).toHaveLength(2);
+    expect(runs.find((run) => run.id === lost.id)).toMatchObject({ writerReleased: false });
+    expect(runs.find((run) => run.id !== lost.id)).toMatchObject({ isolatedAt: null });
+    await worker.close();
   } finally {
     await client.close();
   }
