@@ -10,6 +10,14 @@ export class DeviceDispatchSettlementError extends Error {
   }
 }
 
+/** The gateway answered, but it could not confirm whether the device ran the call. */
+export class DeviceExecutionUnknownError extends Error {
+  constructor(readonly outcome: unknown) {
+    super('EXECUTION_UNKNOWN');
+    this.name = 'DeviceExecutionUnknownError';
+  }
+}
+
 /**
  * Human- and model-readable descriptions for device-channel transport
  * failures.
@@ -283,6 +291,15 @@ export const describeGatewayRequestFailure = (
       code: DeviceTransportErrorCode.GatewayError,
       content: `The device gateway returned this ${operation}'s result, but Work could not confirm its settlement. Execution is unknown: do NOT automatically repeat the call; check the current state before attempting any operation with side effects.`,
       error: `${DeviceTransportErrorCode.GatewayError}: ${message}`,
+      executionUnknown: true,
+    };
+  }
+
+  if (error instanceof DeviceExecutionUnknownError) {
+    return {
+      code: DeviceTransportErrorCode.GatewayError,
+      content: `The device gateway could not confirm whether the device ran this ${operation}: do NOT automatically repeat the call; check the current state before attempting any operation with side effects.`,
+      error: `${DeviceTransportErrorCode.GatewayError}: EXECUTION_UNKNOWN (outcome ${String(error.outcome)})`,
       executionUnknown: true,
     };
   }
