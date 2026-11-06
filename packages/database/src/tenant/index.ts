@@ -47,7 +47,7 @@ export type {
   TenantPoolManagerOptions,
   TenantPoolPurpose,
 } from './pool';
-export { fingerprintConnection, TenantPoolManager } from './pool';
+export { fingerprintConnection, TENANT_POOL_CONNECTION_IDLE_MS, TenantPoolManager } from './pool';
 export { verifyTenantRuntime } from './readiness';
 export type { SafeReadinessDiagnosticCode } from './readinessErrors';
 export {

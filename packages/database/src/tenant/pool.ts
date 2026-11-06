@@ -7,6 +7,9 @@ import { PoolGroup, type PoolGroupStats } from '../observability/poolStats';
 import { TenantDatabaseError } from './errors';
 import { isTenantSchemaName } from './names';
 
+/** A physical tenant connection idle this long in its pool is closed. */
+export const TENANT_POOL_CONNECTION_IDLE_MS = 30_000;
+
 /**
  * Connection pools for tenant databases (spec FR-DI-05), after Admin's
  * `TenantPoolManager`. A pool is keyed by tenant + purpose + schema +
@@ -175,7 +178,7 @@ export class TenantPoolManager {
         database: connection.database,
         host: connection.host,
         idle_in_transaction_session_timeout: this.statementTimeoutMs,
-        idleTimeoutMillis: 30_000,
+        idleTimeoutMillis: TENANT_POOL_CONNECTION_IDLE_MS,
         max: this.maxConnectionsPerPool,
         password: connection.password,
         port: connection.port,

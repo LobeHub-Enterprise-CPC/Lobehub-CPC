@@ -74,7 +74,7 @@ async function main() {
     if (!lock.rows[0].acquired) throw new Error('A Channel coordinator is already running');
 
     for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, stop);
-    // Idle tenants back off to 30 s; a wake from the Web side makes one due on the next round.
+    // Idle tenants back off to 120 s; a wake from the Web side makes one due on the next round.
     // Without Redis the backoff alone still serves every tenant.
     closeWakes = channelWake.subscribe((tenantId) => worker.wake(tenantId));
     health.listen(Number(process.env.CHANNEL_WORKER_PORT || 3211), '0.0.0.0');

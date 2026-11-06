@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { currentTenantScope } from '@lobechat/database/tenant';
+import { currentTenantScope, TENANT_POOL_CONNECTION_IDLE_MS } from '@lobechat/database/tenant';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 import type { LobeChatDatabase } from '@/database/type';
@@ -211,12 +211,12 @@ describe('ChannelTenantWorker scheduling', () => {
     mocks.listAvailableTenantIds.mockResolvedValue(['t-a']);
   });
 
-  it('backs an idle tenant off to 30 s and does not enter it between due times', async () => {
+  it('backs an idle tenant off to 120 s and does not enter it between due times', async () => {
     const worker = idle();
-    // 1 s -> 2 s -> 4 s -> 8 s -> 16 s -> capped at 30 s.
-    expect(await rounds(worker, 121)).toEqual([0, 2, 6, 14, 30, 60, 90, 120]);
+    // 1 s -> 2 s -> 4 s -> ... -> 64 s -> capped at 120 s.
+    expect(await rounds(worker, 367)).toEqual([0, 2, 6, 14, 30, 62, 126, 246, 366]);
     // A skipped tenant takes no admission and no connection, and is still served, not retired.
-    expect(mocks.enterTenantId).toHaveBeenCalledTimes(8);
+    expect(mocks.enterTenantId).toHaveBeenCalledTimes(9);
     expect(created).toHaveLength(1);
     expect(created[0].close).not.toHaveBeenCalled();
   });
@@ -227,7 +227,7 @@ describe('ChannelTenantWorker scheduling', () => {
     tickMs = 1200;
     const entries: { end: number; start: number }[] = [];
     let now = 0;
-    for (let round = 0; round < 120; round++) {
+    for (let round = 0; round < 400; round++) {
       vi.setSystemTime(now);
       ticked.length = 0;
       const start = Date.now();
@@ -242,6 +242,14 @@ describe('ChannelTenantWorker scheduling', () => {
       expect(capped[i].start - capped[i - 1].end).toBeGreaterThanOrEqual(
         CHANNEL_TENANT_MAX_INTERVAL_MS,
       );
+  });
+
+  it('keeps an idle tenant away well past the tenant pool idle reclaim, so its connection stays closed', () => {
+    // At the cap an idle tenant reopens a connection at most once per interval: with the interval
+    // equal to the reclaim the connection is reopened right after it closes and never stays closed.
+    expect(CHANNEL_TENANT_MAX_INTERVAL_MS).toBeGreaterThanOrEqual(
+      4 * TENANT_POOL_CONNECTION_IDLE_MS,
+    );
   });
 
   it('keeps a tenant with work due every round', async () => {
@@ -263,15 +271,15 @@ describe('ChannelTenantWorker scheduling', () => {
     const worker = idle();
     await rounds(worker, 31);
     created[0].tick.mockResolvedValueOnce(true);
-    vi.setSystemTime(59_000);
+    vi.setSystemTime(61_000);
     ticked.length = 0;
     await worker.tick();
     expect(ticked).toEqual([]);
-    vi.setSystemTime(60_000);
+    vi.setSystemTime(62_000);
     await worker.tick();
     expect(created[0].tick).toHaveBeenCalledTimes(6);
-    // Found work at 60 s: due again on the very next round.
-    vi.setSystemTime(61_000);
+    // Found work at 62 s: due again on the very next round.
+    vi.setSystemTime(63_000);
     await worker.tick();
     expect(created[0].tick).toHaveBeenCalledTimes(7);
   });
@@ -303,9 +311,9 @@ describe('ChannelTenantWorker scheduling', () => {
       worker.wake('t-a');
       return false;
     });
-    vi.setSystemTime(60_000);
+    vi.setSystemTime(62_000);
     await worker.tick();
-    vi.setSystemTime(61_000);
+    vi.setSystemTime(63_000);
     await worker.tick();
     expect(created[0].tick).toHaveBeenCalledTimes(calls + 2);
   });
