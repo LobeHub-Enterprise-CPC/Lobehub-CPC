@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LobeChatDatabase } from '@/database/type';
+import { HATCHET_TIMING } from '@/server/modules/Hatchet/config';
 
 import { createTaskRunHooks } from './runHooks';
 
@@ -63,6 +64,21 @@ describe('createTaskRunHooks', () => {
     await hook.handler?.({ operationId: 'op-1', topicId: 'tpc-1' } as any);
 
     expect(onTopicComplete).toHaveBeenCalledWith(expect.objectContaining({ reason: 'done' }));
+  });
+
+  it('lets the delivery cover the slowest model call, not the 30s webhook default', () => {
+    // The lifecycle makes its model calls inside the delivery; a shorter attempt
+    // timeout redelivers it while it is still working and reruns every paid call.
+    const [hook] = createTaskRunHooks({
+      db,
+      taskId: 'task-1',
+      taskIdentifier: 'T-1',
+      userId: 'user-1',
+    });
+
+    // Same contract as a workflow delivery (timing.test.ts keeps it inside the
+    // delivery execution timeout the publisher enforces).
+    expect(hook.webhook?.timeout).toBe(HATCHET_TIMING.workflowDeliveryHttpTimeoutMs / 1000);
   });
 
   it('carries the run in the static webhook body, so a lost socket still settles it', () => {

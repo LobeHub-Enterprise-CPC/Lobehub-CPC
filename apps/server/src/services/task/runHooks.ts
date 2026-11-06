@@ -1,6 +1,7 @@
 import type { TaskRunTrigger } from '@lobechat/types';
 
 import type { LobeChatDatabase } from '@/database/type';
+import { HATCHET_TIMING } from '@/server/modules/Hatchet/config';
 import type { AgentHook } from '@/server/services/agentRuntime/hooks/types';
 import { TaskLifecycleService } from '@/server/services/taskLifecycle';
 
@@ -57,6 +58,11 @@ export const createTaskRunHooks = (params: TaskRunHookParams): AgentHook[] => {
         body: { runTrigger: trigger, taskId, taskIdentifier, userId },
         delivery: 'qstash' as const,
         fallback: 'none' as const,
+        // The handler makes the lifecycle's model calls (handoff, brief judge,
+        // brief) inline. Under the 30s webhook default a slow model timed the
+        // attempt out while it was still working, and the redelivery reran every
+        // paid call. Cover the slowest call the way a workflow delivery does.
+        timeout: HATCHET_TIMING.workflowDeliveryHttpTimeoutMs / 1000,
         url: '/api/workflows/task/on-topic-complete',
       },
     },
