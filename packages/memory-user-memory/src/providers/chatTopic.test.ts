@@ -84,9 +84,13 @@ describe('LobeChatTopicContextProvider previous conversation', () => {
   });
 });
 
+// recordFail writes against the stored watermark: covered with a database in
+// apps/server/src/services/memory/userMemory/extract/__tests__/persistExtraction.test.ts.
 describe('LobeChatTopicResultRecorder watermark', () => {
   const recorderWith = (options: Partial<ChatTopicResultRecorderOptions>) => {
-    const set = vi.fn(() => ({ where: vi.fn() }));
+    const set = vi.fn(() => ({
+      where: vi.fn(() => ({ returning: async () => [{ id: 'topic-1' }] })),
+    }));
     const recorder = new LobeChatTopicResultRecorder({
       // Completed before the watermark existed: only lastMessageAt marks how far it got.
       currentMetadata: {
@@ -116,49 +120,6 @@ describe('LobeChatTopicResultRecorder watermark', () => {
     expect(written().extractedThrough).toBe('2024-03-02T10:00:00.000Z');
   });
 
-  it('keeps the watermark where it was when the run fails, so a retry resumes there', async () => {
-    const { recorder, written } = recorderWith({
-      extractedThrough: '2024-03-02T10:00:00.000Z',
-      previousExtractedThrough: '2024-03-01T10:00:00.000Z',
-    });
-
-    await recorder.recordFail(job, new Error('model returned invalid output'));
-
-    expect(written().extractedThrough).toBe('2024-03-01T10:00:00.000Z');
-  });
-
-  it('counts consecutive failed runs on a conversation that has not moved', async () => {
-    const { recorder, written } = recorderWith({
-      currentMetadata: {
-        userMemoryExtractRunState: {
-          failedRuns: 2,
-          lastMessageAt: '2024-03-01T09:00:00.000Z',
-          lastRunAt: '2024-03-01T12:00:00.000Z',
-        },
-        userMemoryExtractStatus: 'failed',
-      },
-      lastMessageAt: '2024-03-01T09:00:00.000Z',
-    });
-
-    await recorder.recordFail(job, new Error('504 Gateway Time-out'));
-
-    expect(written().failedRuns).toBe(3);
-  });
-
-  it('starts the failure count over when new conversation arrived since the last run', async () => {
-    const { recorder, written } = recorderWith({
-      currentMetadata: {
-        userMemoryExtractRunState: { failedRuns: 4, lastRunAt: '2024-03-01T12:00:00.000Z' },
-        userMemoryExtractStatus: 'failed',
-      },
-      lastMessageAt: '2024-03-02T08:00:00.000Z',
-    });
-
-    await recorder.recordFail(job, new Error('504 Gateway Time-out'));
-
-    expect(written().failedRuns).toBe(1);
-  });
-
   it('drops the failure count once a run succeeds', async () => {
     const { recorder, written } = recorderWith({
       currentMetadata: {
@@ -177,7 +138,9 @@ describe('LobeChatTopicResultRecorder watermark', () => {
   });
 
   it('clears the error of an earlier failed run once a run succeeds', async () => {
-    const set = vi.fn(() => ({ where: vi.fn() }));
+    const set = vi.fn(() => ({
+      where: vi.fn(() => ({ returning: async () => [{ id: 'topic-1' }] })),
+    }));
     const recorder = new LobeChatTopicResultRecorder({
       currentMetadata: {
         userMemoryExtractRunState: { error: 'model returned invalid output' },

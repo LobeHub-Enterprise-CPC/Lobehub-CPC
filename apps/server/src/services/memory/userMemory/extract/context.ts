@@ -17,11 +17,11 @@ import type {
 } from './persistExtraction';
 import type {
   buildBaseMetadata,
-  persistActivityMemories,
-  persistContextMemories,
-  persistExperienceMemories,
-  persistIdentityMemories,
-  persistPreferenceMemories,
+  prepareActivityMemories,
+  prepareContextMemories,
+  prepareExperienceMemories,
+  prepareIdentityMemories,
+  preparePreferenceMemories,
 } from './persistLayers';
 import type {
   listConversationsForTopic,
@@ -65,12 +65,12 @@ export interface MemoryExtractionExecutorContext {
   listUserMemoryIdentities: OmitContext<typeof listUserMemoryIdentities>;
   readonly modelConfig: MemoryExtractionModelConfig;
   normalizeLayerError: typeof normalizeLayerError;
-  persistActivityMemories: OmitContext<typeof persistActivityMemories>;
-  persistContextMemories: OmitContext<typeof persistContextMemories>;
-  persistExperienceMemories: OmitContext<typeof persistExperienceMemories>;
   persistExtraction: OmitContext<typeof persistExtraction>;
-  persistIdentityMemories: OmitContext<typeof persistIdentityMemories>;
-  persistPreferenceMemories: OmitContext<typeof persistPreferenceMemories>;
+  prepareActivityMemories: OmitContext<typeof prepareActivityMemories>;
+  prepareContextMemories: OmitContext<typeof prepareContextMemories>;
+  prepareExperienceMemories: OmitContext<typeof prepareExperienceMemories>;
+  prepareIdentityMemories: OmitContext<typeof prepareIdentityMemories>;
+  preparePreferenceMemories: OmitContext<typeof preparePreferenceMemories>;
   readonly privateConfig: MemoryExtractionConfig;
   recordJobMetrics: typeof recordJobMetrics;
   recordLayerEntries: typeof recordLayerEntries;

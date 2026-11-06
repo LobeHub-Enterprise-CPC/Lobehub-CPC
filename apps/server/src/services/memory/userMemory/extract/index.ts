@@ -23,6 +23,7 @@ import type { ListUsersForMemoryExtractorCursor } from '@/database/models/user';
 import type { UserMemoryHybridSearchAggregatedResult } from '@/database/models/userMemory';
 import { UserMemorySourceBenchmarkLoCoMoModel } from '@/database/models/userMemory/sources/benchmarkLoCoMo';
 import { getServerDB } from '@/database/server';
+import type { LobeChatDatabase } from '@/database/type';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import type { MemoryAgentConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
 import { parseMemoryExtractionConfig } from '@/server/globalConfig/parseMemoryExtractionConfig';
@@ -54,11 +55,11 @@ import {
 } from './persistExtraction';
 import {
   buildBaseMetadata,
-  persistActivityMemories,
-  persistContextMemories,
-  persistExperienceMemories,
-  persistIdentityMemories,
-  persistPreferenceMemories,
+  prepareActivityMemories,
+  prepareContextMemories,
+  prepareExperienceMemories,
+  prepareIdentityMemories,
+  preparePreferenceMemories,
 } from './persistLayers';
 import {
   filterTopicIdsForUser,
@@ -193,12 +194,12 @@ export class MemoryExtractionExecutor {
       listRelevantUserMemories: (...args) => this.listRelevantUserMemories(...args),
       listUserMemoryIdentities: (...args) => this.listUserMemoryIdentities(...args),
       normalizeLayerError: (...args) => this.normalizeLayerError(...args),
-      persistActivityMemories: (...args) => this.persistActivityMemories(...args),
-      persistContextMemories: (...args) => this.persistContextMemories(...args),
-      persistExperienceMemories: (...args) => this.persistExperienceMemories(...args),
+      prepareActivityMemories: (...args) => this.prepareActivityMemories(...args),
+      prepareContextMemories: (...args) => this.prepareContextMemories(...args),
+      prepareExperienceMemories: (...args) => this.prepareExperienceMemories(...args),
       persistExtraction: (...args) => this.persistExtraction(...args),
-      persistIdentityMemories: (...args) => this.persistIdentityMemories(...args),
-      persistPreferenceMemories: (...args) => this.persistPreferenceMemories(...args),
+      prepareIdentityMemories: (...args) => this.prepareIdentityMemories(...args),
+      preparePreferenceMemories: (...args) => this.preparePreferenceMemories(...args),
       recordJobMetrics: (...args) => this.recordJobMetrics(...args),
       recordLayerEntries: (...args) => this.recordLayerEntries(...args),
       reportUserInitiatedProgress: (...args) => this.reportUserInitiatedProgress(...args),
@@ -271,16 +272,15 @@ export class MemoryExtractionExecutor {
     return generateEmbeddings(runtimes, model, texts, userId, tokenLimit);
   }
 
-  async persistActivityMemories(
+  async prepareActivityMemories(
     job: MemoryExtractionJob,
     messageIds: string[],
     result: NonNullable<MemoryExtractionResult['outputs']['activity']>['data'],
     runtime: ModelRuntime,
     model: string,
     tokenLimit: number | undefined,
-    db: Awaited<ReturnType<typeof getServerDB>>,
   ) {
-    return persistActivityMemories(
+    return prepareActivityMemories(
       this.context,
       job,
       messageIds,
@@ -288,20 +288,18 @@ export class MemoryExtractionExecutor {
       runtime,
       model,
       tokenLimit,
-      db,
     );
   }
 
-  async persistContextMemories(
+  async prepareContextMemories(
     job: MemoryExtractionJob,
     messageIds: string[],
     result: NonNullable<MemoryExtractionResult['outputs']['context']>['data'],
     runtime: ModelRuntime,
     model: string,
     tokenLimit: number | undefined,
-    db: Awaited<ReturnType<typeof getServerDB>>,
   ) {
-    return persistContextMemories(
+    return prepareContextMemories(
       this.context,
       job,
       messageIds,
@@ -309,20 +307,18 @@ export class MemoryExtractionExecutor {
       runtime,
       model,
       tokenLimit,
-      db,
     );
   }
 
-  async persistExperienceMemories(
+  async prepareExperienceMemories(
     job: MemoryExtractionJob,
     messageIds: string[],
     result: NonNullable<MemoryExtractionResult['outputs']['experience']>['data'],
     runtime: ModelRuntime,
     model: string,
     tokenLimit: number | undefined,
-    db: Awaited<ReturnType<typeof getServerDB>>,
   ) {
-    return persistExperienceMemories(
+    return prepareExperienceMemories(
       this.context,
       job,
       messageIds,
@@ -330,20 +326,18 @@ export class MemoryExtractionExecutor {
       runtime,
       model,
       tokenLimit,
-      db,
     );
   }
 
-  async persistPreferenceMemories(
+  async preparePreferenceMemories(
     job: MemoryExtractionJob,
     messageIds: string[],
     result: NonNullable<MemoryExtractionResult['outputs']['preference']>['data'],
     runtime: ModelRuntime,
     model: string,
     tokenLimit: number | undefined,
-    db: Awaited<ReturnType<typeof getServerDB>>,
   ) {
-    return persistPreferenceMemories(
+    return preparePreferenceMemories(
       this.context,
       job,
       messageIds,
@@ -351,20 +345,18 @@ export class MemoryExtractionExecutor {
       runtime,
       model,
       tokenLimit,
-      db,
     );
   }
 
-  async persistIdentityMemories(
+  async prepareIdentityMemories(
     job: MemoryExtractionJob,
     messageIds: string[],
     result: NonNullable<MemoryExtractionResult['outputs']['identity']>['data'],
     runtime: ModelRuntime,
     model: string,
     tokenLimit: number | undefined,
-    db: Awaited<ReturnType<typeof getServerDB>>,
   ) {
-    return persistIdentityMemories(
+    return prepareIdentityMemories(
       this.context,
       job,
       messageIds,
@@ -372,7 +364,6 @@ export class MemoryExtractionExecutor {
       runtime,
       model,
       tokenLimit,
-      db,
     );
   }
 
@@ -575,6 +566,7 @@ export class MemoryExtractionExecutor {
     runtimes: RuntimeBundle,
     memoryServiceConfig: ResolvedMemoryServiceConfig,
     db: Awaited<ReturnType<typeof getServerDB>>,
+    commit?: (tx: LobeChatDatabase, result: PersistedMemoryResult) => Promise<void>,
   ): Promise<PersistedMemoryResult> {
     return persistExtraction(
       this.context,
@@ -584,6 +576,7 @@ export class MemoryExtractionExecutor {
       runtimes,
       memoryServiceConfig,
       db,
+      commit,
     );
   }
 

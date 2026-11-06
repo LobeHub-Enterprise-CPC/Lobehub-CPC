@@ -7,15 +7,12 @@ import { ActivityMemoryItemSchema } from '@lobechat/memory-user-memory';
 import type { ModelRuntime } from '@lobechat/model-runtime';
 
 import { UserMemoryModel } from '@/database/models/userMemory';
-import type { getServerDB } from '@/database/server';
 import type { MergeStrategyEnum } from '@/types/userMemory';
 import { LayersEnum, TypesEnum } from '@/types/userMemory';
 
 import { LAYER_LABEL_MAP } from './constants';
 import type { MemoryExtractionExecutorContext } from './context';
-import type { MemoryExtractionTaskErrorItem } from './errors';
-import { makeTaskErrorItem } from './errors';
-import type { PersistLayerResult } from './types';
+import type { PreparedLayer } from './types';
 
 const normalizeActivityAssociationList = (value: unknown) => {
   if (value === null || value === undefined || value === '') return value;
@@ -66,7 +63,7 @@ export function buildBaseMetadata(
   };
 }
 
-export async function persistActivityMemories(
+export async function prepareActivityMemories(
   ctx: MemoryExtractionExecutorContext,
   job: MemoryExtractionJob,
   messageIds: string[],
@@ -74,105 +71,90 @@ export async function persistActivityMemories(
   runtime: ModelRuntime,
   model: string,
   tokenLimit: number | undefined,
-  db: Awaited<ReturnType<typeof getServerDB>>,
-) {
-  const insertedIds: string[] = [];
-  const errors: MemoryExtractionTaskErrorItem[] = [];
-  const userMemoryModel = new UserMemoryModel(db, job.userId);
+): Promise<PreparedLayer> {
+  const memories: Parameters<UserMemoryModel['createActivityMemory']>[0][] = [];
 
   for (const [index, rawItem] of (result?.memories ?? []).entries()) {
     const normalizedItem = normalizeActivityMemoryCandidate(rawItem);
 
-    try {
-      const parsedItem = ActivityMemoryItemSchema.safeParse(normalizedItem);
-
-      if (!parsedItem.success) {
-        errors.push(
-          makeTaskErrorItem('persist', new Error(parsedItem.error.message), {
-            layer: LAYER_LABEL_MAP[LayersEnum.Activity],
-            memoryIndex: index,
-            preview: normalizedItem,
-            sourceId: job.sourceId,
-            sourceType: job.source,
-          }),
-        );
-        continue;
-      }
-
-      const item = parsedItem.data;
-      const activityTags = item.withActivity?.tags ?? item.tags;
-      const associatedObjects = UserMemoryModel.parseAssociatedObjects(
-        item.withActivity?.associatedObjects,
-      );
-      const associatedSubjects = UserMemoryModel.parseAssociatedSubjects(
-        item.withActivity?.associatedSubjects,
-      );
-      const associatedLocations = UserMemoryModel.parseAssociatedLocations(
-        item.withActivity?.associatedLocations,
-      );
-      const [summaryVector, detailsVector, narrativeVector, feedbackVector] =
-        await ctx.generateEmbeddings(
-          runtime,
-          model,
-          [item.summary, item.details, item.withActivity?.narrative, item.withActivity?.feedback],
-          job.userId,
-          tokenLimit,
-        );
-      const baseMetadata = ctx.buildBaseMetadata(
-        job,
-        messageIds,
-        LayersEnum.Activity,
-        activityTags,
-      );
-
-      const { memory } = await userMemoryModel.createActivityMemory({
-        activity: {
-          associatedLocations: associatedLocations.length > 0 ? associatedLocations : [],
-          associatedObjects: associatedObjects.length > 0 ? associatedObjects : [],
-          associatedSubjects: associatedSubjects.length > 0 ? associatedSubjects : [],
-          capturedAt: job.sourceUpdatedAt,
-          endsAt: UserMemoryModel.parseDateFromString(item.withActivity?.endsAt),
-          feedback: item.withActivity?.feedback ?? null,
-          feedbackVector: feedbackVector ?? null,
-          metadata: baseMetadata,
-          narrative: item.withActivity?.narrative ?? null,
-          narrativeVector: narrativeVector ?? null,
-          notes: item.withActivity?.notes ?? null,
-          startsAt: UserMemoryModel.parseDateFromString(item.withActivity?.startsAt),
-          status: item.withActivity?.status ?? 'pending',
-          tags: activityTags ?? null,
-          timezone: item.withActivity?.timezone ?? null,
-          type: item.withActivity?.type ?? 'other',
-        },
-        capturedAt: job.sourceUpdatedAt,
-        details: item.details ?? '',
-        detailsEmbedding: detailsVector ?? undefined,
-        memoryCategory: item.memoryCategory ?? null,
-        memoryLayer: LayersEnum.Activity,
-        memoryType: (item.memoryType as TypesEnum) ?? TypesEnum.Activity,
-        summary: item.summary ?? '',
-        summaryEmbedding: summaryVector ?? undefined,
-        title: item.title ?? '',
+    const parsedItem = ActivityMemoryItemSchema.safeParse(normalizedItem);
+    // Policy: drop a malformed item and keep the rest. Failing the segment instead would pay to
+    // extract all of it again, and the item is not guaranteed to come back well-formed.
+    if (!parsedItem.success) {
+      console.warn({
+        error: parsedItem.error.message,
+        event: 'memory.persist.skipped',
+        layer: LAYER_LABEL_MAP[LayersEnum.Activity],
+        memoryIndex: index,
+        sourceId: job.sourceId,
       });
-
-      insertedIds.push(memory.id);
-    } catch (error) {
-      errors.push(
-        makeTaskErrorItem('persist', error, {
-          layer: LAYER_LABEL_MAP[LayersEnum.Activity],
-          memoryIndex: index,
-          preview: normalizedItem,
-          sourceId: job.sourceId,
-          sourceType: job.source,
-        }),
-      );
+      continue;
     }
+
+    const item = parsedItem.data;
+    const activityTags = item.withActivity?.tags ?? item.tags;
+    const associatedObjects = UserMemoryModel.parseAssociatedObjects(
+      item.withActivity?.associatedObjects,
+    );
+    const associatedSubjects = UserMemoryModel.parseAssociatedSubjects(
+      item.withActivity?.associatedSubjects,
+    );
+    const associatedLocations = UserMemoryModel.parseAssociatedLocations(
+      item.withActivity?.associatedLocations,
+    );
+    const [summaryVector, detailsVector, narrativeVector, feedbackVector] =
+      await ctx.generateEmbeddings(
+        runtime,
+        model,
+        [item.summary, item.details, item.withActivity?.narrative, item.withActivity?.feedback],
+        job.userId,
+        tokenLimit,
+      );
+    const baseMetadata = ctx.buildBaseMetadata(job, messageIds, LayersEnum.Activity, activityTags);
+
+    memories.push({
+      activity: {
+        associatedLocations: associatedLocations.length > 0 ? associatedLocations : [],
+        associatedObjects: associatedObjects.length > 0 ? associatedObjects : [],
+        associatedSubjects: associatedSubjects.length > 0 ? associatedSubjects : [],
+        capturedAt: job.sourceUpdatedAt,
+        endsAt: UserMemoryModel.parseDateFromString(item.withActivity?.endsAt),
+        feedback: item.withActivity?.feedback ?? null,
+        feedbackVector: feedbackVector ?? null,
+        metadata: baseMetadata,
+        narrative: item.withActivity?.narrative ?? null,
+        narrativeVector: narrativeVector ?? null,
+        notes: item.withActivity?.notes ?? null,
+        startsAt: UserMemoryModel.parseDateFromString(item.withActivity?.startsAt),
+        status: item.withActivity?.status ?? 'pending',
+        tags: activityTags ?? null,
+        timezone: item.withActivity?.timezone ?? null,
+        type: item.withActivity?.type ?? 'other',
+      },
+      capturedAt: job.sourceUpdatedAt,
+      details: item.details ?? '',
+      detailsEmbedding: detailsVector ?? undefined,
+      memoryCategory: item.memoryCategory ?? null,
+      memoryLayer: LayersEnum.Activity,
+      memoryType: (item.memoryType as TypesEnum) ?? TypesEnum.Activity,
+      summary: item.summary ?? '',
+      summaryEmbedding: summaryVector ?? undefined,
+      title: item.title ?? '',
+    });
   }
 
-  return { errors, ids: insertedIds } satisfies PersistLayerResult;
+  return {
+    write: async (db) => {
+      const userMemoryModel = new UserMemoryModel(db, job.userId);
+      const ids: string[] = [];
+      for (const memory of memories)
+        ids.push((await userMemoryModel.createActivityMemory(memory)).memory.id);
+      return ids;
+    },
+  };
 }
 
-export async function persistContextMemories(
+export async function prepareContextMemories(
   ctx: MemoryExtractionExecutorContext,
   job: MemoryExtractionJob,
   messageIds: string[],
@@ -180,10 +162,8 @@ export async function persistContextMemories(
   runtime: ModelRuntime,
   model: string,
   tokenLimit: number | undefined,
-  db: Awaited<ReturnType<typeof getServerDB>>,
-) {
-  const insertedIds: string[] = [];
-  const userMemoryModel = new UserMemoryModel(db, job.userId);
+): Promise<PreparedLayer> {
+  const memories: Parameters<UserMemoryModel['createContextMemory']>[0][] = [];
 
   for (const item of result?.memories ?? []) {
     const [summaryVector, detailsVector, descriptionVector] = await ctx.generateEmbeddings(
@@ -200,7 +180,7 @@ export async function persistContextMemories(
       item.withContext?.labels,
     );
 
-    const { memory } = await userMemoryModel.createContextMemory({
+    memories.push({
       capturedAt: job.sourceUpdatedAt,
       context: {
         associatedObjects: UserMemoryModel.parseAssociatedObjects(
@@ -229,14 +209,20 @@ export async function persistContextMemories(
       summaryEmbedding: summaryVector ?? undefined,
       title: item.title ?? '',
     });
-
-    insertedIds.push(memory.id);
   }
 
-  return { errors: [], ids: insertedIds } satisfies PersistLayerResult;
+  return {
+    write: async (db) => {
+      const userMemoryModel = new UserMemoryModel(db, job.userId);
+      const ids: string[] = [];
+      for (const memory of memories)
+        ids.push((await userMemoryModel.createContextMemory(memory)).memory.id);
+      return ids;
+    },
+  };
 }
 
-export async function persistExperienceMemories(
+export async function prepareExperienceMemories(
   ctx: MemoryExtractionExecutorContext,
   job: MemoryExtractionJob,
   messageIds: string[],
@@ -244,10 +230,8 @@ export async function persistExperienceMemories(
   runtime: ModelRuntime,
   model: string,
   tokenLimit: number | undefined,
-  db: Awaited<ReturnType<typeof getServerDB>>,
-) {
-  const insertedIds: string[] = [];
-  const userMemoryModel = new UserMemoryModel(db, job.userId);
+): Promise<PreparedLayer> {
+  const memories: Parameters<UserMemoryModel['createExperienceMemory']>[0][] = [];
 
   for (const item of result?.memories ?? []) {
     const [summaryVector, detailsVector, situationVector, actionVector, keyLearningVector] =
@@ -271,7 +255,7 @@ export async function persistExperienceMemories(
       item.withExperience?.labels,
     );
 
-    const { memory } = await userMemoryModel.createExperienceMemory({
+    memories.push({
       capturedAt: job.sourceUpdatedAt,
       details: item.details ?? '',
       detailsEmbedding: detailsVector ?? undefined,
@@ -297,14 +281,20 @@ export async function persistExperienceMemories(
       summaryEmbedding: summaryVector ?? undefined,
       title: item.title ?? '',
     });
-
-    insertedIds.push(memory.id);
   }
 
-  return { errors: [], ids: insertedIds } satisfies PersistLayerResult;
+  return {
+    write: async (db) => {
+      const userMemoryModel = new UserMemoryModel(db, job.userId);
+      const ids: string[] = [];
+      for (const memory of memories)
+        ids.push((await userMemoryModel.createExperienceMemory(memory)).memory.id);
+      return ids;
+    },
+  };
 }
 
-export async function persistPreferenceMemories(
+export async function preparePreferenceMemories(
   ctx: MemoryExtractionExecutorContext,
   job: MemoryExtractionJob,
   messageIds: string[],
@@ -312,10 +302,8 @@ export async function persistPreferenceMemories(
   runtime: ModelRuntime,
   model: string,
   tokenLimit: number | undefined,
-  db: Awaited<ReturnType<typeof getServerDB>>,
-) {
-  const insertedIds: string[] = [];
-  const userMemoryModel = new UserMemoryModel(db, job.userId);
+): Promise<PreparedLayer> {
+  const memories: Parameters<UserMemoryModel['createPreferenceMemory']>[0][] = [];
 
   for (const item of result?.memories ?? []) {
     const [summaryVector, detailsVector, directiveVector] = await ctx.generateEmbeddings(
@@ -332,7 +320,7 @@ export async function persistPreferenceMemories(
       item.withPreference?.extractedLabels,
     );
 
-    const { memory } = await userMemoryModel.createPreferenceMemory({
+    memories.push({
       capturedAt: job.sourceUpdatedAt,
       details: item.details ?? '',
       detailsEmbedding: detailsVector ?? undefined,
@@ -356,14 +344,20 @@ export async function persistPreferenceMemories(
       summaryEmbedding: summaryVector ?? undefined,
       title: item.title ?? '',
     });
-
-    insertedIds.push(memory.id);
   }
 
-  return { errors: [], ids: insertedIds } satisfies PersistLayerResult;
+  return {
+    write: async (db) => {
+      const userMemoryModel = new UserMemoryModel(db, job.userId);
+      const ids: string[] = [];
+      for (const memory of memories)
+        ids.push((await userMemoryModel.createPreferenceMemory(memory)).memory.id);
+      return ids;
+    },
+  };
 }
 
-export async function persistIdentityMemories(
+export async function prepareIdentityMemories(
   ctx: MemoryExtractionExecutorContext,
   job: MemoryExtractionJob,
   messageIds: string[],
@@ -371,10 +365,9 @@ export async function persistIdentityMemories(
   runtime: ModelRuntime,
   model: string,
   tokenLimit: number | undefined,
-  db: Awaited<ReturnType<typeof getServerDB>>,
-) {
-  const insertedIds: string[] = [];
-  const userMemoryModel = new UserMemoryModel(db, job.userId);
+): Promise<PreparedLayer> {
+  const adds: Parameters<UserMemoryModel['addIdentityEntry']>[0][] = [];
+  const updates: Parameters<UserMemoryModel['updateIdentityEntry']>[0][] = [];
 
   const addActions = result?.add ?? [];
   const updateActions = result?.update ?? [];
@@ -395,7 +388,7 @@ export async function persistIdentityMemories(
       action.withIdentity?.extractedLabels,
     );
 
-    const res = await userMemoryModel.addIdentityEntry({
+    adds.push({
       base: {
         capturedAt: job.sourceUpdatedAt,
         details: action.details,
@@ -419,8 +412,6 @@ export async function persistIdentityMemories(
         type: action.withIdentity.type ?? undefined,
       },
     });
-
-    insertedIds.push(res.userMemoryId);
   }
 
   for (const action of updateActions) {
@@ -436,7 +427,7 @@ export async function persistIdentityMemories(
         )
       : [];
 
-    await userMemoryModel.updateIdentityEntry({
+    updates.push({
       base: {
         capturedAt: job.sourceUpdatedAt,
         details: set.details,
@@ -469,9 +460,15 @@ export async function persistIdentityMemories(
     });
   }
 
-  for (const action of removeActions) {
-    await userMemoryModel.removeIdentityEntry(action.id);
-  }
-
-  return { errors: [], ids: insertedIds } satisfies PersistLayerResult;
+  return {
+    write: async (db) => {
+      const userMemoryModel = new UserMemoryModel(db, job.userId);
+      const ids: string[] = [];
+      for (const entry of adds)
+        ids.push((await userMemoryModel.addIdentityEntry(entry)).userMemoryId);
+      for (const entry of updates) await userMemoryModel.updateIdentityEntry(entry);
+      for (const action of removeActions) await userMemoryModel.removeIdentityEntry(action.id);
+      return ids;
+    },
+  };
 }
