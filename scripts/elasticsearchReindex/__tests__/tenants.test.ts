@@ -326,6 +326,102 @@ describe('runTenantReindex', () => {
       expect(elasticsearch.requests).toEqual([]);
     });
 
+    it('removes an inherited bootstrap owner from manual child environments without mutating the parent', async () => {
+      const opts = await options();
+      const environment = { ...opts.environment, ES_REINDEX_LOCK_OWNER: owner };
+      const run = vi.fn(async (_args, childEnvironment) => {
+        expect(childEnvironment).not.toHaveProperty('ES_REINDEX_LOCK_OWNER');
+        return 0;
+      });
+      expect(
+        await runTenantReindex({
+          ...opts,
+          environment,
+          argv: ['--apply', '--yes', '--tenant=a'],
+          run,
+        }),
+      ).toBe(0);
+      expect(run).toHaveBeenCalledOnce();
+      expect(environment.ES_REINDEX_LOCK_OWNER).toBe(owner);
+      expect(elasticsearch.requests).toEqual([]);
+    });
+
+    it('recovers a stale bootstrap lock after all checkpoints are ready without launching a child', async () => {
+      const opts = await options();
+      await checkpoint(opts.environment.ES_REINDEX_STATE_DIR, 'a', 'aaa');
+      await lock();
+      const run = vi.fn();
+      expect(await runTenantReindex({ ...opts, run })).toBe(0);
+      expect(run).not.toHaveBeenCalled();
+      expect(await client().read()).toBeNull();
+      expect(opts.installCapture).toHaveBeenCalledExactlyOnceWith('a');
+      expect(opts.log.mock.calls.flat().join(' ')).toContain('Recovered migration lock');
+      expect(opts.log.mock.calls.flat().join(' ')).toContain(owner);
+    });
+
+    it.each(['absent', 'manual', 'recent'])(
+      'does not fail or reindex completed tenants with %s locks',
+      async (kind) => {
+        const opts = await options();
+        await checkpoint(opts.environment.ES_REINDEX_STATE_DIR, 'a', 'aaa');
+        if (kind === 'manual') await client().acquire('manual apply');
+        if (kind === 'recent') await lock(owner, 1);
+        elasticsearch.requests.length = 0;
+        const run = vi.fn();
+        expect(await runTenantReindex({ ...opts, run })).toBe(0);
+        expect(run).not.toHaveBeenCalled();
+        expect(opts.installCapture).toHaveBeenCalledExactlyOnceWith('a');
+        expect(
+          elasticsearch.requests.some(
+            ({ method, pathname }) => method === 'DELETE' || pathname.startsWith('/_tasks?'),
+          ),
+        ).toBe(false);
+        // A held lock is logged; an absent one stays silent (this runs every minute per tenant).
+        if (kind !== 'absent')
+          expect(opts.log.mock.calls.flat().join(' ')).toContain('migration lock');
+        expect(opts.log).toHaveBeenCalledTimes(kind === 'absent' ? 1 : 2);
+        expect(
+          elasticsearch.indexes.get(`${namespace}-fts-search-control`)?.document !== undefined,
+        ).toBe(kind !== 'absent');
+      },
+    );
+
+    it.each(['read', 'tasks', 'release', 'busy'])(
+      'keeps completed-tenant recovery failed when %s cannot prove safe release',
+      async (failure) => {
+        const opts = await options();
+        await checkpoint(opts.environment.ES_REINDEX_STATE_DIR, 'a', 'aaa');
+        await lock();
+        if (failure === 'read') elasticsearch.lockReadStatus = 503;
+        if (failure === 'tasks') elasticsearch.tasksStatus = 503;
+        if (failure === 'release')
+          elasticsearch.beforeNextDelete = () => {
+            throw new Error('connection dropped');
+          };
+        if (failure === 'busy')
+          elasticsearch.tasks = {
+            nodes: {
+              node: {
+                tasks: {
+                  'node:1': {
+                    action: 'indices:data/write/bulk',
+                    description: `indices[${namespace}-agents-v1]`,
+                  },
+                },
+              },
+            },
+          };
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const run = vi.fn();
+        expect(await runTenantReindex({ ...opts, run })).toBe(1);
+        expect(run).not.toHaveBeenCalled();
+        expect(
+          elasticsearch.indexes.get(`${namespace}-fts-search-control`)!.document,
+        ).toBeDefined();
+        expect(error.mock.calls.flat().join(' ')).toContain('tenant');
+      },
+    );
+
     it('requires --yes before any bootstrap lock recovery or tenant work', async () => {
       const opts = await options(true);
       await lock();

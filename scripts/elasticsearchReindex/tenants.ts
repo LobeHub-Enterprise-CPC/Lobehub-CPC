@@ -149,7 +149,7 @@ const recoverBootstrapLock = async (
   tenantId: string,
   staleSeconds: number,
   log: (...values: unknown[]) => void,
-  exitedOwner?: string,
+  { exitedOwner, completed }: { exitedOwner?: string; completed?: boolean } = {},
 ) => {
   let lock;
   try {
@@ -163,6 +163,13 @@ const recoverBootstrapLock = async (
   if (!lock) return;
   const details = `tenant ${tenantId}, owner ${lock.owner}, command ${lock.command}, acquiredAt ${lock.acquiredAt}`;
   const manual = `node /app/fts-search-elasticsearch-reindex-tenants.cjs --tenant=${tenantId} --release-lock=${lock.owner} --yes`;
+  const retain = (reason: string) => {
+    const message = `Retaining migration lock (${details}): ${reason}`;
+    // Completed tenants need no writer: legitimate manual/recent locks do not block this round.
+    if (completed) log(message);
+    else
+      throw new Error(`${message}; manual recovery after confirming the owner stopped: ${manual}`);
+  };
   let reason: string;
   if (exitedOwner !== undefined) {
     if (lock.owner !== exitedOwner)
@@ -171,14 +178,9 @@ const recoverBootstrapLock = async (
       );
     reason = 'matching child has closed with a non-zero exit';
   } else {
-    if (!isFtsSearchBootstrapLockOwner(lock.owner))
-      throw new Error(
-        `Retaining migration lock (${details}): not a bootstrap owner; manual recovery after confirming the owner stopped: ${manual}`,
-      );
+    if (!isFtsSearchBootstrapLockOwner(lock.owner)) return retain('not a bootstrap owner');
     if (Date.parse(lock.acquiredAt) >= Date.now() - staleSeconds * 1000)
-      throw new Error(
-        `Retaining migration lock (${details}): bootstrap owner has not exceeded ${staleSeconds}s; manual recovery after confirming the owner stopped: ${manual}`,
-      );
+      return retain(`bootstrap owner has not exceeded ${staleSeconds}s`);
     reason = `bootstrap owner is older than ${staleSeconds}s (beyond the Job/Pod termination deadline)`;
   }
   try {
@@ -300,6 +302,13 @@ export const runTenantReindex = async ({
           );
           if (pending.length === 0) {
             await installCapture(target.tenantId);
+            await recoverBootstrapLock(
+              bootstrapLockClient(tenantNamespace, argv, environment),
+              target.tenantId,
+              staleSeconds!,
+              log,
+              { completed: true },
+            );
             continue;
           }
           // Never turn a retry into a new run or change the explicit CLI fresh-run contract.
@@ -315,16 +324,20 @@ export const runTenantReindex = async ({
       processed += 1;
       log('🔎 Elasticsearch reindex for tenant %s', target.tenantId);
       const owner = newTenantsOnly ? `bootstrap:${randomUUID()}` : undefined;
-      const code = await run(childArgs, {
+      const childEnvironment: NodeJS.ProcessEnv = {
         ...environment,
         DATABASE_URL: await tenantDatabaseUrl(target.clientConfig, stateDirectory),
         ES_INDEX_NAMESPACE: tenantFtsSearchNamespace(namespace, target.tenantId),
         ...(stateDirectory && { ES_REINDEX_STATE_DIR: stateDirectory }),
         ...(owner && { ES_REINDEX_LOCK_OWNER: owner }),
-      });
+      };
+      if (!newTenantsOnly) delete childEnvironment.ES_REINDEX_LOCK_OWNER;
+      const code = await run(childArgs, childEnvironment);
       if (code !== 0) {
         if (lockClient)
-          await recoverBootstrapLock(lockClient, target.tenantId, staleSeconds!, log, owner);
+          await recoverBootstrapLock(lockClient, target.tenantId, staleSeconds!, log, {
+            exitedOwner: owner,
+          });
         failed.push(target.tenantId);
       }
     } catch (error) {
