@@ -3,6 +3,33 @@ import { appEnv } from '@/envs/app';
 /** Queue mode (AGENT_RUNTIME_MODE=queue) delivers everything through Hatchet. */
 export const isHatchetDeliveryEnabled = (): boolean => appEnv.enableQueueAgentRuntime === true;
 
+/**
+ * Whether this process consumes the agent step and delivery tasks, besides publishing them.
+ * A deployment that runs them in a separate executor (same image) sets `HATCHET_WORKERS=off`
+ * on its web pods, so a web rollout no longer waits for in-flight steps. Any other value than
+ * `on` / `off` is refused: a typo must not leave the web pods quietly taking work.
+ */
+export const isHatchetWorkerProcess = (): boolean => {
+  const raw = process.env.HATCHET_WORKERS;
+  if (raw === undefined || raw === '' || raw === 'on') return true;
+  if (raw === 'off') return false;
+  throw new Error(`HATCHET_WORKERS must be "on" or "off", got ${JSON.stringify(raw)}`);
+};
+
+/**
+ * Port of the worker health check (`GET /healthz`: 200 while this process's step and delivery
+ * workers are serving, 503 otherwise), or undefined when there is none. The executor's
+ * readiness probe uses it: answering on the app port says nothing about the workers.
+ */
+export const getHatchetWorkerHealthPort = (): number | undefined => {
+  const raw = process.env.HATCHET_WORKER_HEALTH_PORT;
+  if (raw === undefined || raw === '') return undefined;
+  const port = Number(raw);
+  if (!/^\d+$/.test(raw) || port < 1 || port > 65_535)
+    throw new Error(`HATCHET_WORKER_HEALTH_PORT must be a TCP port, got ${JSON.stringify(raw)}`);
+  return port;
+};
+
 export const AGENT_STEP_TASK = 'cpc-agent-step';
 export const DELIVERY_TASK = 'cpc-delivery';
 /**

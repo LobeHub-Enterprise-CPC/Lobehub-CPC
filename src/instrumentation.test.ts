@@ -5,6 +5,16 @@ vi.mock('./libs/debug-file-logger', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   probeMarketBindingForAllTenants: vi.fn(async () => undefined),
+  serveWorkerHealth: vi.fn(async () => ({})),
+  startHatchetPublisher: vi.fn(),
+  startHatchetWorkers: vi.fn(() => ({ isServing: () => true })),
+}));
+vi.mock('@/server/modules/Hatchet/worker', () => ({
+  startHatchetPublisher: mocks.startHatchetPublisher,
+  startHatchetWorkers: mocks.startHatchetWorkers,
+}));
+vi.mock('@/server/modules/Hatchet/health', () => ({
+  serveWorkerHealth: mocks.serveWorkerHealth,
 }));
 vi.mock('@/server/services/market/bindingProbe', () => ({
   probeMarketBindingForAllTenants: mocks.probeMarketBindingForAllTenants,
@@ -28,6 +38,9 @@ describe('instrumentation register', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     mocks.probeMarketBindingForAllTenants.mockClear();
+    mocks.serveWorkerHealth.mockClear();
+    mocks.startHatchetPublisher.mockClear();
+    mocks.startHatchetWorkers.mockClear();
   });
 
   it('refuses to start when the agent and device gateway service tokens are equal', async () => {
@@ -78,5 +91,81 @@ describe('instrumentation register', () => {
       ),
     );
     error.mockRestore();
+  });
+
+  describe('Hatchet workers', () => {
+    it('consumes queue-mode deliveries by default', async () => {
+      await registerWith({ AGENT_RUNTIME_MODE: 'queue', NEXT_RUNTIME: 'nodejs' });
+
+      expect(mocks.startHatchetWorkers).toHaveBeenCalledOnce();
+      expect(mocks.startHatchetPublisher).not.toHaveBeenCalled();
+      expect(mocks.serveWorkerHealth).not.toHaveBeenCalled();
+    });
+
+    it('answers a worker health check when given a port (the executor readiness probe)', async () => {
+      await registerWith({
+        AGENT_RUNTIME_MODE: 'queue',
+        HATCHET_WORKER_HEALTH_PORT: '3213',
+        NEXT_RUNTIME: 'nodejs',
+      });
+
+      expect(mocks.serveWorkerHealth).toHaveBeenCalledOnce();
+      const [port, ready] = mocks.serveWorkerHealth.mock.calls[0] as unknown as [
+        number,
+        () => boolean,
+      ];
+      expect(port).toBe(3213);
+      expect(ready()).toBe(true);
+      // Listening first: no worker exists before the readiness check does.
+      expect(mocks.serveWorkerHealth.mock.invocationCallOrder[0]).toBeLessThan(
+        mocks.startHatchetWorkers.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('starts no worker when the health port cannot listen', async () => {
+      mocks.serveWorkerHealth.mockRejectedValueOnce(new Error('EADDRINUSE'));
+
+      await expect(
+        registerWith({
+          AGENT_RUNTIME_MODE: 'queue',
+          HATCHET_WORKER_HEALTH_PORT: '3213',
+          NEXT_RUNTIME: 'nodejs',
+        }),
+      ).rejects.toThrow('EADDRINUSE');
+      expect(mocks.startHatchetWorkers).not.toHaveBeenCalled();
+    });
+
+    it('refuses an invalid health port instead of starting without a readiness check', async () => {
+      await expect(
+        registerWith({
+          AGENT_RUNTIME_MODE: 'queue',
+          HATCHET_WORKER_HEALTH_PORT: 'x',
+          NEXT_RUNTIME: 'nodejs',
+        }),
+      ).rejects.toThrow('HATCHET_WORKER_HEALTH_PORT');
+    });
+
+    it('only publishes when the process is told not to consume (web pods beside an executor)', async () => {
+      await registerWith({
+        AGENT_RUNTIME_MODE: 'queue',
+        HATCHET_WORKERS: 'off',
+        NEXT_RUNTIME: 'nodejs',
+      });
+
+      expect(mocks.startHatchetWorkers).not.toHaveBeenCalled();
+      // It still waits for its own publishes and post-response work on shutdown.
+      expect(mocks.startHatchetPublisher).toHaveBeenCalledOnce();
+    });
+
+    it('refuses an unknown setting instead of silently consuming', async () => {
+      await expect(
+        registerWith({
+          AGENT_RUNTIME_MODE: 'queue',
+          HATCHET_WORKERS: 'false',
+          NEXT_RUNTIME: 'nodejs',
+        }),
+      ).rejects.toThrow('HATCHET_WORKERS');
+      expect(mocks.startHatchetWorkers).not.toHaveBeenCalled();
+    });
   });
 });

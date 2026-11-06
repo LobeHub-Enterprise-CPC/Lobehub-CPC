@@ -68,13 +68,31 @@ export async function register() {
   }
 
   // Queue-mode agent deliveries through Hatchet: this process runs the workers
-  // that hand each delivery to its own routes. Started in the background — the
-  // workers wait until this server answers on its loopback address.
+  // that hand each delivery to its own routes, unless it is a web pod beside a
+  // separate executor (`HATCHET_WORKERS=off`), which only publishes but still
+  // waits for its publishes and post-response work on shutdown. Started in the
+  // background — the workers wait until this server answers on its loopback
+  // address; the executor's readiness probe asks the worker health port.
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { isHatchetDeliveryEnabled } = await import('@/server/modules/Hatchet/config');
+    const { getHatchetWorkerHealthPort, isHatchetDeliveryEnabled, isHatchetWorkerProcess } =
+      await import('@/server/modules/Hatchet/config');
     if (isHatchetDeliveryEnabled()) {
-      const { startHatchetWorkers } = await import('@/server/modules/Hatchet/worker');
-      startHatchetWorkers();
+      const consume = isHatchetWorkerProcess();
+      const healthPort = getHatchetWorkerHealthPort();
+      const { startHatchetPublisher, startHatchetWorkers } =
+        await import('@/server/modules/Hatchet/worker');
+      if (consume) {
+        // The health port listens before any worker exists: if it cannot, start fails
+        // here, before this process has taken (paid) work it would then have to abandon.
+        let serving = () => false;
+        if (healthPort !== undefined) {
+          const { serveWorkerHealth } = await import('@/server/modules/Hatchet/health');
+          await serveWorkerHealth(healthPort, () => serving());
+        }
+        serving = startHatchetWorkers().isServing;
+      } else {
+        startHatchetPublisher();
+      }
     }
   }
 

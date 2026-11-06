@@ -20,13 +20,15 @@ const mocks = vi.hoisted(() => ({
   skipSdkRegistration: false,
   duringRegistration: undefined as (() => void) | undefined,
   probeStatus: [] as Array<number | 'error'>,
+  /** Keeps a started worker's first action listener from being established until set false. */
+  holdListener: false,
   workers: [] as Array<{
     name: string;
     _internal: {
       killing: boolean;
       /** Replaced by the worker's tracking wrapper once started. */
       handleAction: (action: unknown) => Promise<unknown>;
-      listener: { stopStream: ReturnType<typeof vi.fn> };
+      listener?: { stopStream: ReturnType<typeof vi.fn> };
     };
     pause: ReturnType<typeof vi.fn>;
     start: ReturnType<typeof vi.fn>;
@@ -84,15 +86,20 @@ vi.mock('./client', () => ({
       });
       mocks.finishWorkers.push(finish);
       mocks.failWorkers.push(fail);
+      const listener = { stopStream: vi.fn(() => finish()) };
       const worker = {
         name,
         _internal: {
           killing: false,
           handleAction: vi.fn(() => mocks.actionWork()),
-          listener: { stopStream: vi.fn(() => finish()) },
+          // Like the SDK: set once start() has its action listener from the engine.
+          listener: undefined as typeof listener | undefined,
         },
         pause: vi.fn(async () => {}),
-        start: vi.fn(() => stopped),
+        start: vi.fn(() => {
+          if (!mocks.holdListener) worker._internal.listener = listener;
+          return stopped;
+        }),
         // SDK stop() unregisters last: that closes the action stream and ends start().
         stop: vi.fn(async () => finish()),
       };
@@ -159,6 +166,7 @@ describe('startHatchetWorkers', () => {
     mocks.duringRegistration = undefined;
     Reflect.deleteProperty(globalThis, Symbol.for('lobehub.agentStepDrain'));
     mocks.probeStatus = [];
+    mocks.holdListener = false;
     mocks.workers = [];
     vi.stubEnv('DELIVERY_SIGNING_KEY', 'worker-test-key');
     process.on('SIGTERM', ownSigterm);
@@ -311,6 +319,53 @@ describe('startHatchetWorkers', () => {
     }
   });
 
+  it('is serving only once both workers hold their action listener (executor readiness)', async () => {
+    const { worker } = await load();
+    mocks.holdListener = true;
+
+    const status = worker.startHatchetWorkers();
+    await flush(10);
+    // Both started, neither has its listener from the engine yet.
+    expect(mocks.workers.every((w) => w.start.mock.calls.length === 1)).toBe(true);
+    expect(status.isServing()).toBe(false);
+
+    mocks.workers[0]._internal.listener = { stopStream: vi.fn() };
+    expect(status.isServing()).toBe(false);
+
+    mocks.workers[1]._internal.listener = { stopStream: vi.fn() };
+    expect(status.isServing()).toBe(true);
+  });
+
+  it('is not serving once the process drains', async () => {
+    const { drain, worker } = await load();
+    const status = worker.startHatchetWorkers();
+    await flush(10);
+    expect(status.isServing()).toBe(true);
+
+    void drain.drainAgentSteps();
+    expect(status.isServing()).toBe(false);
+  });
+
+  it('is not serving while a worker that gave up is being replaced, until its replacement listens', async () => {
+    const { worker } = await load();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const status = worker.startHatchetWorkers();
+    await flush(10);
+    expect(status.isServing()).toBe(true);
+
+    mocks.holdListener = true;
+    mocks.failWorkers[0](new Error('listener gave up'));
+    await flush(10);
+    expect(status.isServing()).toBe(false);
+
+    await flush(5000);
+    expect(mocks.workers).toHaveLength(3);
+    expect(status.isServing()).toBe(false);
+    mocks.workers[2]._internal.listener = { stopStream: vi.fn() };
+    expect(status.isServing()).toBe(true);
+    errorSpy.mockRestore();
+  });
+
   it('keeps asking for the tenant process lease before taking deliveries', async () => {
     const { worker } = await load();
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -391,12 +446,12 @@ describe('startHatchetWorkers', () => {
     expect(done).toBe(false);
     expect(target.pause).toHaveBeenCalledTimes(1);
     expect(target._internal.killing).toBe(true);
-    expect(target._internal.listener.stopStream).not.toHaveBeenCalled();
+    expect(target._internal.listener!.stopStream).not.toHaveBeenCalled();
     expect(target.stop).not.toHaveBeenCalled();
     finishAction();
     await drained;
     expect(target.stop).toHaveBeenCalledOnce();
-    for (const w of mocks.workers) expect(w._internal.listener.stopStream).not.toHaveBeenCalled();
+    for (const w of mocks.workers) expect(w._internal.listener!.stopStream).not.toHaveBeenCalled();
   });
 
   it('waits for an action delivered while the SDK unregisters the worker', async () => {
@@ -475,11 +530,11 @@ describe('startHatchetWorkers', () => {
       expect.objectContaining({ event: 'hatchet.worker.pause_failed' }),
     );
     // Without pause the engine keeps assigning: only closing the stream stops admission.
-    expect(target._internal.listener.stopStream).toHaveBeenCalledOnce();
-    expect(target._internal.listener.stopStream.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(target._internal.listener!.stopStream).toHaveBeenCalledOnce();
+    expect(target._internal.listener!.stopStream.mock.invocationCallOrder[0]).toBeLessThan(
       target.stop.mock.invocationCallOrder[0],
     );
-    expect(mocks.workers[1]._internal.listener.stopStream).not.toHaveBeenCalled();
+    expect(mocks.workers[1]._internal.listener!.stopStream).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 
@@ -607,6 +662,48 @@ describe('startHatchetWorkers', () => {
   });
 });
 
+describe('startHatchetPublisher', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mocks.workers = [];
+    Reflect.deleteProperty(globalThis, Symbol.for('lobehub.agentStepDrain'));
+    vi.stubEnv('DELIVERY_SIGNING_KEY', 'worker-test-key');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  it('refuses to start without a delivery signing key', async () => {
+    const { worker } = await load();
+    vi.stubEnv('DELIVERY_SIGNING_KEY', '');
+
+    expect(() => worker.startHatchetPublisher()).toThrow('DELIVERY_SIGNING_KEY is required');
+  });
+
+  it('waits for post-response work on shutdown without registering any worker', async () => {
+    const [{ drain, worker }, after] = await Promise.all([
+      load(),
+      import('@/server/utils/scheduleAfterResponse'),
+    ]);
+    worker.startHatchetPublisher();
+    await flush(10);
+
+    let finish!: () => void;
+    after.after(() => new Promise<void>((resolve) => (finish = resolve)));
+    let drained = false;
+    void drain.drainAgentSteps().then(() => (drained = true));
+    await flush(1000);
+
+    expect(mocks.workers).toHaveLength(0);
+    expect(drained).toBe(false);
+    finish();
+    await flush(10);
+    expect(drained).toBe(true);
+  });
+});
+
 describe('startMemoryDeliveryWorker', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -623,6 +720,7 @@ describe('startMemoryDeliveryWorker', () => {
     Reflect.deleteProperty(globalThis, Symbol.for('lobehub.agentStepDrain'));
     // No server in this process: a probe would fail, and must not be asked.
     mocks.probeStatus = ['error', 'error', 'error'];
+    mocks.holdListener = false;
     mocks.workers = [];
     vi.stubEnv('DELIVERY_SIGNING_KEY', 'worker-test-key');
   });
