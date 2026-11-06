@@ -56,7 +56,7 @@ export const channelWake = {
   /**
    * Tells the channel coordinator that the current tenant committed Channel work. Call it
    * after the transaction has committed. Best effort: it never rejects, because the
-   * coordinator still enters every idle tenant within 30 s without it.
+   * coordinator still enters every idle tenant within 120 s without it.
    */
   async wake(): Promise<void> {
     const tenantId = currentTenantScope()?.tenantId;

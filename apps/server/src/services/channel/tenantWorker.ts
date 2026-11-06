@@ -10,8 +10,13 @@ const log = debug('lobe-server:channel:tenant-worker');
 
 /** A tenant whose last tick found Channel work is entered on every coordinator round (1 s). */
 export const CHANNEL_TENANT_MIN_INTERVAL_MS = 1000;
-/** Consecutive empty ticks double a tenant's interval up to this bound. */
-export const CHANNEL_TENANT_MAX_INTERVAL_MS = 30_000;
+/**
+ * Consecutive empty ticks double a tenant's interval up to this bound. It is a fallback for a
+ * lost wake: new work is announced by a wake. It stays well above the tenant pool's connection
+ * idle reclaim (30 s), so an idle tenant's connection is closed for most of the interval instead
+ * of being reopened right after it closes.
+ */
+export const CHANNEL_TENANT_MAX_INTERVAL_MS = 120_000;
 
 /** What the coordinator needs from a per-tenant worker (see {@link ChannelWorker}). */
 interface TenantChannelWorker {
@@ -101,7 +106,7 @@ export class ChannelTenantWorker {
     const failed = result.failed;
     // Intervals start when the round has finished, after every tenant scope released its
     // connections: an idle tenant is entered again only once those connections have sat idle
-    // for the whole interval, so the tenant pool's idle reclaim (30 s) can close them.
+    // for the whole interval, so the tenant pool's idle reclaim can close them.
     const finished = Date.now();
     for (const { result: busy, tenantId } of result.succeeded)
       this.reschedule(tenantId, busy, finished);

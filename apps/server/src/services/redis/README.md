@@ -18,7 +18,7 @@ callers do not choose a provider, prefix, key, SET options or claim lifetime.
   Agent Signal caller decides whether that fails open or closed.
 - `channelWake`: Pub/Sub signal from a committed Channel write to the channel coordinator, on
   `{REDIS_PREFIX}:t:{tenantId}:channel:wake` (a dedicated connection each for publish and
-  subscribe). Best effort: `wake` never rejects, and the coordinator's 30 s idle backoff covers
+  subscribe). Best effort: `wake` never rejects, and the coordinator's 120 s idle backoff covers
   lost signals or no Redis.
 - `userMemoryExtractionLease`: one memory extraction run per user, three hours at most; a run
   that dies without releasing it blocks the user until it lapses. Without Redis every run holds it.
