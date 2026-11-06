@@ -279,10 +279,11 @@ export class ChannelWorker {
               ORDER BY request.sequence ASC, head.created_at ASC
               LIMIT 1
             )`,
+            // Same busy rule as `claim`: an isolated writer no longer holds its member.
             sql`NOT EXISTS (
               SELECT 1 FROM channel_runs live
               WHERE live.member_id = ${channelJobs.memberId}
-                AND (live.writer_released = false
+                AND ((live.writer_released = false AND live.isolated_at IS NULL)
                   OR (live.cleanup_requested = true AND live.physical_stopped = false))
             )`,
             this.jobCursor
