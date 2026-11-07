@@ -121,6 +121,7 @@ export class AgentStateManager {
   private readonly INTERRUPT_PREFIX = 'agent_runtime_interrupt';
   private readonly QUEUED_MESSAGES_PREFIX = 'agent_runtime_queued_messages';
   private readonly INLINE_RESUME_PREFIX = 'agent_runtime_inline_resume';
+  private readonly STEP_ATTEMPTS_PREFIX = 'agent_runtime_step_attempts';
   private readonly DEFAULT_TTL = AGENT_RUNTIME_STATE_TTL_SECONDS;
 
   constructor() {
@@ -649,6 +650,21 @@ export class AgentStateManager {
     } catch (error) {
       console.error('Failed to clear inline resume pointer:', error);
     }
+  }
+
+  async beginStepAttempt(operationId: string, stepIndex: number): Promise<number> {
+    const key = this.stepAttemptsKey(operationId, stepIndex);
+    const started = await this.redis.incr(key);
+    await this.redis.expire(key, this.DEFAULT_TTL);
+    return started - 1;
+  }
+
+  async endStepAttempt(operationId: string, stepIndex: number): Promise<void> {
+    await this.redis.del(this.stepAttemptsKey(operationId, stepIndex));
+  }
+
+  private stepAttemptsKey(operationId: string, stepIndex: number): string {
+    return `${this.STEP_ATTEMPTS_PREFIX}:${operationId}:${stepIndex}`;
   }
 
   private executionLockKey(operationId: string): string {

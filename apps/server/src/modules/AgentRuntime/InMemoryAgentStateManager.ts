@@ -15,6 +15,7 @@ export class InMemoryAgentStateManager implements IAgentStateManager {
   private steps: Map<string, any[]> = new Map();
   private metadata: Map<string, AgentOperationMetadata> = new Map();
   private stepLocks: Map<string, { expiresAt: number; ownerId: string }> = new Map();
+  private stepAttempts: Map<string, number> = new Map();
   private inlineResumes: Map<string, string> = new Map();
   private interrupted: Set<string> = new Set();
   private queuedMessages: Set<string> = new Set();
@@ -256,6 +257,17 @@ export class InMemoryAgentStateManager implements IAgentStateManager {
   async touchOperation(operationId: string): Promise<void> {
     const metadata = this.metadata.get(operationId);
     if (metadata) metadata.lastActiveAt = new Date().toISOString();
+  }
+
+  async beginStepAttempt(operationId: string, stepIndex: number): Promise<number> {
+    const key = `${operationId}:${stepIndex}`;
+    const earlier = this.stepAttempts.get(key) ?? 0;
+    this.stepAttempts.set(key, earlier + 1);
+    return earlier;
+  }
+
+  async endStepAttempt(operationId: string, stepIndex: number): Promise<void> {
+    this.stepAttempts.delete(`${operationId}:${stepIndex}`);
   }
 
   async tryClaimStep(

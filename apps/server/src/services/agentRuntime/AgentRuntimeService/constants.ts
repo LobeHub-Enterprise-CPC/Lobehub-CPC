@@ -71,3 +71,11 @@ export const STEP_LOCK_RETRY_BASE_DELAY_MS = 15_000;
  * behind it.
  */
 export const STEP_LOCK_RETRY_MAX_DELAY_MS = 120_000;
+
+/**
+ * Attempts of one step that may die without finishing (the worker was killed
+ * under them, e.g. OOM) before the run fails instead of running it again.
+ * Hatchet hands such a task to another worker without counting a retry, so
+ * without this a step that kills every worker it lands on loops forever.
+ */
+export const MAX_CRASHED_STEP_ATTEMPTS = 3;

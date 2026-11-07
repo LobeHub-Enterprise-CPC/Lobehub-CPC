@@ -15,7 +15,7 @@ import {
   type AgentExecutionResult,
   type AgentStepContinuation,
 } from '../../types';
-import { STEP_LOCK_TTL_SECONDS } from '../constants';
+import { MAX_CRASHED_STEP_ATTEMPTS, STEP_LOCK_TTL_SECONDS } from '../constants';
 import { StepOwnershipLostError } from '../executionErrors';
 import type { AgentRuntimeServiceContext } from '../types';
 import { createStepLockOwner } from '../utils';
@@ -123,6 +123,16 @@ async function assertStepOwnership(
   if (!refreshed || heartbeatLostLock()) throw lost();
 }
 
+/** The step died with its worker too often to be run again. */
+class StepCrashedRepeatedlyError extends Error {
+  constructor(operationId: string, stepIndex: number, crashedAttempts: number) {
+    super(
+      `Step ${stepIndex} of operation ${operationId} crashed its worker ${crashedAttempts} times; stopped instead of running it again`,
+    );
+    this.name = 'StepCrashedRepeatedlyError';
+  }
+}
+
 /**
  * Execute Agent step
  */
@@ -169,6 +179,17 @@ export async function executeStep(
       }),
     );
   }
+
+  // Hatchet hands a task whose worker died (an OOM kill) to another worker
+  // without counting a retry, so a step that kills every worker it lands on
+  // would run, and pay for its LLM call, forever. Attempts that never reached
+  // the `finally` below are those crashes. An unreadable count runs the step.
+  const crashedAttempts = hatchetDelivery
+    ? await deps.coordinator.beginStepAttempt(operationId, stepIndex).catch((error) => {
+        log('[%s][%d] Step attempt count unavailable: %O', operationId, stepIndex, error);
+        return 0;
+      })
+    : 0;
 
   await deps.agentOperationModel.touchRunning(operationId).catch((error) => {
     log('[%s][%d] Operation lease refresh failed: %O', operationId, stepIndex, error);
@@ -218,6 +239,10 @@ export async function executeStep(
   try {
     return await otelContext.with(invokeAgentCtx, async () => {
       log('[%s][%d] Start step executing...', operationId, stepIndex);
+
+      if (crashedAttempts >= MAX_CRASHED_STEP_ATTEMPTS) {
+        throw new StepCrashedRepeatedlyError(operationId, stepIndex, crashedAttempts);
+      }
 
       // Load agent state BEFORE publishing step_start so we can attach the
       // canonical UIChatMessage snapshot to the event payload. step_start
@@ -466,6 +491,11 @@ export async function executeStep(
     invokeAgentSpan.end();
     abortPoll?.stop();
     stopStepLockHeartbeat();
+    if (hatchetDelivery) {
+      await deps.coordinator.endStepAttempt(operationId, stepIndex).catch((error) => {
+        log('[%s][%d] Could not close the step attempt: %O', operationId, stepIndex, error);
+      });
+    }
     // Parked runs (human input, async tools) and finished ones are read back
     // by a different invocation, so the partial cannot stay in memory only.
     // An inline hand-off keeps it: the next step runs on this recorder.
