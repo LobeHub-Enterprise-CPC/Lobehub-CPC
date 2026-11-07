@@ -32,6 +32,7 @@ const { redisMock, pipelineMock } = vi.hoisted(() => {
     get: vi.fn(),
     hgetall: vi.fn(),
     hmset: vi.fn(),
+    incr: vi.fn(),
     keys: vi.fn(),
     multi: vi.fn(() => pipelineMock),
     pipeline: vi.fn(() => pipelineMock),
@@ -558,6 +559,24 @@ describe('AgentStateManager', () => {
       redisMock.get.mockRejectedValue(new Error('redis down'));
 
       await expect(stateManager.loadInlineResume('op-resume')).rejects.toThrow('redis down');
+    });
+  });
+
+  describe('step attempts', () => {
+    // Attempts of one step that started but never ended, across processes.
+    it('counts per operation and step, expires, and forgets the step once it ends', async () => {
+      redisMock.incr.mockResolvedValueOnce(1).mockResolvedValueOnce(3);
+
+      await expect(stateManager.beginStepAttempt('op-a', 2)).resolves.toBe(0);
+      await expect(stateManager.beginStepAttempt('op-a', 2)).resolves.toBe(2);
+      await stateManager.endStepAttempt('op-a', 2);
+
+      expect(redisMock.incr).toHaveBeenCalledWith('agent_runtime_step_attempts:op-a:2');
+      expect(redisMock.expire).toHaveBeenCalledWith(
+        'agent_runtime_step_attempts:op-a:2',
+        expect.any(Number),
+      );
+      expect(redisMock.del).toHaveBeenCalledWith('agent_runtime_step_attempts:op-a:2');
     });
   });
 });

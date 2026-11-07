@@ -439,6 +439,19 @@ export class AgentRuntimeCoordinator {
   }
 
   /**
+   * Count an attempt of the step as started; returns how many earlier attempts
+   * never finished because their process died.
+   */
+  async beginStepAttempt(operationId: string, stepIndex: number): Promise<number> {
+    return this.stateManager.beginStepAttempt(operationId, stepIndex);
+  }
+
+  /** The attempt reached its end, whatever the outcome. */
+  async endStepAttempt(operationId: string, stepIndex: number): Promise<void> {
+    return this.stateManager.endStepAttempt(operationId, stepIndex);
+  }
+
+  /**
    * Release the step execution lock.
    */
   async releaseStepLock(operationId: string, stepIndex: number, ownerId?: string): Promise<void> {

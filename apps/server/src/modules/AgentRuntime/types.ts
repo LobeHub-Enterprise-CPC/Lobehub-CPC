@@ -33,6 +33,12 @@ export interface PublishAgentRuntimeEndParams {
  */
 export interface IAgentStateManager {
   /**
+   * Count an attempt of the step as started. Returns how many earlier attempts
+   * of it started and never reached `endStepAttempt` — their process died.
+   */
+  beginStepAttempt: (operationId: string, stepIndex: number) => Promise<number>;
+
+  /**
    * Clean up expired operation data
    */
   cleanupExpiredOperations: () => Promise<number>;
@@ -73,6 +79,9 @@ export interface IAgentStateManager {
    * Close connections
    */
   disconnect: () => Promise<void>;
+
+  /** The attempt reached its end, whatever the outcome: it did not crash. */
+  endStepAttempt: (operationId: string, stepIndex: number) => Promise<void>;
 
   /**
    * Get all active operations
