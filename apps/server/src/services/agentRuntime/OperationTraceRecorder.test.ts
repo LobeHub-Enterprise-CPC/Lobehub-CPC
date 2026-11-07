@@ -1,4 +1,5 @@
 import type { ExecutionSnapshot, ISnapshotStore } from '@lobechat/agent-tracing';
+import { resolveContextEngineSteps } from '@lobechat/agent-tracing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type AppendStepParams, OperationTraceRecorder } from './OperationTraceRecorder';
@@ -271,7 +272,8 @@ describe('OperationTraceRecorder partial accumulation', () => {
     read.resolve();
     await recorder.flushPartial();
 
-    expect(store.savePartial.mock.calls.at(-1)?.[1].steps?.[0].contextEngine).toEqual({
+    const steps = store.savePartial.mock.calls.at(-1)![1].steps!;
+    expect(resolveContextEngineSteps(steps).get(steps[0])).toEqual({
       input: { documents: [{ createdAt: '2026-10-30T00:00:00.000Z', title: 'original' }] },
       metadata: { decision: 'keep' },
       output: { messages: ['original'] },
