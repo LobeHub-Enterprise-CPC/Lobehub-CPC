@@ -57,4 +57,6 @@ export const getFtsSearchConfig = ({
   return { ...getElasticsearchFtsSearchConfig(), ...providerConfig };
 };
 
-export const ftsSearchEnv = getFtsSearchConfig();
+// CPC keeps full-text search off the primary database: deployments that do not choose a
+// provider search on Elasticsearch, and fail visibly when it is not configured.
+export const ftsSearchEnv = getFtsSearchConfig({ defaultProvider: 'elasticsearch' });
