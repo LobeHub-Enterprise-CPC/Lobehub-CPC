@@ -1856,7 +1856,7 @@
   "tools.builtins.lobe-agent.title": "Lobe Agent",
   "tools.builtins.lobe-artifacts.description": "產生並即時預覽互動式 UI 元件、資料視覺化、圖表、SVG 圖形與網頁應用程式。建立使用者可直接互動的豐富視覺內容。",
   "tools.builtins.lobe-artifacts.readme": "生成並即時預覽互動式 UI 元件、資料視覺化、圖表、SVG 圖形與網頁應用程式。創建使用者可直接互動的豐富視覺內容。",
-  "tools.builtins.lobe-artifacts.title": "視覺產物",
+  "tools.builtins.lobe-artifacts.title": "作品集",
   "tools.builtins.lobe-attachments.description": "翻頁查看附加文件，這些文件太長而無法完整包含",
   "tools.builtins.lobe-attachments.title": "附件",
   "tools.builtins.lobe-brief.description": "回報進度、提供結果並請求使用者決策",

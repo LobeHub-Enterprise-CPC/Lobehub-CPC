@@ -510,9 +510,9 @@ export default {
   'plans.embeddingStorage.title': 'Vector Storage',
   'plans.embeddingStorage.tooltip':
     'One document page (1000-1500 characters) generates approximately 1 vector entry. (Estimated using OpenAI Embeddings, may vary by model)',
-  'plans.artifactHosting.deployments': 'Up to {{count}} active Artifact sites',
+  'plans.artifactHosting.deployments': 'Up to {{count}} active Portfolio sites',
   'plans.artifactHosting.siteSize': 'Up to {{size}} per published site',
-  'plans.artifactHosting.title': 'Artifact Hosting',
+  'plans.artifactHosting.title': 'Portfolio Hosting',
   'plans.features.agents': 'Curated Agent Market',
   'plans.features.ceAgents': 'Community Agent Market',
   'plans.features.cePlugins': 'Community Plugin Market',
@@ -603,8 +603,8 @@ export default {
     'Files your agent writes in the cloud sandbox are discarded when the session ends. Upgrade to keep a persistent working directory that survives sessions and is shared across your topics.',
   'plansModal.persistentSandbox.title': 'Keep your sandbox files',
   'plansModal.artifactDeploymentLimit.desc':
-    'Your Artifact hosting capacity has been reached. Upgrade to increase active deployments and per-site size limits.',
-  'plansModal.artifactDeploymentLimit.title': 'Increase Artifact hosting capacity',
+    'Your Portfolio hosting capacity has been reached. Upgrade to increase active deployments and per-site size limits.',
+  'plansModal.artifactDeploymentLimit.title': 'Increase Portfolio hosting capacity',
   'plansModal.creditLimit.desc':
     'Upgrade your plan to unlock more monthly credits and keep working without interruption.',
   'plansModal.creditLimit.title': 'You’re out of credits',

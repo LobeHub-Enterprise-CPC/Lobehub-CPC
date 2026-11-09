@@ -422,7 +422,7 @@ export default {
   'searchFilePlaceholder': 'Search Files',
   'searchPagePlaceholder': 'Search Pages',
   'tab.all': 'All',
-  'tab.artifacts': 'Artifacts',
+  'tab.artifacts': 'Portfolio',
   'tab.audios': 'Audio',
   'tab.documents': 'Documents',
   'tab.files': 'Files',
