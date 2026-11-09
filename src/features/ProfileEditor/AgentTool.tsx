@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 
 import { brandIcon } from '@/components/BrandIcon';
 import ActionDropdown from '@/features/ChatInput/ActionBar/components/ActionDropdown';
+import { getBuiltinSkillDisplayIdentifier } from '@/features/ChatInput/ActionBar/Tools/builtinSkillDisplay';
 import ComposioServerItem from '@/features/ChatInput/ActionBar/Tools/ComposioServerItem';
 import ComposioSkillIcon, {
   SKILL_ICON_SIZE,
@@ -423,7 +424,7 @@ const AgentTool = memo<AgentToolProps>(
           ),
           popoverContent: (
             <ToolItemDetailPopover
-              identifier={skill.identifier}
+              identifier={getBuiltinSkillDisplayIdentifier(skill.identifier)}
               sourceLabel={t('skillStore.tabs.lobehub')}
               description={t(`tools.builtins.${skill.identifier}.description` as any, {
                 defaultValue: skill.description,

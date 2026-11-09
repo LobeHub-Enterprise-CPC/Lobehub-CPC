@@ -70,6 +70,14 @@ export const BRANDING_EMAIL = {
 export const BRANDING_PROVIDER = 'lobehub';
 
 /**
+ * The ID the UI shows for a builtin skill, keyed by its runtime identifier.
+ * Presentation only: agent plugin lists, uninstall settings and Market agent
+ * configs keep the runtime identifier, so a distribution can rename what people
+ * see without migrating data. Empty upstream.
+ */
+export const BUILTIN_SKILL_DISPLAY_IDENTIFIERS: Readonly<Record<string, string>> = {};
+
+/**
  * Deep-link scheme the distribution's desktop client registers with the OS
  * (`DESKTOP_PROTOCOL_SCHEME` at package time). The web app opens links such as
  * `<scheme>://device/reconnect` with it, so it must name the client this
