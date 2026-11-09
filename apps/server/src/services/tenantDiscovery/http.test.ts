@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { readAccountMemory } from './accountCookie';
 import { discoveryIpBucket, emailFingerprint, handleTenantDiscovery } from './http';
 
 const deps = vi.hoisted(() => ({
@@ -189,6 +190,24 @@ describe('discovery HTTP boundary', () => {
     const missing = await handleTenantDiscovery(request({ id: candidate.id }), 'select');
     expect(missing.status).toBe(404);
     expect(await missing.json()).toEqual({ code: 'TENANT_NOT_AVAILABLE' });
+  });
+  it('remembers the email the user entered for the organization they chose', async () => {
+    const accountCookie = (response: Response) =>
+      response.headers.getSetCookie().find((line) => line.startsWith('__Host-lobe-last-account='));
+    const response = await handleTenantDiscovery(
+      request({ id: candidate.id, email: ' A@EXAMPLE.COM ' }),
+      'select',
+    );
+    const line = accountCookie(response);
+    expect(line).toContain('HttpOnly');
+    expect(readAccountMemory(line?.split(';')[0].split('=')[1])).toMatchObject({
+      email: 'a@example.com',
+      tenantId: candidate.id,
+    });
+    // Nothing was entered, so nothing is remembered.
+    const anonymous = await handleTenantDiscovery(request({ id: candidate.id }), 'select');
+    expect(anonymous.status).toBe(200);
+    expect(accountCookie(anonymous)).toBeUndefined();
   });
   it('normalizes IPv4-mapped IPv6 and treats scoped or invalid IP headers as unknown', () => {
     expect(discoveryIpBucket(new Headers({ 'x-real-ip': '::ffff:192.0.2.1' }))).toBe('192.0.2.1');

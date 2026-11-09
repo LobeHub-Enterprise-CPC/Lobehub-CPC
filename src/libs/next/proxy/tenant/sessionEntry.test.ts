@@ -603,14 +603,17 @@ describe('sign-in entry flag (signin=1)', () => {
     await expectFragmentRedirect(response, `${ACTIVE}/signin?email=user%40example.com#`);
   });
 
-  it.each(['signin=1&signin=1', 'signin=2', 'signin=0', 'signin=', 'signin'])(
-    'treats %s as no flag and keeps the finder target',
+  it.each(['', '?signin=1&signin=1', '?signin=2', '?signin=0', '?signin=', '?signin'])(
+    'treats "%s" as no flag: the finder target, prefilled with the remembered email',
     async (query) => {
       mocks.getSession.mockResolvedValue({ headers: new Headers(), response: null });
       const response = await middleware(
-        documentNavigation(`${entryPath}?${query}`, { cookie: accountCookie() }),
+        documentNavigation(`${entryPath}${query}`, { cookie: accountCookie() }),
       );
-      await expectFragmentRedirect(response, 'http://localhost:3010/?switch=1#');
+      await expectFragmentRedirect(
+        response,
+        'http://localhost:3010/?switch=1&email=user%40example.com#',
+      );
     },
   );
 
