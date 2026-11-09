@@ -76,3 +76,38 @@ index fa12f91..6c22381 100644
  		const match = new RegExp(regexPattern).exec(text);
  		if (match !== null) {
  			const maybeLeadingWhitespace = match[1];
+diff --git a/es/index.js b/es/index.js
+index ee9b03f..edcd7b3 100644
+--- a/es/index.js
++++ b/es/index.js
+@@ -135,7 +135,7 @@ function enableHotReload() {
+ 		const { Kernel } = (init_kernel(), __toCommonJS(kernel_exports));
+ 		const { debugLoggers } = (init_debug(), __toCommonJS(debug_exports));
+ 		Kernel.setGlobalHotReloadMode(true);
+-		debugLoggers.kernel.info("[LobeHub Editor] Hot reload mode enabled globally");
++		debugLoggers.kernel.info("[Editor] Hot reload mode enabled globally");
+ 	}
+ }
+ /**
+@@ -146,7 +146,7 @@ function disableHotReload() {
+ 		const { Kernel } = (init_kernel(), __toCommonJS(kernel_exports));
+ 		const { debugLoggers } = (init_debug(), __toCommonJS(debug_exports));
+ 		Kernel.setGlobalHotReloadMode(false);
+-		debugLoggers.kernel.info("[LobeHub Editor] Hot reload mode disabled globally");
++		debugLoggers.kernel.info("[Editor] Hot reload mode disabled globally");
+ 	}
+ }
+ //#endregion
+diff --git a/es/utils/debug.js b/es/utils/debug.js
+index dadfcc2..3819af6 100644
+--- a/es/utils/debug.js
++++ b/es/utils/debug.js
+@@ -224,7 +224,7 @@ var init_debug = __esmMin((() => {
+ 		*/
+ 		showStatus: () => {
+ 			const config = browserDebug.getConfig();
+-			console.group("� LobeHub Editor Debug Status");
++			console.group("� Editor Debug Status");
+ 			console.log(`Status: ${config.enabled ? "✅ Enabled" : "❌ Disabled"}`);
+ 			console.log(`Configuration: ${config.enabled || "none"}`);
+ 			console.log(`Source: ${config.source}`);
