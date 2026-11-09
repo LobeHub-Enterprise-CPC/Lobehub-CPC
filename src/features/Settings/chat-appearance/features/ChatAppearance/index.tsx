@@ -17,6 +17,7 @@ import ChatTransitionPreview from './ChatTransitionPreview';
 import HighlighterPreview from './HighlighterPreview';
 import LinkIconPreview from './LinkIconPreview';
 import MermaidPreview from './MermaidPreview';
+import { toThemeOptions } from './themeOptions';
 
 const ChatAppearance = memo(() => {
   const { t } = useTranslation('setting');
@@ -135,11 +136,8 @@ const ChatAppearance = memo(() => {
           <Flexbox horizontal align={'center'} gap={8}>
             {renderSaveHint('highlighterTheme')}
             <Select
+              options={toThemeOptions(highlighterThemes)}
               value={general.highlighterTheme}
-              options={highlighterThemes.map((item) => ({
-                label: item.displayName,
-                value: item.id,
-              }))}
               style={{
                 width: 240,
               }}
@@ -158,11 +156,8 @@ const ChatAppearance = memo(() => {
           <Flexbox horizontal align={'center'} gap={8}>
             {renderSaveHint('mermaidTheme')}
             <Select
+              options={toThemeOptions(mermaidThemes)}
               value={general.mermaidTheme}
-              options={mermaidThemes.map((item) => ({
-                label: item.displayName,
-                value: item.id,
-              }))}
               style={{
                 width: 240,
               }}
