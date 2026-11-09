@@ -9,6 +9,7 @@ import { getServerDB } from '@/database/core/db-adaptor';
 import type * as UserMemoryModule from '@/database/models/userMemory';
 import { UserMemoryModel } from '@/database/models/userMemory';
 import { FtsSearchCandidateError } from '@/database/repositories/ftsSearch';
+import type * as FtsSearchEnvModule from '@/envs/ftsSearch';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 
 import { userMemoriesRouter } from '.';
@@ -26,6 +27,12 @@ vi.mock('@/server/globalConfig', () => ({
 vi.mock('@/server/modules/ModelRuntime', () => ({
   initModelRuntimeFromDB: vi.fn(),
 }));
+
+// These cases exercise the inline pg_search candidate path; pin it instead of the deployment default.
+vi.mock('@/envs/ftsSearch', async (importOriginal) => {
+  const actual = await importOriginal<typeof FtsSearchEnvModule>();
+  return { ...actual, ftsSearchEnv: { ...actual.ftsSearchEnv, FTS_SEARCH_PROVIDER: 'pg_search' } };
+});
 
 vi.mock('@/database/models/userMemory', async (importOriginal) => {
   const actual = await importOriginal<typeof UserMemoryModule>();

@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import { getFtsSearchConfig } from '../../packages/env/src/ftsSearch';
 import { PG_SEARCH_BM25_INDEXES } from '../pgSearchCleanup/inventory';
 import {
   assertPgSearchReady,
@@ -40,9 +39,11 @@ describe('pgSearchGuard', () => {
       ),
     ).rejects.toBe(error);
   });
-  it('uses the same default provider as the application env', () => {
+  it('uses the same default provider as the application env', async () => {
     vi.stubEnv('FTS_SEARCH_PROVIDER', undefined);
-    expect(getFtsSearchConfig().FTS_SEARCH_PROVIDER).toBe(DEFAULT_FTS_SEARCH_PROVIDER);
+    vi.resetModules();
+    const { ftsSearchEnv } = await import('../../packages/env/src/ftsSearch');
+    expect(ftsSearchEnv.FTS_SEARCH_PROVIDER).toBe(DEFAULT_FTS_SEARCH_PROVIDER);
     vi.unstubAllEnvs();
   });
 
@@ -59,9 +60,10 @@ describe('pgSearchGuard', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('requires pg_search readiness when the provider is unset', async () => {
-    const query = fakeCatalog({ extension: false, indexes: [] });
-    await expect(assertPgSearchReady(query, {})).rejects.toBeInstanceOf(PgSearchNotReadyError);
+  it('does not require pg_search when the provider is unset', async () => {
+    const query = vi.fn();
+    await expect(assertPgSearchReady(query, {})).resolves.toBeUndefined();
+    expect(query).not.toHaveBeenCalled();
   });
 
   it('names the missing BM25 indexes when the extension was installed afterwards', async () => {

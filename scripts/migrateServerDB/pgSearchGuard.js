@@ -9,8 +9,8 @@
  * Plain CommonJS because the Docker image runs it beside `docker.cjs` without bundling.
  */
 
-/** Mirrors the self-hosted default in `packages/env/src/ftsSearch.ts`; parity is tested. */
-const DEFAULT_FTS_SEARCH_PROVIDER = 'pg_search';
+/** Mirrors CPC's `ftsSearchEnv` default in `packages/env/src/ftsSearch.ts`; parity is tested. */
+const DEFAULT_FTS_SEARCH_PROVIDER = 'elasticsearch';
 
 /** BM25 indexes created by `0093_add_bm25_indexes_with_icu.sql`; parity is tested. */
 const PG_SEARCH_BM25_INDEX_NAMES = [

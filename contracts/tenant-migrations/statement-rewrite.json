@@ -440,8 +440,7 @@
       "targetSchema": "tenant_0123456789abcdef01234567",
       "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
       "expected": {
-        "kind": "sql",
-        "sql": "DO $ext$ BEGIN\n      IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search')\n        AND NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN\n        RAISE EXCEPTION 'extension pg_search is not installed';\n      END IF;\n    END $ext$"
+        "kind": "dropped"
       }
     },
     {
@@ -449,8 +448,7 @@
       "targetSchema": "tenant_0123456789abcdef01234567",
       "statement": "-- header\n\n\tDO $$\nBEGIN   \n\t  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
       "expected": {
-        "kind": "sql",
-        "sql": "DO $ext$ BEGIN\n      IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search')\n        AND NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN\n        RAISE EXCEPTION 'extension pg_search is not installed';\n      END IF;\n    END $ext$"
+        "kind": "dropped"
       }
     },
     {
@@ -923,8 +921,7 @@
       "targetSchema": "tenant_0123456789abcdef01234567",
       "statement": "DO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search') THEN\n    CREATE EXTENSION IF NOT EXISTS pg_search;\n  ELSE\n    RAISE NOTICE 'pg_search is not available on this database; skipping BM25 search setup';\n  END IF;\nEND $$;",
       "expected": {
-        "kind": "sql",
-        "sql": "DO $ext$ BEGIN\n      IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_search')\n        AND NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search') THEN\n        RAISE EXCEPTION 'extension pg_search is not installed';\n      END IF;\n    END $ext$"
+        "kind": "dropped"
       }
     },
     {
@@ -1051,7 +1048,7 @@
   ],
   "contract": "statement-rewrite",
   "generatedFrom": {
-    "commit": "2f40f63217c22f60690ca1bf58918be79c417cc2",
+    "commit": "63c2395aaeae80fc3036381b3b06880a77346425",
     "files": [
       "packages/database/src/tenant/migrator.ts",
       "packages/database/src/tenant/migrationSql.ts",
