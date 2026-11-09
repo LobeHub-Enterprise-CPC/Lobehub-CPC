@@ -137,6 +137,7 @@ export const SignInEmailStep = ({
         <Alert
           showIcon
           description={t('tenant.unavailable.description')}
+          style={{ marginBlockEnd: 12 }}
           title={t('tenant.unavailable.title')}
           type="error"
           action={
@@ -155,10 +156,13 @@ export const SignInEmailStep = ({
           showIcon
           action={<Button onClick={reloadSSO}>{t('betterAuth.signin.ssoRetry')}</Button>}
           description={t('betterAuth.signin.ssoLoadError')}
+          style={{ marginBlockEnd: 12 }}
           type="error"
         />
       ) : !serverConfigInit ? (
-        <Text role="status">{t('betterAuth.signin.ssoLoading')}</Text>
+        <Text role="status" style={{ marginBlockEnd: 12 }}>
+          {t('betterAuth.signin.ssoLoading')}
+        </Text>
       ) : null}
       {sessionExpired && (
         <Alert
