@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { appEnv } from '@/envs/app';
 import { redisService } from '@/server/services/redis';
 
+import { serializeAccountCookie } from './accountCookie';
 import { discoveryAdmission, withDiscoveryDeadline } from './admission';
 import { readDiscoveryJsonBody } from './body';
 import { loadDiscoveryCandidates } from './candidates';
@@ -111,10 +112,15 @@ export const handleTenantDiscovery = async (
         signal.throwIfAborted();
         const url = new URL(`${candidate.activeUrl}/signin`);
         if (email) url.searchParams.set('email', email);
-        return response({ url: url.href }, 200, {
+        const selected = response({ url: url.href }, 200, {
           'Set-Cookie': serializeTenantCookie(candidate.id, appEnv.APP_URL),
           'Cache-Control': 'private, no-store',
         });
+        // The finder remembers the email it was given, so coming back to the root page
+        // continues with it (account card, or a prefilled finder) instead of starting over.
+        const account = email && serializeAccountCookie(email, candidate.id, appEnv.APP_URL);
+        if (account) selected.headers.append('Set-Cookie', account);
+        return selected;
       });
     });
   } catch (error) {

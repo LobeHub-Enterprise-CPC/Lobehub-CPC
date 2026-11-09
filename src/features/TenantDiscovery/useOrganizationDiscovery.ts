@@ -26,6 +26,14 @@ interface DiscoveryFormValues {
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
+const isEmail = (email: string) => email.length <= EMAIL_MAX_LENGTH && EMAIL_REGEX.test(email);
+
+/** The remembered email the session entry carries back here (`?email=`), if it is one. */
+const rememberedEmail = () => {
+  const email = normalizeEmail(new URLSearchParams(window.location.search).get('email') ?? '');
+  return isEmail(email) ? email : '';
+};
+
 export const useOrganizationDiscovery = (initialDesktopFlow?: DesktopFlow) => {
   // Fixed for the life of the page: the request that opened it does not change.
   const [desktopFlow] = useState<DesktopFlow>(() => initialDesktopFlow ?? readDesktopFlow());
@@ -146,7 +154,7 @@ export const useOrganizationDiscovery = (initialDesktopFlow?: DesktopFlow) => {
   };
 
   const form = useForm<DiscoveryFormValues>({
-    initialValues: { email: '' },
+    initialValues: { email: rememberedEmail() },
     // Same gate as the sign-in page: the terms are accepted once, here or there.
     onSubmit: (values) => continueWithAgreement(() => void lookUp(values)),
   });
@@ -155,8 +163,7 @@ export const useOrganizationDiscovery = (initialDesktopFlow?: DesktopFlow) => {
     (value: string) => {
       const email = normalizeEmail(value ?? '');
       if (!email) return t('organization.discovery.emailRequired');
-      if (email.length > EMAIL_MAX_LENGTH || !EMAIL_REGEX.test(email))
-        return t('organization.discovery.emailInvalid');
+      if (!isEmail(email)) return t('organization.discovery.emailInvalid');
       return undefined;
     },
     [t],

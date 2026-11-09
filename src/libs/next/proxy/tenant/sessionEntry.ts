@@ -27,8 +27,8 @@ import type { TenantMiddlewareDeps } from './types';
  * comes from the directory (`activeUrl`) or the platform URL, never from the request.
  *
  * - valid session: the organization root.
- * - no session (missing, expired, revoked): the organization finder; cookies Better Auth
- *   clears for a dead session ride on this response.
+ * - no session (missing, expired, revoked): the organization finder, prefilled with the
+ *   remembered email; cookies Better Auth clears for a dead session ride on this response.
  * - the organization refuses admission (frozen, offline, expired, not activated): its root,
  *   whose page explains it. The session is not judged then; there is no scope to read it in.
  * - the organization vanished: the organization finder.
@@ -47,14 +47,17 @@ export const sessionEntry = async (
   const entryUrl = `${route.activeUrl}${SESSION_ENTRY_PATH}`;
   const signin = req.nextUrl.searchParams.getAll('signin');
   const wantsSignIn = signin.length === 1 && signin[0] === '1';
+  // Either no-session target is prefilled with the remembered email when this platform
+  // request carries a readable account cookie (custom domains never see that cookie).
   const noSessionTarget = () => {
-    if (!wantsSignIn) return finder;
     const appUrl = endpointHosts().appUrl;
     const host = req.headers.get('host') ?? req.nextUrl.host;
     const onPlatform = host.toLowerCase() === new URL(appUrl).host.toLowerCase();
     const value = onPlatform ? accountCookieValue(req.headers, appUrl) : undefined;
     const memory = value && accountCookieAvailable() ? readAccountMemory(value) : null;
-    const target = new URL(`${route.activeUrl}/signin`);
+    const target = wantsSignIn
+      ? new URL(`${route.activeUrl}/signin`)
+      : new URL('/?switch=1', new URL(appUrl).origin);
     if (memory) target.searchParams.set('email', memory.email);
     return `${target.origin}${target.pathname}${target.search}#`;
   };

@@ -75,6 +75,22 @@ describe('useOrganizationDiscovery', () => {
     });
   });
 
+  describe('remembered email', () => {
+    const open = (search: string) => {
+      window.location.search = search;
+      return renderHook(() => useOrganizationDiscovery()).result.current.form.getValue('email');
+    };
+
+    it('starts with the email the session entry carried back', () => {
+      expect(open('?switch=1&email=A%40Acme.com')).toBe('a@acme.com');
+    });
+
+    it('starts empty without one, or with anything that is not an email', () => {
+      expect(open('?switch=1')).toBe('');
+      expect(open('?switch=1&email=not-an-email')).toBe('');
+    });
+  });
+
   describe('email validation', () => {
     it.each([
       ['', 'organization.discovery.emailRequired'],
