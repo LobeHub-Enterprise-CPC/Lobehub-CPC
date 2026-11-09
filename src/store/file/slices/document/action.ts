@@ -63,6 +63,10 @@ interface ResourceDocumentSnapshot {
   updatedAt?: Date | string;
 }
 
+/** Same test the server uses to sign a file-backed document's `source`. */
+const isFileBackedDocument = (row: Pick<DocumentItem, 'fileId' | 'sourceType'>) =>
+  row.sourceType === 'file' || !!row.fileId;
+
 export const createDocumentSlice = (set: Setter, get: () => FileStore, _api?: unknown) =>
   new DocumentActionImpl(set, get, _api);
 
@@ -84,7 +88,11 @@ export class DocumentActionImpl {
 
         return {
           document: row ? this.#toLobeDocument(row) : null,
-          resource: row ? this.#createResourceItem(row) : undefined,
+          // An uploaded file's parsed document cannot speak for its explorer row:
+          // library membership and folder live on the file, and the row is
+          // file-shaped. Judging it by this document dropped the opened file from
+          // the list and the sidebar tree (which then persisted the gap).
+          resource: row && !isFileBackedDocument(row) ? this.#createResourceItem(row) : undefined,
         };
       },
       get,

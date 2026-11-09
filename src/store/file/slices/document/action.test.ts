@@ -240,6 +240,65 @@ describe('file document replica', () => {
     expect(useFileStore.getState().resourceList).toEqual([]);
   });
 
+  it.each([
+    ['library root', { libraryId: 'kb-1', parentId: null }],
+    ['library folder', { libraryId: 'kb-1', parentId: 'folder-1' }],
+  ])(
+    'keeps an uploaded file row in the %s when its parsed document is opened',
+    async (_label, queryParams) => {
+      // An uploaded file's parsed document carries neither the library nor the
+      // folder: both live on the file (`knowledge_base_files`, `files.parent_id`),
+      // and the row is file-shaped (name, type, chunk status) rather than a page.
+      const resource = createResourceFixture({
+        chunkingStatus: 'success' as any,
+        fileId: 'file-1',
+        fileType: 'application/pdf',
+        knowledgeBaseId: undefined,
+        name: 'Manual.pdf',
+        parentId: undefined,
+        sourceType: 'file',
+        title: undefined,
+      });
+      act(() =>
+        useFileStore.setState({
+          queryParams,
+          resourceListEntry: {
+            currentPage: 0,
+            hasMore: false,
+            items: [resource],
+            nextCursor: null,
+            pageSize: 50,
+            queryParams,
+            total: 1,
+          },
+          resourceList: [resource],
+          resourceMap: new Map([[resource.id, resource]]),
+        }),
+      );
+      vi.mocked(documentService.getDocumentById).mockResolvedValue(
+        serverRow({
+          fileId: 'file-1',
+          fileType: 'custom/document',
+          knowledgeBaseId: null,
+          parentId: null,
+          source: 'files/manual.pdf',
+          sourceType: 'file',
+          title: 'Manual',
+        }),
+      );
+
+      const { result } = renderDetail(resource.id);
+      await waitFor(() => expect(result.current.data?.id).toBe(resource.id));
+      await waitFor(() => expect(documentService.getDocumentById).toHaveBeenCalled());
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(useFileStore.getState().resourceList).toEqual([resource]);
+      expect(useFileStore.getState().resourceMap.get(resource.id)).toBe(resource);
+    },
+  );
+
   describe('by-id detail', () => {
     it('paints the persisted row on the first frame, before the network answers', async () => {
       const cached = lobeDocument({ content: '# Cached', title: 'Cached' });
