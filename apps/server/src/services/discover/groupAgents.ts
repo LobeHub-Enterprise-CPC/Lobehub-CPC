@@ -1,6 +1,7 @@
 import { type CategoryListQuery } from '@lobehub/market-sdk';
 
 import type { DiscoverService } from './index';
+import { withoutUnavailableModel } from './marketModelAvailability';
 import { log } from './utils';
 
 // ============================== Group Agent Market Methods ==============================
@@ -32,7 +33,25 @@ export const getGroupAgentDetail = async (
       locale: params.locale,
       version: params.version || undefined,
     });
-    return response;
+    // Forking the group builds each member from its version config: drop retired models there.
+    if (!response?.memberAgents) return response;
+    const memberAgents = await Promise.all(
+      response.memberAgents.map(async (member) =>
+        member.currentVersion
+          ? {
+              ...member,
+              currentVersion: {
+                ...member.currentVersion,
+                config: await withoutUnavailableModel(
+                  member.currentVersion.config,
+                  service.userInfo?.email,
+                ),
+              },
+            }
+          : member,
+      ),
+    );
+    return { ...response, memberAgents };
   } catch (error) {
     log('getGroupAgentDetail: error: %O', error);
     throw error;
