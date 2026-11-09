@@ -33,6 +33,8 @@ export default {
   'forbidden.desc':
     "You don't have permission to view this page. Please contact a workspace owner if you need access.",
   'forbidden.title': 'Access denied',
+  'memberBudgetExceeded':
+    "Your model usage budget has been used up, so this request can't be sent. Ask your administrator to raise your budget, then try again.",
   'notFound.backHome': 'Back to Home',
   'notFound.check': 'Please check if your URL is correct.',
   'notFound.desc': "We couldn't find the page you were looking for.",
