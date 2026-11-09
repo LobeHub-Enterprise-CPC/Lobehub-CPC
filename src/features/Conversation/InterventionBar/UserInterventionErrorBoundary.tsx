@@ -1,5 +1,6 @@
 'use client';
 
+import { getToolDisplayIdentifier } from '@lobechat/const';
 import { safeParseJSON } from '@lobechat/utils';
 import { createStaticStyles, Flexbox, Highlighter, Icon, Text } from '@lobehub/ui';
 import { AlertTriangle } from 'lucide-react';
@@ -108,7 +109,8 @@ const UserInterventionFallback = memo<UserInterventionFallbackProps>(
           </span>
         </div>
         <Text fontSize={12} type="secondary">
-          {identifier} / {apiName} · {t('tool.intervention.renderFallback.rawJson')}
+          {getToolDisplayIdentifier(identifier)} / {apiName} ·{' '}
+          {t('tool.intervention.renderFallback.rawJson')}
         </Text>
         <Highlighter wrap actionIconSize="small" language="json" variant="borderless">
           {json}

@@ -30,6 +30,7 @@ export * from './skill';
 export * from './taskTemplate';
 export * from './theme';
 export * from './threadDrag';
+export * from './toolDisplay';
 export * from './topicDrag';
 export * from './trace';
 export * from './trash';

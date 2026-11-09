@@ -70,12 +70,21 @@ export const BRANDING_EMAIL = {
 export const BRANDING_PROVIDER = 'lobehub';
 
 /**
- * The ID the UI shows for a builtin skill, keyed by its runtime identifier.
- * Presentation only: agent plugin lists, uninstall settings and Market agent
- * configs keep the runtime identifier, so a distribution can rename what people
- * see without migrating data. Empty upstream.
+ * Builtin tool and skill identifiers start with `lobe-`. A distribution that
+ * sets this namespace shows `<namespace>-<name>` wherever the UI prints one
+ * (tool popovers, tool-call titles, error fallbacks). Presentation only: agent
+ * plugin lists, uninstall settings, Market agent configs and the tool names sent
+ * to the model keep the runtime identifier, so no data is migrated. Empty
+ * upstream, which shows the runtime identifier.
  */
-export const BUILTIN_SKILL_DISPLAY_IDENTIFIERS: Readonly<Record<string, string>> = {};
+export const BUILTIN_TOOL_DISPLAY_NAMESPACE: string = '';
+
+/**
+ * Display IDs for individual builtin tools, keyed by runtime identifier. An entry
+ * here wins over `BUILTIN_TOOL_DISPLAY_NAMESPACE`. Presentation only, like the
+ * namespace. Empty upstream.
+ */
+export const BUILTIN_TOOL_DISPLAY_IDENTIFIERS: Readonly<Record<string, string>> = {};
 
 /**
  * Deep-link scheme the distribution's desktop client registers with the OS

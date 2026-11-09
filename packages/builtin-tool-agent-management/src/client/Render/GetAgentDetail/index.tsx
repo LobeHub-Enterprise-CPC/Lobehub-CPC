@@ -1,10 +1,8 @@
 'use client';
 
-import { DEFAULT_AVATAR } from '@lobechat/const';
+import { DEFAULT_AVATAR, getToolDisplayIdentifier } from '@lobechat/const';
 import type { BuiltinRenderProps } from '@lobechat/types';
-import { Block, Flexbox, Markdown } from '@lobehub/ui';
-import { Avatar, Tag } from '@lobehub/ui';
-import { createStaticStyles, useTheme } from '@lobehub/ui';
+import { Avatar, Block, createStaticStyles, Flexbox, Markdown, Tag, useTheme } from '@lobehub/ui';
 import { memo } from 'react';
 
 import type { GetAgentDetailParams, GetAgentDetailState } from '../../../types';
@@ -84,7 +82,7 @@ export const GetAgentDetailRender = memo<
           <div className={styles.label}>Plugins</div>
           <Flexbox horizontal gap={4} wrap={'wrap'}>
             {config.plugins.map((plugin) => (
-              <Tag key={plugin}>{plugin}</Tag>
+              <Tag key={plugin}>{getToolDisplayIdentifier(plugin)}</Tag>
             ))}
           </Flexbox>
         </div>

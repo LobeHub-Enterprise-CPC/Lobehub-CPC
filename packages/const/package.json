@@ -14,6 +14,7 @@
     "./mediaRef": "./src/mediaRef.ts",
     "./plugin": "./src/plugin.ts",
     "./rbac": "./src/rbac.ts",
+    "./toolDisplay": "./src/toolDisplay.ts",
     "./url": "./src/url.ts",
     "./verify": "./src/verify.ts"
   },

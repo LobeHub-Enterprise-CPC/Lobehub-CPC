@@ -1,8 +1,8 @@
 'use client';
 
+import { getToolDisplayIdentifier } from '@lobechat/const';
 import type { BuiltinInspectorProps } from '@lobechat/types';
-import { Flexbox } from '@lobehub/ui';
-import { createStaticStyles, cx } from '@lobehub/ui';
+import { createStaticStyles, cx, Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -45,7 +45,11 @@ export const InstallPluginInspector = memo<BuiltinInspectorProps<InstallPluginPa
         <span className={cx(styles.title, isArgumentsStreaming && shinyTextStyles.shinyText)}>
           {t('builtins.lobe-agent-management.inspector.installPlugin.title')}
         </span>
-        {identifier && <span className={highlightTextStyles.primary}>{identifier}</span>}
+        {identifier && (
+          <span className={highlightTextStyles.primary}>
+            {getToolDisplayIdentifier(identifier)}
+          </span>
+        )}
       </Flexbox>
     );
   },

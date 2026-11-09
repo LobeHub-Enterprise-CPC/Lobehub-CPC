@@ -1,10 +1,8 @@
 'use client';
 
-import { AGENT_CHAT_URL } from '@lobechat/const';
+import { AGENT_CHAT_URL, getToolDisplayIdentifier } from '@lobechat/const';
 import type { BuiltinRenderProps } from '@lobechat/types';
-import { Block, Flexbox, Markdown } from '@lobehub/ui';
-import { Avatar, Tag } from '@lobehub/ui';
-import { createStaticStyles } from '@lobehub/ui';
+import { Avatar, Block, createStaticStyles, Flexbox, Markdown, Tag } from '@lobehub/ui';
 import { ArrowRight } from 'lucide-react';
 import { memo, useCallback } from 'react';
 import { useNavigate } from 'react-router';
@@ -132,7 +130,7 @@ export const CreateAgentRender = memo<BuiltinRenderProps<CreateAgentParams, Crea
             <div className={styles.label}>Plugins</div>
             <Flexbox horizontal gap={4} wrap={'wrap'}>
               {plugins.map((plugin) => (
-                <Tag key={plugin}>{plugin}</Tag>
+                <Tag key={plugin}>{getToolDisplayIdentifier(plugin)}</Tag>
               ))}
             </Flexbox>
           </div>

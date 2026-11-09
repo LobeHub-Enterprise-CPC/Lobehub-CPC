@@ -1,9 +1,8 @@
 'use client';
 
+import { getToolDisplayIdentifier } from '@lobechat/const';
 import { type BuiltinInspectorProps } from '@lobechat/types';
-import { Flexbox, Icon, Tooltip } from '@lobehub/ui';
-import { Avatar } from '@lobehub/ui';
-import { createStaticStyles, cssVar } from '@lobehub/ui';
+import { Avatar, createStaticStyles, cssVar, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import { AlertTriangle } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -62,7 +61,11 @@ export const ActivateToolsInspector = memo<
   const activatedTools = pluginState?.activatedTools;
   const notFoundList = pluginState?.notFound ?? [];
   const requestedTools: ActivatedToolInfo[] =
-    identifiers?.map((id) => ({ apiCount: 0, identifier: id, name: id })) ?? [];
+    identifiers?.map((id) => ({
+      apiCount: 0,
+      identifier: id,
+      name: getToolDisplayIdentifier(id),
+    })) ?? [];
   const visibleTools =
     activatedTools && activatedTools.length > 0 ? activatedTools : requestedTools;
 
@@ -77,7 +80,7 @@ export const ActivateToolsInspector = memo<
           <span className={styles.tools}>
             {identifiers.map((id) => (
               <span className={styles.tool} key={id}>
-                <span className={styles.toolName}>{id}</span>
+                <span className={styles.toolName}>{getToolDisplayIdentifier(id)}</span>
               </span>
             ))}
           </span>
@@ -88,7 +91,7 @@ export const ActivateToolsInspector = memo<
 
   // Finished: show activated tool names with avatars; surface notFound in the title row
   const hasNotFound = notFoundList.length > 0;
-  const notFoundTitle = notFoundList.join(', ');
+  const notFoundTitle = notFoundList.map(getToolDisplayIdentifier).join(', ');
 
   return (
     <Flexbox

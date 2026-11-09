@@ -1,9 +1,8 @@
 'use client';
 
+import { getToolDisplayIdentifier } from '@lobechat/const';
 import type { BuiltinStreamingProps } from '@lobechat/types';
-import { Block, Flexbox, Markdown } from '@lobehub/ui';
-import { Tag } from '@lobehub/ui';
-import { createStaticStyles } from '@lobehub/ui';
+import { Block, createStaticStyles, Flexbox, Markdown, Tag } from '@lobehub/ui';
 import { memo } from 'react';
 
 import type { CreateAgentParams } from '../../../types';
@@ -62,7 +61,7 @@ export const CreateAgentStreaming = memo<BuiltinStreamingProps<CreateAgentParams
           <div className={styles.label}>Plugins</div>
           <Flexbox horizontal gap={4} wrap={'wrap'}>
             {plugins.map((plugin) => (
-              <Tag key={plugin}>{plugin}</Tag>
+              <Tag key={plugin}>{getToolDisplayIdentifier(plugin)}</Tag>
             ))}
           </Flexbox>
         </div>
