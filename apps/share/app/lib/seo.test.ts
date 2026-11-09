@@ -69,7 +69,7 @@ describe('shareMetaDescription', () => {
       `A conversation shared from ${BRANDING_NAME}.`,
     );
     expect(shareMetaDescription(undefined, 'artifactDescription')).toBe(
-      `An artifact shared from ${BRANDING_NAME}.`,
+      `A work shared from ${BRANDING_NAME}.`,
     );
   });
 });

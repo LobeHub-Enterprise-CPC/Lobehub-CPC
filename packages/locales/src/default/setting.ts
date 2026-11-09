@@ -3872,7 +3872,7 @@ When I am ___, I need ___
     'Generate and preview interactive UI components and visualizations',
   'tools.builtins.lobe-artifacts.readme':
     'Generate and live-preview interactive UI components, data visualizations, charts, SVG graphics, and web applications. Create rich visual content that users can interact with directly.',
-  'tools.builtins.lobe-artifacts.title': 'Artifacts',
+  'tools.builtins.lobe-artifacts.title': 'Portfolio',
   'tools.builtins.lobe-calculator.title': 'Calculator',
   'tools.builtins.lobe-calculator.description':
     'Perform mathematical calculations, solve equations, and work with symbolic expressions',

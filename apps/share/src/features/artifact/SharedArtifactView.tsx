@@ -37,7 +37,7 @@ const SharedArtifactView = () => {
           referrerPolicy={'no-referrer'}
           sandbox={'allow-scripts'}
           src={data.iframeSrc}
-          title={data.title ?? 'Artifact'}
+          title={data.title ?? 'Work'}
         />
       )}
     </ShareLayout>

@@ -27,7 +27,7 @@ const TWITTER_SITE = ORG_NAME === 'LobeHub' ? UPSTREAM_TWITTER_SITE : undefined;
 type DescriptionKey = 'artifactDescription' | 'pageDescription' | 'topicDescription';
 
 const FALLBACK_DESCRIPTION: Record<DescriptionKey, string> = {
-  artifactDescription: `An artifact shared from ${BRANDING_NAME}.`,
+  artifactDescription: `A work shared from ${BRANDING_NAME}.`,
   pageDescription: `A page shared from ${BRANDING_NAME}.`,
   topicDescription: `A conversation shared from ${BRANDING_NAME}.`,
 };

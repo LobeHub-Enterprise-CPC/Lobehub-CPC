@@ -7,11 +7,11 @@ export default {
   'artifacts.display.preview': 'Preview',
   'artifacts.deploy.copy': 'Copy URL',
   'artifacts.deploy.copySuccess': 'Deployment URL copied',
-  'artifacts.deploy.confirm.action': 'Publish artifact',
+  'artifacts.deploy.confirm.action': 'Publish work',
   'artifacts.deploy.confirm.content':
-    'Anyone with the link can open this artifact. Before publishing, make sure it does not contain anything you would rather keep private, such as credentials, API keys, personal information, uploaded files, or images.',
+    'Anyone with the link can open this work. Before publishing, make sure it does not contain anything you would rather keep private, such as credentials, API keys, personal information, uploaded files, or images.',
   'artifacts.deploy.confirm.note': 'You can unpublish it at any time.',
-  'artifacts.deploy.confirm.title': 'Before you publish this artifact',
+  'artifacts.deploy.confirm.title': 'Before you publish this work',
   'artifacts.deploy.failed': 'Deployment failed',
   'artifacts.deploy.history': 'Revision history',
   'artifacts.deploy.highestPlanCapacityLimitReached':
@@ -29,7 +29,7 @@ export default {
   'artifacts.deploy.quotaUnavailable':
     'Deployment quota validation is temporarily unavailable. Try again later.',
   'artifacts.deploy.serviceOverloaded':
-    'Artifact hosting is temporarily overloaded. Try publishing again shortly.',
+    'Portfolio hosting is temporarily overloaded. Try publishing again shortly.',
   'artifacts.deploy.success': 'Published',
   'artifacts.deploy.writeInProgress':
     'Another deployment change is in progress. Try again shortly.',
@@ -57,7 +57,8 @@ export default {
   'document.saveConflict': 'This document was updated elsewhere. Refreshing to the latest version.',
   'document.todos.allCompleted': 'All tasks completed',
   'document.todos.title': 'Tasks',
-  'emptyArtifactList': 'No Artifacts yet. Use Skills in the conversation, then come back here.',
+  'emptyArtifactList':
+    'Your Portfolio is empty. Use Skills in the conversation, then come back here.',
   'emptyKnowledgeList': 'This list is empty.',
   'files': 'Files',
   'messageDetail': 'Message Details',
