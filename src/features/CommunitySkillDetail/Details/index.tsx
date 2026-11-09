@@ -3,6 +3,7 @@
 import { Flexbox } from '@lobehub/ui';
 import { memo, useState } from 'react';
 
+import { resolveSkillNavKey } from '../const';
 import { SkillNavKey } from '../types';
 import Info from './Info';
 import Install from './Install';
@@ -19,7 +20,7 @@ interface DetailsProps {
 
 const Details = memo<DetailsProps>(({ activeTab: controlledTab, mobile, onTabChange }) => {
   const [internalTab, setInternalTab] = useState<SkillNavKey>(SkillNavKey.Overview);
-  const activeTab = controlledTab ?? internalTab;
+  const activeTab = resolveSkillNavKey(controlledTab ?? internalTab);
 
   const handleTabChange = (tab: SkillNavKey) => {
     setInternalTab(tab);

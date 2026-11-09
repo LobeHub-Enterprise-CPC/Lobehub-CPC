@@ -1,6 +1,7 @@
 import { MemoryManifest } from '@lobechat/builtin-tool-memory';
 import { WebBrowsingManifest } from '@lobechat/builtin-tool-web-browsing';
 import { getConnectorCatalog, RECOMMENDED_SKILLS, RecommendedSkillType } from '@lobechat/const';
+import { getToolDisplayIdentifier } from '@lobechat/const/toolDisplay';
 import { type AgentPluginMode, getDisabledPluginIds } from '@lobechat/types';
 import type { ItemType } from '@lobehub/ui';
 import {
@@ -70,7 +71,6 @@ import { closeToolDetailPopovers } from '../components/useDetailPopoverState';
 import { MemoryEffortControl } from '../Memory/Controls';
 import { useMemoryEnabled } from '../Memory/useMemoryEnabled';
 import { SearchAdvancedControls } from '../Search/Controls';
-import { getBuiltinSkillDisplayIdentifier } from './builtinSkillDisplay';
 import {
   isCapabilityTool,
   resolveCapabilityConfigPatch,
@@ -1428,7 +1428,7 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
   const builtinAgentSkillItems = useMemo(
     () =>
       installedBuiltinSkills.map((skill) => {
-        const displayIdentifier = getBuiltinSkillDisplayIdentifier(skill.identifier);
+        const displayIdentifier = getToolDisplayIdentifier(skill.identifier);
         const title = t(`tools.builtins.${skill.identifier}.title` as any, {
           defaultValue: skill.name,
         });
@@ -1439,7 +1439,7 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
         );
         const popoverContent = (
           <ToolItemDetailPopover
-            identifier={displayIdentifier}
+            identifier={skill.identifier}
             sourceLabel={t('skillStore.tabs.lobehub')}
             title={title}
             description={t(`tools.builtins.${skill.identifier}.description` as any, {
@@ -2047,7 +2047,7 @@ export const useControls = ({ closeDropdown }: { closeDropdown?: () => void } = 
         ),
         popoverContent: (
           <ToolItemDetailPopover
-            identifier={getBuiltinSkillDisplayIdentifier(skill.identifier)}
+            identifier={skill.identifier}
             sourceLabel={t('skillStore.tabs.lobehub')}
             description={t(`tools.builtins.${skill.identifier}.description` as any, {
               defaultValue: skill.description,

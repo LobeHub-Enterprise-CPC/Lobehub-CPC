@@ -4,6 +4,7 @@ import { createStaticStyles } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { SKILL_NAV_KEYS } from '../const';
 import { SkillNavKey } from '../types';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
@@ -97,7 +98,7 @@ const Nav = memo<{
     { key: SkillNavKey.Install, label: t('skills.details.nav.install') },
     { key: SkillNavKey.Reviews, label: t('skills.details.nav.reviews') },
     { key: SkillNavKey.Info, label: t('skills.details.nav.info') },
-  ];
+  ].filter((item) => SKILL_NAV_KEYS.includes(item.key));
 
   return (
     <div className={styles.nav}>

@@ -1,5 +1,6 @@
 import { getBuiltinRender } from '@lobechat/builtin-tools/renders';
 import { getBuiltinStreaming } from '@lobechat/builtin-tools/streamings';
+import { getToolDisplayIdentifier } from '@lobechat/const';
 import { Accordion, Divider, Flexbox, Skeleton } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
 import { memo, useEffect, useState } from 'react';
@@ -158,7 +159,10 @@ const Tool = memo<GroupToolProps>(({ assistantMessageId, disableEditing, id }) =
                   type={type}
                 />
               )}
-              <SafeBoundary alertTitle={`${identifier} / ${apiName}`} variant="alert">
+              <SafeBoundary
+                alertTitle={`${getToolDisplayIdentifier(identifier)} / ${apiName}`}
+                variant="alert"
+              >
                 <Detail
                   apiName={apiName}
                   arguments={requestArgs}

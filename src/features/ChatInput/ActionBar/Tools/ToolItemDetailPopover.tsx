@@ -1,3 +1,4 @@
+import { getToolDisplayIdentifier } from '@lobechat/const';
 import { toWireToolIdentifier } from '@lobechat/context-engine';
 import { createStaticStyles, cssVar, Flexbox, Tag, Text } from '@lobehub/ui';
 import { memo, type ReactNode } from 'react';
@@ -66,7 +67,9 @@ const ToolItemDetailPopover = memo<ToolItemDetailPopoverProps>(
               )}
             </Flexbox>
             {identifier && (
-              <span className={styles.identifier}>{toWireToolIdentifier(identifier)}</span>
+              <span className={styles.identifier}>
+                {toWireToolIdentifier(getToolDisplayIdentifier(identifier))}
+              </span>
             )}
           </Flexbox>
         </Flexbox>
