@@ -37,6 +37,7 @@
   "codes.PLATFORM_ACCESS_DENIED": "当前账号不符合平台访问要求，请联系管理员。",
   "codes.PROVIDER_NOT_FOUND": "未找到对应登录方式的配置，请联系支持",
   "codes.RATE_LIMIT_EXCEEDED": "请求过于频繁，请稍后再试",
+  "codes.SEAT_LIMIT_REACHED": "组织席位已满，请联系管理员",
   "codes.SESSION_EXPIRED": "会话已过期，请重新登录",
   "codes.SOCIAL_ACCOUNT_ALREADY_LINKED": "这个社交账号已被其他用户绑定，请使用其他账号",
   "codes.SSO_ACCESS_DENIED": "当前账号不符合最新的准入规则，访问权限已被收回。",

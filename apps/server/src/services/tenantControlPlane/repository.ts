@@ -50,6 +50,8 @@ export interface ProvisionOperationRecord {
   operationId: string;
   schemaName: string | null;
   schemaVersion: number | null;
+  /** The seat limit the request carried, for the `directory` step; null means no limit. */
+  seatLimit?: number | null;
   slug: string;
   status: ProvisionStatus;
   /** The step to run next, or the one that failed; resuming starts here. */
@@ -77,6 +79,8 @@ export interface TenantDirectoryRecord {
   profileVersion: number;
   schemaName: string;
   schemaVersion: number;
+  /** Member account limit; null means none. Changes only through `putProfile` once registered. */
+  seatLimit: number | null;
   slug: string;
   status: 'provisioning' | 'active' | 'disabled';
   tenantId: string;
@@ -86,6 +90,7 @@ export interface TenantDirectoryRecord {
 export interface TenantProfileRecord {
   name: string;
   profileVersion: number;
+  seatLimit: number | null;
   slug: string;
 }
 
@@ -158,7 +163,7 @@ export interface ControlPlaneTx {
   getOperationBundle: (operationId: string) => Promise<DatasourceBundle | null>;
   /** The initial Owner a provision operation was received with, until the operation applies. */
   getOperationOwner: (operationId: string) => Promise<PendingOwner | null>;
-  /** The directory's name, slug and profile revision, without opening the sealed credentials. */
+  /** The directory's name, slug, seat limit and profile revision, without opening the sealed credentials. */
   getProfile: (tenantId: string) => Promise<TenantProfileRecord | null>;
   listOpenEvents: (tenantId: string) => Promise<LifecycleEventRecord[]>;
   listOperations: (tenantId: string) => Promise<ProvisionOperationRecord[]>;
@@ -179,7 +184,7 @@ export interface ControlPlaneTx {
   /** Stores (`owner`) or drops (`null`) the operation's pending initial Owner. */
   putOperationOwner: (operationId: string, owner: PendingOwner | null) => Promise<void>;
   /**
-   * Stores a newer profile: name, slug and revision on the directory row, and the alias set replaced
+   * Stores a newer profile: name, slug, seat limit and revision on the directory row, and the alias set replaced
    * by `formerSlugs`. The only writer that changes a directory slug.
    */
   putProfile: (

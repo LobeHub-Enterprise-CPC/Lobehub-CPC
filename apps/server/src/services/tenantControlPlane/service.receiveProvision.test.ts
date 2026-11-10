@@ -56,6 +56,31 @@ describe('receiveProvision', () => {
     ).rejects.toMatchObject({ code: 'VERSION_CONFLICT', status: 409 });
   });
 
+  it('records the seat limit and registers it with the directory', async () => {
+    await service.receiveProvision(provision({ seatLimit: 25 }));
+    expect(repo.operations.get('root-1:lobehub')!.seatLimit).toBe(25);
+    await service.executeProvision(TENANT, 'root-1:lobehub');
+    expect(repo.directory.get(TENANT)!.record.seatLimit).toBe(25);
+  });
+
+  it('treats an absent and a null seat limit as the same request: no limit', async () => {
+    await service.receiveProvision(provision());
+    const same = await service.receiveProvision(provision({ seatLimit: null }));
+    expect(same.status).toBe('received');
+    await service.executeProvision(TENANT, 'root-1:lobehub');
+    expect(repo.directory.get(TENANT)!.record.seatLimit).toBeNull();
+  });
+
+  it('refuses the same operation id with another seat limit', async () => {
+    await service.receiveProvision(provision({ seatLimit: 25 }));
+    await expect(service.receiveProvision(provision({ seatLimit: 26 }))).rejects.toMatchObject({
+      code: 'VERSION_CONFLICT',
+    });
+    await expect(service.receiveProvision(provision())).rejects.toMatchObject({
+      code: 'VERSION_CONFLICT',
+    });
+  });
+
   it('fails a reserved slug without creating anything to provision', async () => {
     const result = await service.receiveProvision(provision({ slug: 'admin' }));
     expect(result).toMatchObject({ errorCode: 'TENANT_INVALID', status: 'failed' });

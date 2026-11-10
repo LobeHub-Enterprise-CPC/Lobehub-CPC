@@ -37,6 +37,7 @@ const SSO_CODES = [
   'ACCOUNT_NOT_LINKED',
   'INVALID_SCOPE',
   'OAUTH_CODE_VERIFICATION_FAILED',
+  'SEAT_LIMIT_REACHED',
 ] as const;
 
 describe('AuthErrorPage SSO error codes', () => {

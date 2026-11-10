@@ -153,9 +153,12 @@ export class TenantControlPlaneService {
     // Passwords are left out: a password change alone is a rotation
     // (tenant-datasource), not a different provision request. The initial Owner is not part of
     // the operation's identity either: a retry of a failed operation may carry a corrected one.
-    const { bootstrapOwner, ...identity } = request;
+    // A null seat limit is the same as none: only a limit enters the digest, so an operation received
+    // before seat limits existed still matches its own retry.
+    const { bootstrapOwner, seatLimit, ...identity } = request;
     const inputHash = hashInput({
       ...identity,
+      ...(seatLimit == null ? {} : { seatLimit }),
       datasource: redactDatasourceBundle(request.datasource),
     });
     // Hashed before anything is stored: the plaintext never leaves this request.
@@ -223,6 +226,7 @@ export class TenantControlPlaneService {
         operationId: request.operationId,
         schemaName: null,
         schemaVersion: null,
+        seatLimit: seatLimit ?? null,
         slug: request.slug,
         status: code ? 'failed' : 'received',
         step: code ? 'validate' : 'ownership',
@@ -316,6 +320,7 @@ export class TenantControlPlaneService {
       memberBudget: op.memberBudget ?? null,
       name: op.name,
       operationId,
+      seatLimit: op.seatLimit ?? null,
       slug: op.slug,
       tenantId,
     };
@@ -419,6 +424,8 @@ export class TenantControlPlaneService {
               profileVersion: current?.record.profileVersion ?? 1,
               schemaName: ctx.bundle.schemaName,
               schemaVersion: ctx.bundle.schemaVersion,
+              // Like the slug, a limit set since (tenant-profile) is never rolled back.
+              seatLimit: current ? current.record.seatLimit : (ctx.seatLimit ?? null),
               slug: current?.record.slug ?? ctx.slug,
               status: 'provisioning',
               tenantId: ctx.tenantId,
@@ -743,9 +750,10 @@ export class TenantControlPlaneService {
   // ─── profile ─────────────────────────────────────────────────────────────
 
   /**
-   * Name and slug edited after creation (tenant-profile). Revisions are ordered by `version`: an
-   * older one is superseded, the same one is acknowledged only with the same content, and a newer
-   * one is written in one transaction (name, slug, alias set, revision) or not at all.
+   * Name, slug and seat limit edited after creation (tenant-profile). Revisions are ordered by
+   * `version`: an older one is superseded, the same one is acknowledged only with the same content,
+   * and a newer one is written in one transaction (name, slug, seat limit, alias set, revision) or
+   * not at all. An absent `seatLimit` keeps the stored one, in both comparisons and writes.
    */
   async receiveProfile(request: ProfileRequest): Promise<ProfileResult> {
     const { tenantId, version } = request;
@@ -771,6 +779,7 @@ export class TenantControlPlaneService {
         const same =
           current.name === request.name &&
           current.slug === request.slug &&
+          (request.seatLimit === undefined || current.seatLimit === request.seatLimit) &&
           aliases.size === request.formerSlugs.length &&
           request.formerSlugs.every((slug) => aliases.has(slug));
         if (!same) throw new ControlPlaneError(409, 'VERSION_CONFLICT');
@@ -785,7 +794,12 @@ export class TenantControlPlaneService {
         const owner = await tx.findTenantBySlug(slug);
         if (owner && owner !== tenantId) throw new ControlPlaneError(409, 'SLUG_CONFLICT');
       }
-      const stored = { name: request.name, profileVersion: version, slug: request.slug };
+      const stored = {
+        name: request.name,
+        profileVersion: version,
+        seatLimit: request.seatLimit === undefined ? current.seatLimit : request.seatLimit,
+        slug: request.slug,
+      };
       await tx.putProfile(tenantId, { ...stored, formerSlugs: request.formerSlugs });
       return result('applied', stored);
     });

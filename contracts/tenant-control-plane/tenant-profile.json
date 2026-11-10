@@ -111,9 +111,19 @@
     "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
     "version": 2
   },
+  "seatLimitRequest": {
+    "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000002",
+    "formerSlugs": [],
+    "name": "Acme",
+    "seatLimit": 50,
+    "slug": "acme",
+    "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+    "version": 2
+  },
   "semantics": {
     "version": "profile_version of the tenant in Console. Provisioning is implicitly version 1, so a profile event is version 2 or later.",
     "eventId": "profile:<sha256 of the Console operation id>, fixed length.",
+    "seatLimit": "TITU Work and Admin only; Market's strict request never carries it. Absent: the receiver keeps the limit it holds. null: no limit. An integer from 1 to 1000000: the tenant's new limit, which the receiver stores and enforces when members join. A limit below the members already there is accepted (nobody is removed, nobody new can join). A provision request carries the same field: absent or null is no limit. The answer does not repeat it.",
     "formerSlugs": "Every slug the tenant has retired, distinct, never containing slug. The receiver replaces the tenant's alias set with it.",
     "notProvisioned": "TITU Work and Admin: 404 TENANT_NOT_FOUND for a tenant they have not provisioned. Market: 404 TENANT_NOT_FOUND for an unknown tenant, 503 TENANT_NOT_READY for one that exists but is not ready. Console only sends the event after the application applied the tenant's provisioning, and retries a 503.",
     "olderVersion": "version lower than the stored one: status superseded, the stored name and slug are answered, nothing changes.",

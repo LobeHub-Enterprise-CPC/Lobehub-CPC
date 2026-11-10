@@ -160,7 +160,12 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
         getProfile: async (tenantId) => {
           const record = directory.get(tenantId)?.record;
           return record
-            ? { name: record.name, profileVersion: record.profileVersion, slug: record.slug }
+            ? {
+                name: record.name,
+                profileVersion: record.profileVersion,
+                seatLimit: record.seatLimit,
+                slug: record.slug,
+              }
             : null;
         },
         getLifecycle: async (tenantId) => lifecycles.get(tenantId) ?? null,
@@ -185,7 +190,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
         lockSlugs: async () => {},
         listOperations: async (tenantId) =>
           [...operations.values()].filter((o) => o.tenantId === tenantId),
-        // Like the Postgres upsert: slug and profile revision belong to `putProfile` once registered.
+        // Like the Postgres upsert: slug, seat limit and profile revision belong to `putProfile` once registered.
         putDirectory: async (record, bundle) => {
           const existing = directory.get(record.tenantId)?.record;
           directory.set(record.tenantId, {
@@ -193,6 +198,7 @@ export class MemoryControlPlaneRepository implements ControlPlaneRepository {
             record: {
               ...clone(record),
               profileVersion: existing?.profileVersion ?? record.profileVersion,
+              seatLimit: existing ? existing.seatLimit : record.seatLimit,
               slug: existing?.slug ?? record.slug,
             },
           });

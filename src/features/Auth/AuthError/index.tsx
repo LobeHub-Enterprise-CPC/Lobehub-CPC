@@ -18,7 +18,8 @@ const AuthErrorPage = memo(() => {
   const error = searchParams.get('error');
 
   const code = normalizeErrorCode(error);
-  const accessDenied = code === 'EMAIL_NOT_ALLOWED' || code === 'SSO_ACCESS_DENIED';
+  const accessDenied =
+    code === 'EMAIL_NOT_ALLOWED' || code === 'SEAT_LIMIT_REACHED' || code === 'SSO_ACCESS_DENIED';
   const description = t(`codes.${code}`, { defaultValue: t('codes.UNKNOWN') });
 
   return (

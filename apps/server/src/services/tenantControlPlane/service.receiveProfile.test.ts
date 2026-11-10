@@ -142,16 +142,84 @@ describe('receiveProfile', () => {
     ['name', { name: 'Another' }],
     ['slug', { slug: 'another' }],
     ['former slugs', { formerSlugs: [] }],
+    ['seat limit', { seatLimit: 7 }],
   ])('refuses a repeated version with a different %s', async (_label, over) => {
     await provisionApplied();
-    await service.receiveProfile(profile());
-    await expect(service.receiveProfile(profile(over))).rejects.toMatchObject({
+    await service.receiveProfile(profile({ seatLimit: 5 }));
+    await expect(service.receiveProfile(profile({ seatLimit: 5, ...over }))).rejects.toMatchObject({
       code: 'VERSION_CONFLICT',
       status: 409,
     });
     expect(repo.directory.get(TENANT)!.record).toMatchObject({
       name: 'Acme Corp',
       slug: 'acme-corp',
+    });
+  });
+
+  describe('seat limit', () => {
+    it('takes the limit from provision and keeps it when a profile omits it', async () => {
+      await provisionApplied(provision({ seatLimit: 20 }));
+      expect(repo.directory.get(TENANT)!.record.seatLimit).toBe(20);
+      await service.receiveProfile(profile());
+      expect(repo.directory.get(TENANT)!.record).toMatchObject({
+        profileVersion: 2,
+        seatLimit: 20,
+      });
+    });
+
+    it('is no limit when provision sends none or null', async () => {
+      await provisionApplied();
+      expect(repo.directory.get(TENANT)!.record.seatLimit).toBeNull();
+      await service.receiveProfile(profile({ seatLimit: 3 }));
+      expect(repo.directory.get(TENANT)!.record.seatLimit).toBe(3);
+    });
+
+    it('sets, changes and clears the limit with a newer version', async () => {
+      await provisionApplied();
+      await service.receiveProfile(profile({ seatLimit: 10 }));
+      expect(repo.directory.get(TENANT)!.record.seatLimit).toBe(10);
+      await service.receiveProfile(profile({ seatLimit: 4, version: 3 }));
+      expect(repo.directory.get(TENANT)!.record.seatLimit).toBe(4);
+      await service.receiveProfile(profile({ seatLimit: null, version: 4 }));
+      expect(repo.directory.get(TENANT)!.record.seatLimit).toBeNull();
+    });
+
+    it('acknowledges a replay with the same limit, and one that omits it, as applied', async () => {
+      await provisionApplied();
+      await service.receiveProfile(profile({ seatLimit: 10 }));
+      for (const replay of [profile({ seatLimit: 10 }), profile()])
+        expect(await service.receiveProfile(replay)).toMatchObject({
+          appliedVersion: 2,
+          status: 'applied',
+        });
+      expect(repo.directory.get(TENANT)!.record.seatLimit).toBe(10);
+    });
+
+    it('does not apply the limit of a superseded version', async () => {
+      await provisionApplied();
+      await service.receiveProfile(profile({ seatLimit: 10, version: 3 }));
+      await service.receiveProfile(profile({ seatLimit: 1, version: 2 }));
+      expect(repo.directory.get(TENANT)!.record.seatLimit).toBe(10);
+    });
+
+    it('keeps a limit set after provision when the provision is retried', async () => {
+      const request = provision({ seatLimit: 20 });
+      await service.receiveProvision(request);
+      db.verify.mockRejectedValueOnce(new Error('transient'));
+      expect((await service.executeProvision(TENANT, request.operationId)).status).toBe('failed');
+      await service.receiveProfile(profile({ seatLimit: 8 }));
+      await service.receiveProvision(request);
+      expect((await service.executeProvision(TENANT, request.operationId)).status).toBe('applied');
+      expect(repo.directory.get(TENANT)!.record.seatLimit).toBe(8);
+    });
+
+    it.each([0, -1, 1.5, 1_000_001, '5'])('refuses the limit %s', (seatLimit) => {
+      expect(profileRequestSchema.safeParse(profile({ seatLimit })).success).toBe(false);
+    });
+
+    it('takes null and an integer in range', () => {
+      for (const seatLimit of [null, 1, 1_000_000])
+        expect(profileRequestSchema.safeParse(profile({ seatLimit })).success).toBe(true);
     });
   });
 

@@ -52,6 +52,8 @@ export default {
   'codes.PASSWORD_TOO_SHORT': 'Password is too short',
   'codes.PROVIDER_NOT_FOUND': 'Identity provider configuration not found',
   'codes.RATE_LIMIT_EXCEEDED': 'Too many requests, please try again later',
+  'codes.SEAT_LIMIT_REACHED':
+    'This organization has no seats left. Please contact your administrator.',
   'codes.SESSION_EXPIRED': 'Session has expired, please sign in again',
   'codes.SOCIAL_ACCOUNT_ALREADY_LINKED': 'This social account is already linked to another user',
   'codes.SSO_ACCESS_DENIED': 'Your account no longer meets the current access requirements.',

@@ -1,3 +1,5 @@
+import { SeatLimitError, withSeatLimit } from '@lobechat/database/platform';
+import { currentTenantScope } from '@lobechat/database/tenant/requestScope';
 import { and, count, desc, eq, ilike, inArray, isNull, ne, or } from 'drizzle-orm';
 
 import { ALL_SCOPE } from '@/const/rbac';
@@ -221,14 +223,24 @@ export class UserService extends BaseService {
       // Use the user-specified ID or generate a new one
       const userId = rest.id || idGenerator('user');
 
-      // Insert new user; ID uses the user-specified ID or a generated one
-      const [createdUser] = await this.db
-        .insert(users)
-        .values({
-          ...rest,
-          id: userId,
-        })
-        .returning();
+      // Insert new user; ID uses the user-specified ID or a generated one. A tenant at its seat
+      // limit takes no new member account, whoever creates it.
+      const insertUser = (db: LobeChatDatabase) =>
+        db
+          .insert(users)
+          .values({
+            ...rest,
+            id: userId,
+          })
+          .returning();
+      const tenantId = currentTenantScope()?.tenantId;
+      const [createdUser] = await (tenantId
+        ? withSeatLimit(this.db, tenantId, insertUser).catch((error) => {
+            if (error instanceof SeatLimitError)
+              throw this.createBusinessError('组织席位已满，请联系管理员');
+            throw error;
+          })
+        : insertUser(this.db));
 
       // Insert user roles
       if (roleIds && roleIds.length > 0) {
