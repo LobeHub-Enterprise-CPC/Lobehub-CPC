@@ -1,10 +1,11 @@
 import { stripTenantPath } from '@lobechat/business-tenant/routing';
 
 const callbackPath =
-  /^\/api\/auth\/(?:callback|oauth2\/callback|sso\/callback|sso\/saml2\/sp\/acs)\/[^/]+\/?$/;
+  /^\/api\/auth\/(?:(?:callback|oauth2\/callback|sso\/callback|sso\/saml2\/sp\/acs)\/[^/]+|magic-link\/verify)\/?$/;
 
 /**
- * Protocol callbacks are browser navigations, including SAML form POSTs.
+ * Protocol callbacks are browser navigations, including SAML form POSTs. So is the link of a
+ * magic-link email: a refused sign-in (email not allowed, no seat left) must not show JSON.
  * `errorPath` is the error page to land on (a tenant's own, under `/orgs/{slug}`).
  */
 export const redirectCallbackError = async (
