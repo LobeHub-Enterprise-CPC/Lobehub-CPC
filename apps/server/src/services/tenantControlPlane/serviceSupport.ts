@@ -59,6 +59,8 @@ export interface ProvisionStepContext {
   memberBudget?: TenantMemberBudget | null;
   name: string;
   operationId: string;
+  /** Only the provision `directory` step reads it; null means no limit. */
+  seatLimit?: number | null;
   slug: string;
   tenantId: string;
 }

@@ -105,6 +105,7 @@ export const directoryRecordFromRow = (row: DirectoryRow): TenantDirectoryRecord
   profileVersion: row.profileVersion,
   schemaName: row.schemaName,
   schemaVersion: row.schemaVersion,
+  seatLimit: row.seatLimit,
   slug: row.slug,
   status: row.status,
   tenantId: row.tenantId,
@@ -125,6 +126,7 @@ const toOperation = (row: OperationRow): ProvisionOperationRecord => ({
   operationId: row.operationId,
   schemaName: row.schemaName,
   schemaVersion: row.schemaVersion,
+  seatLimit: row.seatLimit,
   slug: row.slug,
   status: row.status as ProvisionOperationRecord['status'],
   step: row.step as ProvisionStep,
@@ -407,6 +409,7 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       .select({
         name: tenantDirectory.name,
         profileVersion: tenantDirectory.profileVersion,
+        seatLimit: tenantDirectory.seatLimit,
         slug: tenantDirectory.slug,
       })
       .from(tenantDirectory)
@@ -522,25 +525,32 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       runtimeUsername: bundle.runtimeCredential.username,
       schemaName: record.schemaName,
       schemaVersion: record.schemaVersion,
+      seatLimit: record.seatLimit,
       slug: record.slug,
       status: record.status,
       tenantId: record.tenantId,
       tls: bundle.tls,
     };
-    // Slug and profile revision belong to `putProfile` once registered: an update never changes them.
-    const { profileVersion: _profileVersion, slug: _slug, tenantId: _tenantId, ...update } = values;
+    // Slug, seat limit and profile revision belong to `putProfile` once registered: an update never changes them.
+    const {
+      profileVersion: _profileVersion,
+      seatLimit: _seatLimit,
+      slug: _slug,
+      tenantId: _tenantId,
+      ...update
+    } = values;
     await tx
       .insert(tenantDirectory)
       .values(values)
       .onConflictDoUpdate({ set: update, target: tenantDirectory.tenantId });
   },
 
-  putProfile: async (tenantId, { formerSlugs, name, profileVersion, slug }) => {
+  putProfile: async (tenantId, { formerSlugs, name, profileVersion, seatLimit, slug }) => {
     // Aliases go first: the slug being taken may be one of this tenant's own aliases.
     await tx.delete(tenantSlugAlias).where(eq(tenantSlugAlias.tenantId, tenantId));
     await tx
       .update(tenantDirectory)
-      .set({ name, profileVersion, slug })
+      .set({ name, profileVersion, seatLimit, slug })
       .where(eq(tenantDirectory.tenantId, tenantId));
     if (formerSlugs.length)
       await tx
@@ -619,6 +629,7 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       operationId: record.operationId,
       schemaName: record.schemaName,
       schemaVersion: record.schemaVersion,
+      seatLimit: record.seatLimit ?? null,
       slug: record.slug,
       status: record.status,
       step: record.step,
@@ -630,6 +641,7 @@ const createTx = (tx: Tx): ControlPlaneTx => ({
       inputHash: _hash,
       memberBudget: _memberBudget,
       name: _name,
+      seatLimit: _seatLimit,
       slug: _slug,
       ...update
     } = values;

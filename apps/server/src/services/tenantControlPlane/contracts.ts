@@ -160,6 +160,12 @@ export const bootstrapOwnerSchema = z
   .strict();
 export type BootstrapOwner = z.infer<typeof bootstrapOwnerSchema>;
 
+/**
+ * Member account limit Console sets for a tenant (`seatLimit`): 1..1_000_000, `null` for none.
+ * Absent means "no change" in `tenant-profile` and "no limit" in provision.
+ */
+export const seatLimitSchema = z.number().int().min(1).max(1_000_000).nullable();
+
 export const provisionRequestSchema = z
   .object({
     bootstrapOwner: bootstrapOwnerSchema.optional(),
@@ -168,6 +174,7 @@ export const provisionRequestSchema = z
     name: z.string().trim().min(1).max(256),
     operationId: id,
     rootOperationId: id,
+    seatLimit: seatLimitSchema.optional(),
     // Slug rules are checked by the service so a bad slug becomes a recorded
     // `failed` result (FR-CP-04 §4), not a 400 Console would retry forever.
     slug: z.string().min(1).max(63),
@@ -267,14 +274,16 @@ export interface LifecycleResult {
 const slugShape = z.string().refine(isWellFormedTenantSlug, 'SLUG_INVALID');
 
 /**
- * Name and slug edited after creation (`tenant-profile`). Version 1 is the provision itself, so a
- * revision starts at 2. `formerSlugs` is the tenant's whole alias set: they keep resolving to it.
+ * Name, slug and seat limit edited after creation (`tenant-profile`). Version 1 is the provision
+ * itself, so a revision starts at 2. `formerSlugs` is the tenant's whole alias set: they keep
+ * resolving to it. An absent `seatLimit` keeps the stored one (older Console versions never send it).
  */
 export const profileRequestSchema = z
   .object({
     eventId: id,
     formerSlugs: z.array(slugShape),
     name: z.string().trim().min(1).max(256),
+    seatLimit: seatLimitSchema.optional(),
     slug: slugShape,
     tenantId,
     version: version.min(2),

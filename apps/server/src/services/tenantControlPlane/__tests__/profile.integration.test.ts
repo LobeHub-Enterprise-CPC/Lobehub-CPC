@@ -70,13 +70,18 @@ suite('tenant-profile on PostgreSQL', () => {
     await root.end();
   }, 60_000);
 
-  const register = async (slug: string, tenantId = newTenant()) => {
+  const register = async (
+    slug: string,
+    tenantId = newTenant(),
+    over: Partial<Parameters<typeof provision>[0]> = {},
+  ) => {
     const request = provision({
       datasource: bundle(tenantId),
       name: slug,
       operationId: `op-${tenantId}`,
       slug,
       tenantId,
+      ...over,
     });
     await service.receiveProvision(request);
     expect((await service.executeProvision(tenantId, request.operationId)).status).toBe('applied');
@@ -139,6 +144,44 @@ suite('tenant-profile on PostgreSQL', () => {
     expect(await stored(tenantId)).toMatchObject({
       aliases: ['bravo'],
       directory: { slug: 'bravo-3', version: 3 },
+    });
+  });
+
+  describe('seat limit', () => {
+    const seatLimitOf = async (tenantId: string) =>
+      (await pool.query('SELECT seat_limit FROM tenant_directory WHERE tenant_id = $1', [tenantId]))
+        .rows[0].seat_limit;
+
+    it('is stored by provision, and no limit is null', async () => {
+      const limited = await register('limited', newTenant(), { seatLimit: 12 });
+      const open = await register('unlimited');
+      expect(await seatLimitOf(limited.tenantId)).toBe(12);
+      expect(await seatLimitOf(open.tenantId)).toBeNull();
+    });
+
+    it('is changed, cleared and, when absent, kept by tenant-profile; replays stay idempotent', async () => {
+      const { tenantId } = await register('seats', newTenant(), { seatLimit: 12 });
+      await service.receiveProfile(profile(tenantId, { seatLimit: 30, slug: 'seats-2' }));
+      expect(await seatLimitOf(tenantId)).toBe(30);
+      const v3 = profile(tenantId, { slug: 'seats-3', version: 3 });
+      await service.receiveProfile(v3);
+      expect(await seatLimitOf(tenantId)).toBe(30);
+      expect(await service.receiveProfile(v3)).toMatchObject({ status: 'applied', version: 3 });
+      const v4 = profile(tenantId, { seatLimit: null, slug: 'seats-4', version: 4 });
+      await service.receiveProfile(v4);
+      expect(await seatLimitOf(tenantId)).toBeNull();
+      expect(await service.receiveProfile(v4)).toMatchObject({ status: 'applied', version: 4 });
+      await expect(service.receiveProfile({ ...v4, seatLimit: 5 })).rejects.toMatchObject({
+        code: 'VERSION_CONFLICT',
+      });
+      expect(await seatLimitOf(tenantId)).toBeNull();
+    });
+
+    it('is not rolled back by a replayed provision', async () => {
+      const { request, tenantId } = await register('retried', newTenant(), { seatLimit: 12 });
+      await service.receiveProfile(profile(tenantId, { seatLimit: 40, slug: 'retried-2' }));
+      await service.receiveProvision(request);
+      expect(await seatLimitOf(tenantId)).toBe(40);
     });
   });
 

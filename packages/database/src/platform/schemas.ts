@@ -15,11 +15,13 @@ import {
 import type { TenantMemberBudget } from '../tenant/migrator';
 
 /**
- * Platform tables in `public` (spec A15, FR-CP-09): only what answers "which
- * tenant does this request address, and where is its database". No account,
- * session, business configuration or business log lives here. Only the
- * platform connection (`DATABASE_URL`) can reach them; tenant runtime roles
- * have no privilege on `public` (AC-04-3).
+ * Platform tables in `public` (spec A15, FR-CP-09): what answers "which
+ * tenant does this request address, and where is its database", plus the
+ * constraints the platform places on a tenant (name, expiry, seat limit) that
+ * the tenant must not be able to change itself. No account, session, tenant
+ * business configuration or business log lives here. Only the platform
+ * connection (`DATABASE_URL`) can reach them; tenant runtime roles have no
+ * privilege on `public` (AC-04-3).
  */
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true });
@@ -50,6 +52,11 @@ export const tenantDirectory = pgTable(
     runtimeUsername: text('runtime_username').notNull(),
     schemaName: text('schema_name').notNull(),
     schemaVersion: integer('schema_version').notNull(),
+    /**
+     * Maximum number of member accounts (rows of the tenant's `users`), set by Console through
+     * provision and `tenant-profile`. Null means no limit. Only the platform connection reads it.
+     */
+    seatLimit: integer('seat_limit'),
     slug: text('slug').notNull(),
     status: text('status').$type<'active' | 'disabled' | 'provisioning'>().notNull(),
     tenantId: text('tenant_id').primaryKey(),
@@ -157,6 +164,8 @@ export const tenantProvisionOperation = pgTable(
     pendingOwner: text('pending_owner'),
     schemaName: text('schema_name'),
     schemaVersion: integer('schema_version'),
+    /** Seat limit the request carried, for the `directory` step; null means no limit. */
+    seatLimit: integer('seat_limit'),
     slug: text('slug').notNull(),
     status: text('status').notNull(),
     step: text('step').notNull(),

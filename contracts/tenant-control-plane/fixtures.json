@@ -97,6 +97,206 @@
     },
     {
       "accepts": true,
+      "id": "lobehub-provision-seat-limit",
+      "note": "a seat limit: the most members the tenant can have",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "titu_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "titu_e0bab8abe103e646d8c0907b_owner",
+            "username": "titu_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "seatLimit": 50
+      }
+    },
+    {
+      "accepts": true,
+      "id": "lobehub-provision-seat-limit-null",
+      "note": "null is no limit, the same as leaving the field out",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "titu_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "titu_e0bab8abe103e646d8c0907b_owner",
+            "username": "titu_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "seatLimit": null
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-seat-limit-zero",
+      "note": "a seat limit is at least 1",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "titu_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "titu_e0bab8abe103e646d8c0907b_owner",
+            "username": "titu_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "seatLimit": 0
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-seat-limit-fraction",
+      "note": "a seat limit is a whole number",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "titu_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "titu_e0bab8abe103e646d8c0907b_owner",
+            "username": "titu_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "seatLimit": 1.5
+      }
+    },
+    {
+      "accepts": false,
+      "id": "lobehub-provision-seat-limit-too-large",
+      "note": "a seat limit is at most 1000000",
+      "schema": "lobehubProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "titu_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "titu_e0bab8abe103e646d8c0907b_owner",
+            "username": "titu_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "seatLimit": 1000001
+      }
+    },
+    {
+      "accepts": true,
       "id": "lobehub-provision-member-budget",
       "note": "Root department per-member budget in USD (six decimals); budgetDuration null never resets",
       "schema": "lobehubProvisionRequest",
@@ -816,6 +1016,136 @@
         "slug": "acme",
         "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
         "operationId": "a1b2c3d4-0000-4000-8000-000000000002"
+      }
+    },
+    {
+      "accepts": true,
+      "id": "admin-provision-seat-limit",
+      "note": "Admin receives the same seat limit as TITU Work",
+      "schema": "adminProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "lobehubDatasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "titu_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "titu_e0bab8abe103e646d8c0907b_owner",
+            "username": "titu_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "seatLimit": 50
+      }
+    },
+    {
+      "accepts": false,
+      "id": "admin-provision-seat-limit-zero",
+      "note": "a seat limit is at least 1",
+      "schema": "adminProvisionRequest",
+      "value": {
+        "datasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "admin",
+          "datasourceKind": "admin",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "adm_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "password": "owner-secret-fixture",
+            "role": "adm_e0bab8abe103e646d8c0907b_owner",
+            "username": "adm_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "lobehubDatasource": {
+          "connectionVersion": 1,
+          "credentialBundleVersion": 1,
+          "database": "lobehub",
+          "datasourceKind": "lobehub",
+          "deploymentRef": "default",
+          "host": "db.internal",
+          "mode": "shared_schema",
+          "port": 5432,
+          "runtimeCredential": {
+            "password": "runtime-secret-fixture",
+            "username": "titu_e0bab8abe103e646d8c0907b_run"
+          },
+          "schemaName": "tenant_e0bab8abe103e646d8c0907b",
+          "schemaOwner": {
+            "role": "titu_e0bab8abe103e646d8c0907b_owner",
+            "username": "titu_e0bab8abe103e646d8c0907b_owner"
+          },
+          "schemaVersion": 1,
+          "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+          "tls": {
+            "enabled": false,
+            "rejectUnauthorized": true
+          }
+        },
+        "name": "Acme",
+        "rootOperationId": "a1b2c3d4-0000-4000-8000-000000000001",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "operationId": "a1b2c3d4-0000-4000-8000-000000000002",
+        "seatLimit": 0
       }
     },
     {
@@ -1593,6 +1923,96 @@
         "slug": "acme",
         "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
         "version": 2
+      }
+    },
+    {
+      "accepts": true,
+      "id": "profile-request-seat-limit",
+      "note": "seat limit only: name and slug as they are, the limit replaces the receiver's",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": [],
+        "name": "Acme Group",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2,
+        "seatLimit": 50
+      }
+    },
+    {
+      "accepts": true,
+      "id": "profile-request-seat-limit-null",
+      "note": "null makes the tenant unlimited; leaving the field out keeps the receiver's limit",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": [],
+        "name": "Acme Group",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2,
+        "seatLimit": null
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-seat-limit-zero",
+      "note": "a seat limit is at least 1",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": [],
+        "name": "Acme Group",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2,
+        "seatLimit": 0
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-seat-limit-fraction",
+      "note": "a seat limit is a whole number",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": [],
+        "name": "Acme Group",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2,
+        "seatLimit": 1.5
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-seat-limit-too-large",
+      "note": "a seat limit is at most 1000000",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": [],
+        "name": "Acme Group",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2,
+        "seatLimit": 1000001
+      }
+    },
+    {
+      "accepts": false,
+      "id": "profile-request-seat-limit-string",
+      "note": "a seat limit is a number, not text",
+      "schema": "profileRequest",
+      "value": {
+        "eventId": "profile:0000000000000000000000000000000000000000000000000000000000000000",
+        "formerSlugs": [],
+        "name": "Acme Group",
+        "slug": "acme",
+        "tenantId": "3f1c9a52-7b4e-4c1d-9e1a-0c2b8d7f6e5a",
+        "version": 2,
+        "seatLimit": "50"
       }
     },
     {

@@ -23,6 +23,9 @@ export const bootstrapOwnerId = (tenantId: string) =>
  * the email is left as it is (its password, verification and sessions are never touched), and the
  * earlier initial account is then removed rather than kept as a second Owner.
  *
+ * The platform creates this account, so the tenant's seat limit does not stop it; it counts as a
+ * member like any other. It takes no part in the seat lock: it runs before the tenant opens.
+ *
  * Runs in an owner transaction with the tenant search_path (the `seed` step, `tenant-bootstrap-owner`).
  */
 export const seedBootstrapOwner = async (

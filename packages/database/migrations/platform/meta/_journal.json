@@ -64,6 +64,13 @@
       "when": 1793852433355,
       "tag": "0008_provision_pending_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794271000495,
+      "tag": "0009_tenant_seat_limit",
+      "breakpoints": true
     }
   ]
 }

@@ -860,6 +860,18 @@
             "maxLength": 128,
             "pattern": "^[\\w.:-]+$"
           },
+          "seatLimit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "slug": {
             "type": "string",
             "minLength": 2,
@@ -1585,6 +1597,18 @@
             "maxLength": 128,
             "pattern": "^[\\w.:-]+$"
           },
+          "seatLimit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "slug": {
             "type": "string",
             "minLength": 2,
@@ -1705,6 +1729,18 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256
+          },
+          "seatLimit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "slug": {
             "type": "string",

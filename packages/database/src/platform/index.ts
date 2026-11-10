@@ -19,3 +19,4 @@ export {
   tenantRuntimeProcess,
   tenantSlugAlias,
 } from './schemas';
+export { assertSeatAvailable, SeatLimitError, withSeatLimit } from './seatLimit';
