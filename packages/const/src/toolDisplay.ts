@@ -36,3 +36,19 @@ export const getToolDisplayIdentifier = (identifier: string): string => {
 
   return identifier;
 };
+
+/**
+ * Text shown to people that quotes builtin identifiers, such as a builtin
+ * skill's instructions in its detail panel: `lobe-<name>` IDs show as their
+ * display identifier, and the `lobe` namespace of protocol names
+ * (`<lobeArtifact>`, `application/lobe.artifacts.react`) as
+ * `BUILTIN_TOOL_DISPLAY_NAMESPACE`. Presentation only: the model still receives
+ * the original text. Unchanged when the distribution sets no namespace.
+ */
+export const getToolDisplayText = (text: string): string => {
+  if (!BUILTIN_TOOL_DISPLAY_NAMESPACE) return text;
+
+  return text.replaceAll(/(?<![\w-])lobe(?:(?:-[\da-z]+)+|(?=[.A-Z]))/g, (match) =>
+    match === 'lobe' ? BUILTIN_TOOL_DISPLAY_NAMESPACE : getToolDisplayIdentifier(match),
+  );
+};

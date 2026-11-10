@@ -1,6 +1,6 @@
 'use client';
 
-import { getLobehubSkillProviderById } from '@lobechat/const';
+import { getLobehubSkillProviderById, getToolDisplayText } from '@lobechat/const';
 import { agentDisplayName } from '@lobechat/types';
 import {
   Avatar,
@@ -494,7 +494,7 @@ const SkillDetail = memo<SkillDetailProps>(({ identifier, type, onDelete }) => {
         </div>
         {builtinSkillContent && (
           <div style={{ padding: '16px 24px' }}>
-            <Markdown variant="chat">{builtinSkillContent}</Markdown>
+            <Markdown variant="chat">{getToolDisplayText(builtinSkillContent)}</Markdown>
           </div>
         )}
       </div>
