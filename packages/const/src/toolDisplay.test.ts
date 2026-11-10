@@ -1,7 +1,7 @@
 import type * as BusinessConstModule from '@lobechat/business-const';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { getToolDisplayIdentifier } from './toolDisplay';
+import { getToolDisplayIdentifier, getToolDisplayText } from './toolDisplay';
 
 const brand = vi.hoisted(() => ({
   displayIdentifiers: {} as Record<string, string>,
@@ -64,5 +64,25 @@ describe('getToolDisplayIdentifier', () => {
   it('ignores prototype members of the display map', () => {
     for (const id of ['constructor', 'toString', '__proto__'])
       expect(getToolDisplayIdentifier(id)).toBe(id);
+  });
+});
+
+describe('getToolDisplayText', () => {
+  const text =
+    'Use **lobe-canvas** or lobe-artifacts. Wrap it in `<lobeArtifact>` ' +
+    '(`application/lobe.artifacts.react`). Keep lobehub, my-lobe-tool, globe-x and lobe alone.';
+
+  it('leaves text unchanged when the distribution sets no namespace', () => {
+    expect(getToolDisplayText(text)).toBe(text);
+  });
+
+  it('shows builtin IDs and protocol names under the display namespace', () => {
+    brand.namespace = 'acme';
+    brand.displayIdentifiers = { 'lobe-artifacts': 'acme-portfolio' };
+
+    expect(getToolDisplayText(text)).toBe(
+      'Use **acme-canvas** or acme-portfolio. Wrap it in `<acmeArtifact>` ' +
+        '(`application/acme.artifacts.react`). Keep lobehub, my-lobe-tool, globe-x and lobe alone.',
+    );
   });
 });

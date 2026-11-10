@@ -1,6 +1,7 @@
 'use client';
 
 import { BRANDING_NAME } from '@lobechat/business-const';
+import { getToolDisplayText } from '@lobechat/const';
 import isEqual from 'fast-deep-equal';
 import { type ReactNode, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -61,7 +62,7 @@ export const BuiltinAgentSkillDetailProvider = ({
     localizedDescription,
     localizedReadme,
     readme: '',
-    skillContent,
+    skillContent: skillContent && getToolDisplayText(skillContent),
     tools: [],
     toolsLoading: false,
   };
