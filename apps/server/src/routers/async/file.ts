@@ -53,17 +53,24 @@ const PARSE_CONCURRENCY = 2;
 let activeParses = 0;
 const waitingParses: (() => void)[] = [];
 
-const withParseSlot = async <T>(fn: () => Promise<T>): Promise<T> => {
+const withParseSlot = async <T>(fn: (release: () => void) => Promise<T>): Promise<T> => {
   if (activeParses < PARSE_CONCURRENCY) activeParses++;
   // a finishing task hands its slot straight to the next waiter
   else await new Promise<void>((resolve) => waitingParses.push(resolve));
 
-  try {
-    return await fn();
-  } finally {
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
     const next = waitingParses.shift();
     if (next) next();
     else activeParses--;
+  };
+
+  try {
+    return await fn(release);
+  } finally {
+    release();
   }
 };
 
@@ -267,7 +274,7 @@ export const fileRouter = router({
         };
       }
 
-      const parse = async () => {
+      const parse = async (releaseParseSlot: () => void) => {
         let content: Uint8Array | undefined;
         try {
           content = await fileService.getFileByteArray(file.url);
@@ -313,7 +320,7 @@ export const fileRouter = router({
         try {
           const startAt = Date.now();
 
-          const timeoutPromise = new Promise<never>((_, reject) => {
+          const timeoutPromise = new Promise((_, reject) => {
             setTimeout(() => {
               reject(
                 new AsyncTaskError(
@@ -385,6 +392,14 @@ export const fileRouter = router({
               status: AsyncTaskStatus.Success,
             });
 
+            // if enable auto embedding, trigger the embedding task
+            if (fileEnv.CHUNKS_AUTO_EMBEDDING) {
+              // It is network-bound and can run long: free the parse slot first, so it never
+              // holds back the files still waiting to be parsed.
+              releaseParseSlot();
+              await chunkService.asyncEmbeddingFileChunks(input.fileId);
+            }
+
             return { success: true };
           };
           // Race between the chunking process and the timeout
@@ -412,21 +427,13 @@ export const fileRouter = router({
         }
       };
 
-      const result = await withParseSlot(() =>
+      return withParseSlot((release) =>
         withActivity(
           'file',
           'parseFileToChunks',
           { fileId: input.fileId, name: file.name, size: file.size },
-          parse,
+          () => parse(release),
         ),
       );
-
-      // The embedding task is network-bound and can run long: start it once the parse slot is
-      // free, so it never holds back the files still waiting to be parsed.
-      if (result?.success && fileEnv.CHUNKS_AUTO_EMBEDDING) {
-        await chunkService.asyncEmbeddingFileChunks(input.fileId);
-      }
-
-      return result;
     }),
 });
