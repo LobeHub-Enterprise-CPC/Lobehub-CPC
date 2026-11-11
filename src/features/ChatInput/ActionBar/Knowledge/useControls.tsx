@@ -1,12 +1,13 @@
 import { type ItemType } from '@lobehub/ui';
-import { createStaticStyles, cssVar, cx, Icon } from '@lobehub/ui';
+import { ActionIcon, createStaticStyles, cssVar, cx, Flexbox, Icon, Text } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
-import { LibraryBig } from 'lucide-react';
+import { LibraryBig, XIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import FileIcon from '@/components/FileIcon';
 import RepoIcon from '@/components/LibIcon';
+import { EnterpriseAccessBadge } from '@/features/EnterpriseKnowledge/AccessBadge';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors } from '@/store/agent/selectors';
 
@@ -81,20 +82,38 @@ export const useControls = ({
     s.toggleFile,
     s.toggleKnowledgeBase,
   ]);
+  const removeKnowledgeBase = useAgentStore((s) => s.removeKnowledgeBaseFromAgent);
   const enabledCount =
     files.filter((item) => item.enabled).length +
-    knowledgeBases.filter((item) => item.enabled).length;
+    knowledgeBases.filter((item) => item.enabled && !item.accessRevoked).length;
 
   const libraryItems = knowledgeBases.map((item) => ({
     icon: <RepoIcon />,
     key: item.id,
-    label: (
+    label: item.accessRevoked ? (
+      <Flexbox horizontal align="center" gap={8}>
+        <Text ellipsis style={{ maxWidth: labelMaxWidth }}>
+          {item.name}
+        </Text>
+        <EnterpriseAccessBadge accessRevoked />
+        <ActionIcon
+          icon={XIcon}
+          title={t('knowledgeBase.library.action.remove')}
+          onClick={() => removeKnowledgeBase(item.id)}
+        />
+      </Flexbox>
+    ) : (
       <CheckboxItem
         checked={item.enabled}
         hasPadding={false}
         id={item.id}
-        label={item.name}
         labelMaxWidth={labelMaxWidth}
+        label={
+          <Flexbox horizontal align="center" gap={4}>
+            <Text ellipsis>{item.name}</Text>
+            <EnterpriseAccessBadge enterprise={item.enterprise} />
+          </Flexbox>
+        }
         onUpdate={async (id, enabled) => {
           await toggleKnowledgeBase(id, enabled);
         }}

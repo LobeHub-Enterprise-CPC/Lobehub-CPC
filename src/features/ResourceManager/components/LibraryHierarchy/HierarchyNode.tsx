@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import FileIcon from '@/components/FileIcon';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { PAGE_FILE_TYPE } from '@/features/ResourceManager/constants';
 import {
   getTransparentDragImage,
@@ -60,6 +61,7 @@ interface HierarchyNodeProps {
 
 export const HierarchyNode = memo<HierarchyNodeProps>(
   ({ item, level = 0, flat, isExpanded, isLoading, onToggle, selectedKey, parentKey }) => {
+    const { allowed: canEdit } = useLibraryPermission('edit_own_content');
     const navigate = useWorkspaceAwareNavigate();
 
     const [setMode, libraryId] = useResourceManagerStore((s) => [s.setMode, s.libraryId]);
@@ -104,15 +106,17 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
     }, [item.fileType, item.sourceType, item.name, item.metadata?.emoji]);
 
     const handleRenameStart = useCallback(() => {
+      if (!canEdit) return;
       setIsRenaming(true);
       setRenamingValue(item.name);
       setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
       }, 0);
-    }, [item.name]);
+    }, [item.name, canEdit]);
 
     const handleRenameConfirm = useCallback(async () => {
+      if (!canEdit) return;
       if (!renamingValue.trim()) {
         toast.error(t('FileManager.actions.folderNameRequired', { ns: 'components' }));
         return;
@@ -131,7 +135,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
         console.error('Rename error:', error);
         toast.error(t('FileManager.actions.renameError', { ns: 'components' }));
       }
-    }, [item.id, item.name, parentKey, renamingValue, renameItem, t]);
+    }, [canEdit, item.id, item.name, parentKey, renamingValue, renameItem, t]);
 
     // A folder freshly created from the tree's per-folder "+" enters inline
     // rename as soon as its row mounts (the parent was expanded/revalidated by
@@ -229,6 +233,10 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
 
     const handleDragStart = useCallback(
       (e: React.DragEvent<HTMLDivElement>) => {
+        if (!canEdit) {
+          e.preventDefault();
+          return;
+        }
         setIsDragging(true);
         setCurrentDrag({
           data: dragData,
@@ -245,7 +253,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
           e.dataTransfer.effectAllowed = 'move';
         }
       },
-      [dragData, item.id, item.isFolder, parentKey, setCurrentDrag],
+      [canEdit, dragData, item.id, item.isFolder, parentKey, setCurrentDrag],
     );
 
     const handleDragEnd = useCallback(() => {
@@ -254,13 +262,13 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
 
     const handleDragOver = useCallback(
       (e: React.DragEvent<HTMLDivElement>) => {
-        if (!item.isFolder || !isDragActive) return;
+        if (!canEdit || !item.isFolder || !isDragActive) return;
 
         e.preventDefault();
         e.stopPropagation();
         setIsOver(true);
       },
-      [item.isFolder, isDragActive],
+      [canEdit, item.isFolder, isDragActive],
     );
 
     const handleDragLeave = useCallback(() => {
@@ -304,7 +312,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
             align={'center'}
             data-drop-target-id={item.id}
             data-is-folder={String(item.isFolder)}
-            draggable={!flat}
+            draggable={!flat && canEdit}
             gap={8}
             height={36}
             paddingInline={4}
@@ -359,7 +367,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
               style={{ minHeight: 28, minWidth: 0, overflow: 'hidden' }}
             >
               <Icon icon={isExpanded ? FolderOpenIcon : FolderIcon} size={18} />
-              {isRenaming ? (
+              {isRenaming && canEdit ? (
                 <Input
                   ref={inputRef}
                   size="small"
@@ -403,7 +411,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
           className={cx(styles.treeItem, isDragging && styles.dragging)}
           data-drop-target-id={item.id}
           data-is-folder={false}
-          draggable={!flat}
+          draggable={!flat && canEdit}
           gap={8}
           height={36}
           paddingInline={4}

@@ -13,6 +13,7 @@ import { FileBoxIcon } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { isChunkingSupported } from '@/libs/document-loaders/loaderType';
 import { fileManagerSelectors, useFileStore } from '@/store/file';
 import { type AsyncTaskStatus, type IAsyncTaskError } from '@/types/asyncTask';
@@ -198,6 +199,7 @@ const ImageFileItem = memo<ImageFileItemProps>(
     const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
     // Falls back to a reserved box until the bitmap reports its own ratio.
     const [aspectRatio, setAspectRatio] = useState(knownAspectRatio ?? FALLBACK_ASPECT_RATIO);
+    const { allowed: canEdit } = useLibraryPermission('edit_own_content');
     const [isCreatingFileParseTask, parseFiles] = useFileStore((s) => [
       fileManagerSelectors.isCreatingFileParseTask(id)(s),
       s.parseFilesToChunks,
@@ -286,6 +288,7 @@ const ImageFileItem = memo<ImageFileItemProps>(
             />
           </div>
         ) : (
+          canEdit &&
           isSupportedForChunking && (
             <Tooltip title={t('FileManager.actions.chunkingTooltip')}>
               <div
@@ -293,7 +296,7 @@ const ImageFileItem = memo<ImageFileItemProps>(
                 style={{ cursor: 'pointer' }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!isCreatingFileParseTask) {
+                  if (canEdit && !isCreatingFileParseTask) {
                     parseFiles([id]);
                   }
                 }}

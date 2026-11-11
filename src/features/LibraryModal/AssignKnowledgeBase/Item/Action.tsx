@@ -1,5 +1,5 @@
 import { withCurrentTenantPath } from '@lobechat/business-tenant/client';
-import { ActionIcon, Button, DropdownMenu, Flexbox, Icon } from '@lobehub/ui';
+import { ActionIcon, Button, DropdownMenu, Flexbox, Icon, toast } from '@lobehub/ui';
 import { InfoIcon, MoreVerticalIcon, Trash2 } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,12 +11,13 @@ import { useServerConfigStore } from '@/store/serverConfig';
 import { KnowledgeType } from '@/types/knowledgeBase';
 
 interface ActionsProps {
+  accessRevoked?: boolean;
   enabled?: boolean;
   id: string;
   type: KnowledgeType;
 }
 
-const Actions = memo<ActionsProps>(({ id, type, enabled }) => {
+const Actions = memo<ActionsProps>(({ id, type, enabled, accessRevoked }) => {
   const { t } = useTranslation('chat');
 
   const mobile = useServerConfigStore((s) => s.isMobile);
@@ -36,24 +37,40 @@ const Actions = memo<ActionsProps>(({ id, type, enabled }) => {
   const [loading, setLoading] = useState(false);
 
   const assignKnowledge = async () => {
+    if (accessRevoked) return;
     setLoading(true);
-    if (type === KnowledgeType.KnowledgeBase) {
-      await addKnowledgeBasesToAgent(id);
-    } else {
-      await addFilesToAgent([id], true);
+    try {
+      if (type === KnowledgeType.KnowledgeBase) {
+        await addKnowledgeBasesToAgent(id);
+      } else {
+        await addFilesToAgent([id], true);
+      }
+    } catch {
+      toast.error(t('operationFailed', { ns: 'common' }));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const removeKnowledge = async () => {
     setLoading(true);
-    if (type === KnowledgeType.KnowledgeBase) {
-      await removeKnowledgeBasesFromAgent(id);
-    } else {
-      await removeFilesFromAgent(id);
+    try {
+      if (type === KnowledgeType.KnowledgeBase) {
+        await removeKnowledgeBasesFromAgent(id);
+      } else {
+        await removeFilesFromAgent(id);
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
+
+  if (accessRevoked)
+    return (
+      <Button loading={loading} size="small" onClick={removeKnowledge}>
+        {t('knowledgeBase.library.action.remove')}
+      </Button>
+    );
 
   return (
     <Flexbox horizontal align={'center'}>
@@ -84,7 +101,11 @@ const Actions = memo<ActionsProps>(({ id, type, enabled }) => {
             },
           ]}
         >
-          <ActionIcon icon={MoreVerticalIcon} loading={loading} />
+          <ActionIcon
+            icon={MoreVerticalIcon}
+            loading={loading}
+            title={t('more', { ns: 'common' })}
+          />
         </DropdownMenu>
       ) : (
         <Button

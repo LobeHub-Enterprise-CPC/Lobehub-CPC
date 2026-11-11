@@ -3,6 +3,7 @@ import { LockIcon } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 
 import KnowledgeIcon from '@/components/KnowledgeIcon';
+import { EnterpriseAccessBadge } from '@/features/EnterpriseKnowledge/AccessBadge';
 import { type KnowledgeItem } from '@/types/knowledgeBase';
 
 import Actions from './Action';
@@ -30,7 +31,19 @@ interface PluginItemProps extends KnowledgeItem {
 }
 
 const PluginItem = memo<PluginItemProps>(
-  ({ action, id, fileType, name, type, description, enabled, memberRestricted, visibility }) => {
+  ({
+    action,
+    id,
+    fileType,
+    name,
+    type,
+    description,
+    enabled,
+    memberRestricted,
+    visibility,
+    enterprise,
+    accessRevoked,
+  }) => {
     return (
       <Flexbox
         horizontal
@@ -50,7 +63,7 @@ const PluginItem = memo<PluginItemProps>(
         >
           <KnowledgeIcon
             fileType={fileType}
-            locked={memberRestricted}
+            locked={memberRestricted || accessRevoked}
             name={name}
             size={{ file: 40, repo: 40 }}
             type={type}
@@ -64,6 +77,7 @@ const PluginItem = memo<PluginItemProps>(
                 {name}
               </Text>
             </Flexbox>
+            <EnterpriseAccessBadge accessRevoked={accessRevoked} enterprise={enterprise} />
             {description && (
               <Text ellipsis className={styles.desc}>
                 {description}
@@ -71,7 +85,11 @@ const PluginItem = memo<PluginItemProps>(
             )}
           </Flexbox>
         </Flexbox>
-        {action === undefined ? <Actions enabled={enabled} id={id} type={type} /> : action}
+        {action === undefined ? (
+          <Actions accessRevoked={accessRevoked} enabled={enabled} id={id} type={type} />
+        ) : (
+          action
+        )}
       </Flexbox>
     );
   },

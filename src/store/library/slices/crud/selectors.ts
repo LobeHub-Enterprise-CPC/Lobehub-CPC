@@ -21,7 +21,22 @@ const isKnowledgeBaseListInit =
   (visibility?: KnowledgeBaseVisibility) => (s: KnowledgeBaseStoreState) =>
     s.knowledgeBaseListMap[knowledgeBaseListKey(visibility)] !== undefined;
 
+const getLoadedKnowledgeBaseById = (id?: string | null) => (s: KnowledgeBaseStoreState) => {
+  if (!id) return undefined;
+  return (
+    s.knowledgeBaseDetailMap[id] ??
+    Object.values(s.knowledgeBaseListMap)
+      .flat()
+      .find((kb) => kb?.id === id)
+  );
+};
+
+const sessionAccess = (scope: string, id: string) => (s: KnowledgeBaseStoreState) =>
+  s.knowledgeBaseSessionAccess[`${scope}|${id}`];
+
 export const knowledgeBaseSelectors = {
+  sessionAccess,
+  getLoadedKnowledgeBaseById,
   activeKnowledgeBaseId,
   getKnowledgeBaseById,
   getKnowledgeBaseList,

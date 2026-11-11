@@ -6,7 +6,7 @@ import { FileBoxIcon } from 'lucide-react';
 import { useMemo } from 'react';
 
 import { useFileTransferMenuItem } from '@/business/client/hooks/useFileTransferMenuItem';
-import { usePermission } from '@/hooks/usePermission';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { getChunkTargetId } from '@/store/file';
 
 import DropdownMenu from '../../ItemDropdown/DropdownMenu';
@@ -75,7 +75,7 @@ const FileListItemActions = ({
   parseFiles,
   t,
 }: FileListItemActionsProps) => {
-  const { allowed: canEditResources } = usePermission('edit_own_content');
+  const { allowed: canEditResources, enterprise } = useLibraryPermission('edit_own_content');
   const chunkTargetId = getChunkTargetId({ fileId, id });
   const transferMenuItems = useFileTransferMenuItem(
     id,
@@ -84,8 +84,8 @@ const FileListItemActions = ({
 
   const mergedMenuItems = useMemo(() => {
     const baseItems = typeof menuItems === 'function' ? menuItems() : menuItems;
-    return appendTransferMenuItemsBeforeDelete(baseItems, transferMenuItems);
-  }, [menuItems, transferMenuItems]);
+    return appendTransferMenuItemsBeforeDelete(baseItems, !enterprise ? transferMenuItems : null);
+  }, [menuItems, transferMenuItems, enterprise]);
 
   return (
     <Flexbox

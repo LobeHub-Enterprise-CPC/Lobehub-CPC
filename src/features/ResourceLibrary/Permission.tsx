@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
 
 import { RouteLoading } from '@/components/Skeleton/RouteSegment';
+import { EnterpriseAccessPage } from '@/features/EnterpriseKnowledge/AccessPage';
 import { useKnowledgeBaseItem } from '@/features/ResourceManager/hooks/useKnowledgeItem';
 import ResourceAccessPage from '@/features/ResourcePermission/ResourceAccessPage';
 
@@ -23,6 +24,8 @@ const LibraryPermission = memo(() => {
 
   if (!id) return null;
   if (isLoading) return <RouteLoading />;
+
+  if (data?.enterprise) return <EnterpriseAccessPage key={id} library={data} />;
 
   return (
     <ResourceAccessPage

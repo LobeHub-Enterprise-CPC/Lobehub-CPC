@@ -1,4 +1,6 @@
 export default {
+  'builtins.lobe-knowledge-base.render.skippedKnowledgeBases':
+    'Some knowledge bases were excluded from search because of access permissions.',
   'builtins.lobe-attachments.apiName.readAttachment': 'Read attachment',
   'builtins.lobe-attachments.title': 'Attachments',
   'builtins.lobe-goal-supervisor.apiName.inspectGoal': 'Inspect goal',

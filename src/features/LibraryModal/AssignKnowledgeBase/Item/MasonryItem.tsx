@@ -3,6 +3,7 @@ import { LockIcon } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 
 import KnowledgeIcon from '@/components/KnowledgeIcon';
+import { EnterpriseAccessBadge } from '@/features/EnterpriseKnowledge/AccessBadge';
 import { type KnowledgeItem } from '@/types/knowledgeBase';
 
 import Actions from './Action';
@@ -47,14 +48,26 @@ interface MasonryItemProps extends KnowledgeItem {
 }
 
 const MasonryItem = memo<MasonryItemProps>(
-  ({ action, id, fileType, name, type, description, enabled, memberRestricted, visibility }) => {
+  ({
+    action,
+    id,
+    fileType,
+    name,
+    type,
+    description,
+    enabled,
+    memberRestricted,
+    visibility,
+    enterprise,
+    accessRevoked,
+  }) => {
     return (
       <div className={styles.card}>
         <Flexbox gap={12} style={{ position: 'relative' }}>
           <Flexbox horizontal align={'center'} gap={12}>
             <KnowledgeIcon
               fileType={fileType}
-              locked={memberRestricted}
+              locked={memberRestricted || accessRevoked}
               name={name}
               size={{ file: 48, repo: 48 }}
               type={type}
@@ -70,13 +83,18 @@ const MasonryItem = memo<MasonryItemProps>(
               </Flexbox>
             </Flexbox>
           </Flexbox>
+          <EnterpriseAccessBadge accessRevoked={accessRevoked} enterprise={enterprise} />
           {description && (
             <Text className={styles.desc} ellipsis={{ rows: 3 }}>
               {description}
             </Text>
           )}
           <Flexbox align={'center'} justify={'flex-end'}>
-            {action === undefined ? <Actions enabled={enabled} id={id} type={type} /> : action}
+            {action === undefined ? (
+              <Actions accessRevoked={accessRevoked} enabled={enabled} id={id} type={type} />
+            ) : (
+              action
+            )}
           </Flexbox>
         </Flexbox>
       </div>

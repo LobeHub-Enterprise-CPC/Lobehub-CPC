@@ -6,8 +6,8 @@ import * as m from 'motion/react-m';
 import { type ReactNode } from 'react';
 import { memo, useMemo, useRef } from 'react';
 
+import { usePageLibraryPermission } from '@/features/EnterpriseKnowledge/usePageLibraryPermission';
 import RightPanel from '@/features/RightPanel';
-import { usePermission } from '@/hooks/usePermission';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { useUserStore } from '@/store/user';
@@ -107,7 +107,7 @@ PageEditorRightPanelContent.displayName = 'PageEditorRightPanelContent';
 const PageEditorRightPanel = memo(() => {
   const { expand, toggle } = usePageAgentPanelControl();
   const rightPanelMode = usePageEditorStore(selectors.rightPanelMode);
-  const { allowed: hasEditPermission } = usePermission('edit_own_content');
+  const { allowed: hasEditPermission } = usePageLibraryPermission('edit_own_content');
   const [width, updateSystemStatus] = useGlobalStore((s) => [
     systemStatusSelectors.pageAgentPanelWidth(s),
     s.updateSystemStatus,

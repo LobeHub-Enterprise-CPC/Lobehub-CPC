@@ -468,3 +468,7 @@ describe('useFileItemDropdown — row without a stored URL', () => {
     );
   });
 });
+
+vi.mock('@/features/EnterpriseKnowledge/useLibraryPermission', () => ({
+  useLibraryPermission: () => ({ allowed: true, enterprise: false }),
+}));

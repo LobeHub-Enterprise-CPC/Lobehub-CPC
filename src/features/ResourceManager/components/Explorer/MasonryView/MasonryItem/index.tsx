@@ -17,6 +17,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import {
   getTransparentDragImage,
   useDragActive,
@@ -225,6 +226,7 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
     visibility,
   }) => {
     const { t } = useTranslation(['components', 'chat']);
+    const { allowed: canEdit } = useLibraryPermission('edit_own_content', knowledgeBaseId);
     const chunkTargetId = getChunkTargetId({ fileId, id });
     const isDragActive = useDragActive();
     const setCurrentDrag = useSetCurrentDrag();
@@ -274,7 +276,7 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
     // Native HTML5 drag event handlers
     const handleDragStart = useCallback(
       (e: React.DragEvent) => {
-        if (!knowledgeBaseId) {
+        if (!knowledgeBaseId || !canEdit) {
           e.preventDefault();
           return;
         }
@@ -295,7 +297,7 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
         }
         e.dataTransfer.effectAllowed = 'move';
       },
-      [knowledgeBaseId, dragData, id, isFolder, setCurrentDrag],
+      [canEdit, knowledgeBaseId, dragData, id, isFolder, setCurrentDrag],
     );
 
     const handleDragEnd = useCallback(() => {
@@ -304,13 +306,13 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
 
     const handleDragOver = useCallback(
       (e: React.DragEvent) => {
-        if (!isFolder || !isDragActive) return;
+        if (!canEdit || !isFolder || !isDragActive) return;
 
         e.preventDefault();
         e.stopPropagation();
         setIsOver(true);
       },
-      [isFolder, isDragActive],
+      [canEdit, isFolder, isDragActive],
     );
 
     const handleDragLeave = useCallback(() => {
@@ -367,7 +369,7 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
       <div
         data-drop-target-id={id}
         data-is-folder={isFolder}
-        draggable={!!knowledgeBaseId}
+        draggable={!!knowledgeBaseId && canEdit}
         ref={cardRef}
         className={cx(
           styles.card,

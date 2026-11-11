@@ -1,3 +1,4 @@
+import type { EnterpriseKnowledgeBaseInfo } from '@lobechat/types';
 import type { DropdownItem } from '@lobehub/ui';
 import { confirmModal, Icon, toast } from '@lobehub/ui';
 import { EyeOffIcon, FileText, GlobeIcon, PencilLine, Trash, UsersIcon } from 'lucide-react';
@@ -6,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useKnowledgeBaseTransferMenuItem } from '@/business/client/hooks/useKnowledgeBaseTransferMenuItem';
+import { getKnowledgeBaseCapabilities } from '@/features/EnterpriseKnowledge/capabilities';
 import { useCreateNewModal } from '@/features/LibraryModal';
 import VisibilityConfirmContent from '@/features/VisibilityConfirmContent';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -17,6 +19,7 @@ import { userProfileSelectors } from '@/store/user/selectors';
 
 interface ActionProps {
   description?: string | null;
+  enterprise?: EnterpriseKnowledgeBaseInfo;
   id: string;
   name: string;
   /** Server-computed on the list payload: creator or KNOWLEDGE_BASE_UPDATE:all. */
@@ -30,6 +33,7 @@ export const useDropdownMenu = ({
   id,
   name,
   description,
+  enterprise,
   permissionManageable,
   toggleEditing,
   userId,
@@ -43,7 +47,9 @@ export const useDropdownMenu = ({
   );
   const setKnowledgeBaseVisibility = useKnowledgeBaseStore((s) => s.setKnowledgeBaseVisibility);
   const { open } = useCreateNewModal();
-  const { allowed: canEdit } = usePermission('edit_own_content');
+  const { allowed: roleCanEdit } = usePermission('edit_own_content');
+  const capabilities = getKnowledgeBaseCapabilities({ enterprise }, roleCanEdit);
+  const canEdit = capabilities.canManageInfo;
   // Cross-workspace move/copy follows the same creator-or-owner rule as the
   // other ownership actions. Unavailable row actions are omitted from the
   // compact menu instead of leaving members with disabled dead ends.
@@ -53,11 +59,19 @@ export const useDropdownMenu = ({
   // Only the creator of a still-private KB sees the "Publish to workspace" entry.
   // Mirrors the file / agent / task one-way publish pattern.
   const isOwnPrivateKb =
-    visibility === 'private' && !!currentUserId && !!userId && userId === currentUserId;
+    !enterprise &&
+    visibility === 'private' &&
+    !!currentUserId &&
+    !!userId &&
+    userId === currentUserId;
   // Bidirectional counterpart: workspace-public KBs owned by the caller can be
   // pulled back to private via the same guarded server path.
   const isOwnPublicKb =
-    visibility === 'public' && !!currentUserId && !!userId && userId === currentUserId;
+    !enterprise &&
+    visibility === 'public' &&
+    !!currentUserId &&
+    !!userId &&
+    userId === currentUserId;
 
   // Member Permissions entry: navigates to the standalone permission page,
   // same as Agent. Private KBs are included — the creator configures what
@@ -68,18 +82,21 @@ export const useDropdownMenu = ({
   const wsNavigate = useWorkspaceAwareNavigate();
   const memberPermissionMenuItem = useMemo(
     () =>
-      activeWorkspaceId && permissionManageable
+      enterprise?.accessLevel === 'owner' ||
+      (!enterprise && activeWorkspaceId && permissionManageable)
         ? {
             icon: <Icon icon={UsersIcon} />,
             key: 'member-permissions',
-            label: t('permission.page.entry', { ns: 'setting' }),
+            label: enterprise
+              ? t('enterprise.access', { ns: 'knowledgeBase' })
+              : t('permission.page.entry', { ns: 'setting' }),
             onClick: (info: any) => {
               info.domEvent?.stopPropagation();
               wsNavigate(`/resource/library/${id}/permission`);
             },
           }
         : null,
-    [activeWorkspaceId, permissionManageable, id, t, wsNavigate],
+    [enterprise, activeWorkspaceId, permissionManageable, id, t, wsNavigate],
   );
 
   const handleDelete = useCallback(() => {
@@ -212,8 +229,8 @@ export const useDropdownMenu = ({
         memberPermissionMenuItem,
       ].filter(Boolean) as NonNullable<DropdownItem[]>,
       // Cross-workspace move / copy: creator-or-owner only.
-      canEdit && canManage ? (transferMenuItems ?? []) : [],
-      canEdit
+      capabilities.canTransfer && canManage ? (transferMenuItems ?? []) : [],
+      capabilities.canRemoveLibrary
         ? [
             {
               danger: true,
@@ -231,6 +248,8 @@ export const useDropdownMenu = ({
       .flatMap((group, index) => (index === 0 ? group : [{ type: 'divider' as const }, ...group]));
   }, [
     canEdit,
+    capabilities.canTransfer,
+    capabilities.canRemoveLibrary,
     canManage,
     t,
     toggleEditing,

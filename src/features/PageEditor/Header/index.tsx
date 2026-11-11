@@ -16,9 +16,9 @@ import { useTranslation } from 'react-i18next';
 import ShareButton from '@/business/client/features/PageShare/ShareButton';
 import { DESKTOP_HEADER_ICON_SMALL_SIZE } from '@/const/layoutTokens';
 import { AutoSaveHint } from '@/features/EditorCanvas';
+import { usePageLibraryPermission } from '@/features/EnterpriseKnowledge/usePageLibraryPermission';
 import NavHeader from '@/features/NavHeader';
 import ToggleRightPanelButton from '@/features/RightPanel/ToggleRightPanelButton';
-import { usePermission } from '@/hooks/usePermission';
 
 import { useDocumentComments } from '../DocumentComments/context';
 import EditingIndicator from '../EditingIndicator';
@@ -46,7 +46,7 @@ const Header = memo(() => {
     s.onBack,
   ]);
   const rightPanelMode = usePageEditorStore(selectors.rightPanelMode);
-  const { allowed: hasEditPermission } = usePermission('edit_own_content');
+  const { allowed: hasEditPermission, enterprise } = usePageLibraryPermission('edit_own_content');
   const { expand: showPageAgentPanel, toggle: togglePageAgentPanel } = usePageAgentPanelControl();
   const { menuItems } = useMenu();
   // Mirror the gate inside PageEditor/RightPanel: copilot is a document-editing
@@ -66,7 +66,9 @@ const Header = memo(() => {
     <NavHeader
       left={
         <>
-          {onBack && <ActionIcon icon={ArrowLeftIcon} onClick={onBack} />}
+          {onBack && (
+            <ActionIcon icon={ArrowLeftIcon} title={t('back', { ns: 'common' })} onClick={onBack} />
+          )}
           {/* Breadcrumb - show when page has a parent folder */}
           {parentId && <Breadcrumb />}
           {/* Show icon and title only when there's no parent folder */}
@@ -86,7 +88,7 @@ const Header = memo(() => {
       right={
         <>
           <EditingIndicator />
-          {documentId && <ShareButton documentId={documentId} />}
+          {documentId && !enterprise && <ShareButton documentId={documentId} />}
           {/* Three-dot menu */}
           <DropdownMenu
             iconSpaceMode="group"
@@ -98,7 +100,11 @@ const Header = memo(() => {
               },
             }}
           >
-            <ActionIcon icon={MoreHorizontal} size={DESKTOP_HEADER_ICON_SMALL_SIZE} />
+            <ActionIcon
+              icon={MoreHorizontal}
+              size={DESKTOP_HEADER_ICON_SMALL_SIZE}
+              title={t('more', { ns: 'common' })}
+            />
           </DropdownMenu>
           {(comments?.panelAvailable || canExpandRightPanel) && (
             // The framed segment control only earns its frame with two

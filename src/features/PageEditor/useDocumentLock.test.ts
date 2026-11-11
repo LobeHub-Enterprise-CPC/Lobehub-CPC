@@ -17,8 +17,8 @@ vi.mock('./usePageLockedByOther', () => ({
   usePageLockedByOther: () => false,
 }));
 
-vi.mock('@/hooks/usePermission', () => ({
-  usePermission: () => ({ allowed: true }),
+vi.mock('@/features/EnterpriseKnowledge/usePageLibraryPermission', () => ({
+  usePageLibraryPermission: () => ({ allowed: true }),
 }));
 
 vi.mock('@/features/ResourcePermission/useResourceAccess', () => ({

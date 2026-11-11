@@ -13,10 +13,10 @@ import { type ChangeEvent } from 'react';
 import { useCallback, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useCurrentFolderId } from '@/features/ResourceManager/hooks/useCurrentFolderId';
 import { useTopLevelFileUpload } from '@/features/ResourceManager/hooks/useTopLevelFileUpload';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
-import { usePermission } from '@/hooks/usePermission';
 import { useFileStore } from '@/store/file';
 import { useTreeStore } from '@/store/tree';
 import { FilesTabs } from '@/types/files';
@@ -70,7 +70,7 @@ const AddButton = ({ iconOnly, rootLevel }: AddButtonProps = {}) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const urlFolderId = useCurrentFolderId();
   const currentFolderId = rootLevel ? null : urlFolderId;
-  const { allowed: canCreate, reason } = usePermission('create_content');
+  const { allowed: canCreate, reason, enterprise } = useLibraryPermission('create_content');
   const uploadTopLevel = useTopLevelFileUpload({ rootLevel });
 
   // TODO: Migrate Notion import to use createResource
@@ -306,6 +306,8 @@ const AddButton = ({ iconOnly, rootLevel }: AddButtonProps = {}) => {
       t,
     ],
   );
+
+  if (enterprise && !canCreate) return null;
 
   return (
     <>

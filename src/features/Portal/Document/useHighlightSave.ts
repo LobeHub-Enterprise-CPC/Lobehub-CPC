@@ -13,6 +13,8 @@ const isConflictError = (error: unknown) =>
   (error as { data?: { code?: string } })?.data?.code === 'CONFLICT';
 
 export interface UseHighlightSaveParams {
+  /** Check the latest permission before queued writes and the unmount flush. */
+  canSave?: () => boolean;
   content: string;
   documentId: string;
   /**
@@ -31,6 +33,7 @@ export interface UseHighlightSaveResult {
 }
 
 export const useHighlightSave = ({
+  canSave,
   content,
   documentId,
   onSaveStart,
@@ -41,6 +44,7 @@ export const useHighlightSave = ({
   const editingValue = buffer ?? content;
 
   const bufferRef = useRef(buffer);
+  const canSaveRef = useRef(canSave);
   const documentIdRef = useRef(documentId);
   const onSaveStartRef = useRef(onSaveStart);
   const expectedUpdatedAtRef = useRef(updatedAt);
@@ -48,13 +52,14 @@ export const useHighlightSave = ({
   const pendingSaveRef = useRef<Promise<void> | undefined>(undefined);
   const tRef = useRef(t);
   bufferRef.current = buffer;
+  canSaveRef.current = canSave;
   documentIdRef.current = documentId;
   onSaveStartRef.current = onSaveStart;
   tRef.current = t;
 
   const saveBuffer = useCallback(async (source: 'manual' | 'autosave') => {
     const toWrite = bufferRef.current;
-    if (toWrite === undefined) return;
+    if (toWrite === undefined || canSaveRef.current?.() === false) return;
     const expectedUpdatedAt = expectedUpdatedAtRef.current;
     try {
       const commitSaved = onSaveStartRef.current();

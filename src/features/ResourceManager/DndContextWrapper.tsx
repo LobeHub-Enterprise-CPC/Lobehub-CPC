@@ -8,7 +8,7 @@ import { createContext, lazy, memo, Suspense, use, useEffect, useRef, useState }
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
-import { usePermission } from '@/hooks/usePermission';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useTreeStore } from '@/store/tree';
 
 import { useResourceManagerStore } from './store';
@@ -74,7 +74,7 @@ export const useSetCurrentDrag = () => {
 export const DndContextWrapper = memo<PropsWithChildren>(({ children }) => {
   const { t } = useTranslation('components');
 
-  const { allowed: canEditResources } = usePermission('edit_own_content');
+  const { allowed: canEditResources } = useLibraryPermission('edit_own_content');
   const [currentDrag, setCurrentDrag] = useState<DragState | null>(null);
   const currentDragRef = useRef<DragState | null>(null);
   currentDragRef.current = currentDrag;

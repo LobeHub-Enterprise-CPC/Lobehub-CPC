@@ -5,9 +5,9 @@ import { memo, type ReactNode, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 
 import DragUploadZone from '@/components/DragUploadZone';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { PageEditor } from '@/features/PageEditor';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
-import { usePermission } from '@/hooks/usePermission';
 import dynamic from '@/libs/next/dynamic';
 import { invalidateDocumentMutation } from '@/services/document/invalidation';
 import { useFileStore } from '@/store/file';
@@ -77,7 +77,7 @@ const ResourceManager = memo<ResourceManagerProps>(({ content }) => {
 
   const currentDocument = useFileStore(documentSelectors.getDocumentById(currentViewItemId));
   const useFetchDocumentDetail = useFileStore((s) => s.useFetchDocumentDetail);
-  const { allowed: canUpload } = usePermission('create_content');
+  const { allowed: canUpload } = useLibraryPermission('create_content');
   const uploadTopLevel = useTopLevelFileUpload();
 
   const handleUploadFiles = useCallback(

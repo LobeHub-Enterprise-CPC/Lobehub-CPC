@@ -1,6 +1,7 @@
 import { CUSTOM_DOCUMENT_FILE_TYPE, DERIVED_DOCUMENT_SOURCE_TYPE } from '@lobechat/const';
 
 import { lambdaClient } from '@/libs/trpc/client';
+import { observeKnowledgeAccess } from '@/services/knowledgeAccessEvents';
 import {
   type CheckFileHashResult,
   type FileItem,
@@ -204,4 +205,4 @@ export class FileService {
   };
 }
 
-export const fileService = new FileService();
+export const fileService = observeKnowledgeAccess(new FileService());

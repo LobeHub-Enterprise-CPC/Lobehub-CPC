@@ -13,10 +13,10 @@ import { type ChangeEvent } from 'react';
 import { memo, useCallback, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import useNotionImport from '@/features/ResourceManager/components/Header/hooks/useNotionImport';
 import useUploadFolder from '@/features/ResourceManager/components/Header/hooks/useUploadFolder';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
-import { usePermission } from '@/hooks/usePermission';
 import { useFileStore } from '@/store/file';
 import { useTreeStore } from '@/store/tree';
 
@@ -42,7 +42,7 @@ const FolderAddButton = memo<FolderAddButtonProps>(({ folderId }) => {
   // Several rows mount at once; a fixed id would point every folder-upload
   // label at the first row's input.
   const folderUploadInputId = useId();
-  const { allowed: canCreate } = usePermission('create_content');
+  const { allowed: canCreate } = useLibraryPermission('create_content');
   const createResourceAndSync = useFileStore((s) => s.createResourceAndSync);
   const pushDockFileList = useFileStore((s) => s.pushDockFileList);
   const uploadFolderWithStructure = useFileStore((s) => s.uploadFolderWithStructure);

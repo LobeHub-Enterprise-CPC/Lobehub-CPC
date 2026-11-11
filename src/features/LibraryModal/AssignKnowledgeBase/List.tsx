@@ -1,5 +1,5 @@
 import { type KnowledgeItem } from '@lobechat/types';
-import { Alert, Center, Empty, Flexbox, Icon } from '@lobehub/ui';
+import { Alert, Center, Empty, Flexbox, Icon, Segmented, Text } from '@lobehub/ui';
 import { VirtuosoMasonry } from '@virtuoso.dev/masonry';
 import { BookOpen, ServerCrash } from 'lucide-react';
 import React, { memo, useMemo, useState } from 'react';
@@ -49,7 +49,13 @@ export const List = memo(() => {
       activeAgentId ? { agentId: activeAgentId, visibility: effectiveVisibility } : undefined,
     ),
   );
-  const items = data ?? EMPTY_KNOWLEDGE;
+  const [group, setGroup] = useState('personal');
+  const allItems = data ?? EMPTY_KNOWLEDGE;
+  const hasEnterprise = allItems.some((item) => item.enterprise || item.accessRevoked);
+  const activeGroup = hasEnterprise ? group : 'personal';
+  const items = allItems.filter(
+    (item) => Boolean(item.enterprise || item.accessRevoked) === (activeGroup === 'enterprise'),
+  );
 
   const [columnCount, setColumnCount] = useState(2);
 
@@ -109,6 +115,23 @@ export const List = memo(() => {
           />
         )}
       </Flexbox>
+      {hasEnterprise && (
+        <Segmented
+          value={activeGroup}
+          options={[
+            { label: t('enterprise.personalGroup', { ns: 'knowledgeBase' }), value: 'personal' },
+            { label: t('enterprise.group', { ns: 'knowledgeBase' }), value: 'enterprise' },
+          ]}
+          onChange={(value) => setGroup(String(value))}
+        />
+      )}
+      {hasEnterprise && (
+        <Text fontSize={12} type="secondary">
+          {t(activeGroup === 'enterprise' ? 'enterprise.group' : 'enterprise.personalGroup', {
+            ns: 'knowledgeBase',
+          })}
+        </Text>
+      )}
       {isLoading || isTransitioning ? (
         viewMode === 'masonry' ? (
           <MasonrySkeleton columnCount={columnCount} />

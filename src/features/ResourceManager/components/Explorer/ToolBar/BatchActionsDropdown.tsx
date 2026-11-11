@@ -12,10 +12,10 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import RepoIcon from '@/components/LibIcon';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { openWorkspaceDeleteAllModal } from '@/features/WorkspaceDeleteAllModal';
-import { usePermission } from '@/hooks/usePermission';
 import { useKnowledgeBaseStore } from '@/store/library';
 
 import ActionIconWithChevron from './ActionIconWithChevron';
@@ -43,7 +43,11 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
   const addFilesToKnowledgeBase = useKnowledgeBaseStore((s) => s.addFilesToKnowledgeBase);
   const knowledgeBases = useKnowledgeBaseListContext();
   const activeWorkspaceId = useActiveWorkspaceId();
-  const { allowed: canEditResources, reason } = usePermission('edit_own_content');
+  const {
+    allowed: canEditResources,
+    reason,
+    enterprise,
+  } = useLibraryPermission('edit_own_content');
   const isWorkspaceDeleteAll = !!activeWorkspaceId && selectAllState === 'all';
 
   const menuItems = useMemo<DropdownItem[]>(() => {
@@ -52,7 +56,7 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
     // Show delete library option only when in a knowledge base and no files selected
     if (!canEditResources) return items;
 
-    if (libraryId && selectCount === 0) {
+    if (libraryId && selectCount === 0 && !enterprise) {
       items.push({
         danger: true,
         icon: <Icon icon={Trash2Icon} />,
@@ -86,7 +90,7 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
         : 'public'
       : null;
     const availableKnowledgeBases = knowledgeBases.filter((kb) => {
-      if (kb.id === libraryId) return false;
+      if (kb.id === libraryId || kb.enterprise || enterprise) return false;
       if (targetKbVisibility) return kb.visibility === targetKbVisibility;
       return true;
     });
@@ -113,7 +117,7 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
       },
     }));
 
-    if (libraryId) {
+    if (libraryId && !enterprise) {
       items.push({
         disabled: selectCount === 0,
         icon: <Icon icon={BookMinusIcon} />,
@@ -226,6 +230,7 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
     t,
     knowledgeBases,
     canEditResources,
+    enterprise,
     listVisibility,
     activeWorkspaceId,
     isWorkspaceDeleteAll,

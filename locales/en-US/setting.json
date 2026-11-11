@@ -2092,6 +2092,8 @@
   "trash.title": "Trash",
   "trash.type.agent": "Agent",
   "trash.type.dashboard": "Dashboard",
+  "trash.type.document": "Document or folder",
+  "trash.type.file": "File",
   "trash.type.message": "Message",
   "trash.type.topic": "Topic",
   "trash.type.widget": "Widget",
