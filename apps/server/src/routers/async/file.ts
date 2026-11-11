@@ -192,7 +192,16 @@ export const fileRouter = router({
                       },
                       { metadata: { trigger: RequestTrigger.FileEmbedding }, user: ctx.userId },
                     ),
-                  { deadline: startAt + FILE_EMBEDDING_TASK_TIMEOUT },
+                  {
+                    deadline: startAt + FILE_EMBEDDING_TASK_TIMEOUT,
+                    onRetry: ({ attempt, delayMs }) =>
+                      console.warn({
+                        attempt,
+                        delayMs,
+                        event: 'file.embedding.retry',
+                        fileId: input.fileId,
+                      }),
+                  },
                 );
 
                 const items: NewEmbeddingsItem[] =

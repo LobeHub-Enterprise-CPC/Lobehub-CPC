@@ -33,6 +33,8 @@ interface RetryOptions {
   /** Epoch ms after which no further attempt starts. */
   deadline: number;
   now?: () => number;
+  /** Called before each wait, with the 1-based number of the attempt that failed. */
+  onRetry?: (info: { attempt: number; delayMs: number; error: unknown }) => void;
   random?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -48,6 +50,7 @@ export const retryTransientEmbeddingError = async <T>(
   {
     deadline,
     now = Date.now,
+    onRetry,
     random = Math.random,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   }: RetryOptions,
@@ -59,6 +62,7 @@ export const retryTransientEmbeddingError = async <T>(
       if (!isTransientEmbeddingError(error)) throw error;
       const delay = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt) * (0.5 + random() / 2);
       if (now() + delay >= deadline) throw error;
+      onRetry?.({ attempt: attempt + 1, delayMs: Math.round(delay), error });
       await sleep(delay);
     }
   }

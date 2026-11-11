@@ -56,16 +56,23 @@ describe('retryTransientEmbeddingError', () => {
 
   it('backs off and returns the result once the provider lets the request through', async () => {
     const { options, waits } = setup(10 * 60_000);
+    const onRetry = vi.fn();
     const request = vi
       .fn()
       .mockRejectedValueOnce(rateLimited)
       .mockRejectedValueOnce(rateLimited)
       .mockResolvedValue([[0.1]]);
 
-    await expect(retryTransientEmbeddingError(request, options)).resolves.toEqual([[0.1]]);
+    await expect(retryTransientEmbeddingError(request, { ...options, onRetry })).resolves.toEqual([
+      [0.1],
+    ]);
 
     expect(request).toHaveBeenCalledTimes(3);
     expect(waits).toEqual([2000, 4000]);
+    expect(onRetry.mock.calls.map(([info]) => [info.attempt, info.delayMs])).toEqual([
+      [1, 2000],
+      [2, 4000],
+    ]);
   });
 
   it('never waits longer than a minute between attempts', async () => {
