@@ -46,14 +46,27 @@ vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
 }));
 vi.mock('@/server/modules/Tenant/callbackUrl', () => ({
   buildTenantCallbackUrl: (path: string) => 'https://isolated.test' + path,
+  buildTenantPublicUrl: (path: string) => 'https://isolated.test' + path,
 }));
-vi.mock('@/server/services/file', () => ({
-  FileService: vi.fn().mockImplementation(function () {
+const storage = vi.hoisted(() => ({ isDev: false }));
+vi.mock('@/utils/env', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  get isDev() {
+    return storage.isDev;
+  },
+}));
+vi.mock('@lobechat/database/tenant', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  requireTenantScope: () => ({ slug: 'acme', tenantId: 'tenant-1' }),
+}));
+vi.mock('@/envs/file', () => ({ fileEnv: { S3_SET_ACL: false, S3_PREVIEW_URL_EXPIRE_IN: 300 } }));
+vi.mock('@/envs/redis', () => ({ getRedisConfig: () => ({ enabled: false }) }));
+vi.mock('@/server/modules/S3', () => ({
+  FileS3: vi.fn().mockImplementation(function () {
     return {
       deleteFile: vi.fn(),
       deleteFiles: vi.fn(),
-      getFileAccessUrl: vi.fn(async ({ id }: { id: string }) => `/f/${id}`),
-      getFullFileUrl: vi.fn(async (url: string) => `https://storage.test/${url}`),
+      createPreSignedUrlForPreview: vi.fn(async (key: string) => `https://storage.test/${key}`),
       getFileMetadata: vi.fn(async () => ({ contentLength: 10 })),
     };
   }),
@@ -73,9 +86,79 @@ describe('enterprise knowledge content boundaries', () => {
     testDB = await getTestDB();
   });
   beforeEach(async () => {
+    storage.isDev = false;
     resetEnterpriseKbState();
     w = await seedEnterpriseWorld(testDB);
   });
+
+  it.each([true, false])(
+    'lists and opens a native document with real file URL resolution (dev=%s)',
+    async (isDev) => {
+      storage.isDev = isDev;
+      const doc = await caller(w.editor).doc.createDocument({
+        knowledgeBaseId: w.entA,
+        title: 'Native page',
+        content: 'native document body',
+      });
+      const [file] = await testDB.select().from(files).where(eq(files.id, doc.fileId!));
+      expect(file.url).toBe('internal://document/placeholder');
+
+      for (const userId of [w.viewer, w.editor, w.owner]) {
+        const c = caller(userId);
+        const { items } = await c.file.getKnowledgeItems({ knowledgeBaseId: w.entA });
+        const pages = items.filter((item) => item.id === doc.id);
+        expect(pages).toHaveLength(1);
+        expect(pages[0]).toMatchObject({
+          fileId: doc.fileId,
+          sourceType: 'file',
+          fileType: 'custom/document',
+          url: isDev ? '' : expect.stringContaining(`/f/${doc.fileId}`),
+        });
+        expect(items.find((item) => item.id === w.entAFile)?.url).toBe(
+          isDev ? 'https://storage.test/files/a.txt' : `https://isolated.test/f/${w.entAFile}`,
+        );
+        expect(await c.doc.getDocumentById({ id: doc.id })).toMatchObject({
+          content: 'native document body',
+        });
+        expect(await c.file.getReadableUrl({ id: doc.fileId! })).toEqual({ url: '' });
+        expect(await c.file.getReadableUrl({ id: w.entAFile })).toEqual({
+          url: 'https://storage.test/files/a.txt',
+        });
+      }
+
+      const personalDoc = await caller(w.owner).doc.createDocument({
+        knowledgeBaseId: w.personalKb,
+        title: 'Personal native page',
+        content: 'personal document body',
+      });
+      const personal = await caller(w.owner).file.getKnowledgeItems({
+        knowledgeBaseId: w.personalKb,
+      });
+      expect(personal.items.filter((item) => item.id === personalDoc.id)).toHaveLength(1);
+      expect(await caller(w.owner).file.getReadableUrl({ id: personalDoc.fileId! })).toEqual({
+        url: '',
+      });
+
+      await testDB
+        .update(files)
+        .set({ url: 'files/../private.txt' })
+        .where(eq(files.id, w.entAFile));
+      await expect(caller(w.viewer).file.getReadableUrl({ id: w.entAFile })).rejects.toThrow(
+        'TENANT_OBJECT_KEY_INVALID',
+      );
+      if (isDev) {
+        await expect(
+          caller(w.viewer).file.getKnowledgeItems({ knowledgeBaseId: w.entA }),
+        ).rejects.toThrow('TENANT_OBJECT_KEY_INVALID');
+      }
+      await expect(
+        caller(w.viewer).doc.updateDocument({ id: doc.id, content: 'forbidden' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(caller(w.stranger).doc.getDocumentById({ id: doc.id })).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+    },
+  );
 
   it('view reads library file lists, document bodies, URLs and chunks in the owner scope', async () => {
     await createChunk(testDB, w.owner, w.entAFile, 'A chunk');
@@ -118,7 +201,7 @@ describe('enterprise knowledge content boundaries', () => {
       id,
       knowledgeBaseId: w.entA,
       content: 'parsed citation',
-      source: `/f/${id}`,
+      source: `https://isolated.test/f/${w.entAFile}`,
     });
     expect(
       (await testDB.select().from(documents).where(eq(documents.id, id)))[0].knowledgeBaseId,
