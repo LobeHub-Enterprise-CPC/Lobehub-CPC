@@ -53,7 +53,13 @@ const PARSE_CONCURRENCY = 2;
 let activeParses = 0;
 const waitingParses: (() => void)[] = [];
 
-const withParseSlot = async <T>(fn: (release: () => void) => Promise<T>): Promise<T> => {
+interface ParseSlot {
+  /** Keeps the slot until `work` settles, even when the caller stops waiting for it. */
+  holdUntil: (work: Promise<unknown>) => void;
+  release: () => void;
+}
+
+const withParseSlot = async <T>(fn: (slot: ParseSlot) => Promise<T>): Promise<T> => {
   if (activeParses < PARSE_CONCURRENCY) activeParses++;
   // a finishing task hands its slot straight to the next waiter
   else await new Promise<void>((resolve) => waitingParses.push(resolve));
@@ -67,10 +73,17 @@ const withParseSlot = async <T>(fn: (release: () => void) => Promise<T>): Promis
     else activeParses--;
   };
 
+  let held: Promise<unknown> | undefined;
   try {
-    return await fn(release);
+    return await fn({
+      holdUntil: (work) => {
+        held = work;
+      },
+      release,
+    });
   } finally {
-    release();
+    if (held) void held.then(release, release);
+    else release();
   }
 };
 
@@ -274,7 +287,7 @@ export const fileRouter = router({
         };
       }
 
-      const parse = async (releaseParseSlot: () => void) => {
+      const parse = async (slot: ParseSlot) => {
         let content: Uint8Array | undefined;
         try {
           content = await fileService.getFileByteArray(file.url);
@@ -396,14 +409,18 @@ export const fileRouter = router({
             if (fileEnv.CHUNKS_AUTO_EMBEDDING) {
               // It is network-bound and can run long: free the parse slot first, so it never
               // holds back the files still waiting to be parsed.
-              releaseParseSlot();
+              slot.release();
               await chunkService.asyncEmbeddingFileChunks(input.fileId);
             }
 
             return { success: true };
           };
           // Race between the chunking process and the timeout
-          return await Promise.race([chunkingPromise(), timeoutPromise]);
+          // A timeout only stops the wait: the work keeps running and keeps the file in memory,
+          // so the slot stays taken until it is really done.
+          const chunking = chunkingPromise();
+          slot.holdUntil(chunking);
+          return await Promise.race([chunking, timeoutPromise]);
         } catch (e) {
           const error = e as any;
 
@@ -427,12 +444,12 @@ export const fileRouter = router({
         }
       };
 
-      return withParseSlot((release) =>
+      return withParseSlot((slot) =>
         withActivity(
           'file',
           'parseFileToChunks',
           { fileId: input.fileId, name: file.name, size: file.size },
-          () => parse(release),
+          () => parse(slot),
         ),
       );
     }),
