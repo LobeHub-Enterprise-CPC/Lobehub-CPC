@@ -22,11 +22,19 @@ export const useFileLibraryPermission = (id?: string) => {
     ids?.some((id) => s.knowledgeBaseSessionAccess[`${scope}|${id}`] === 'denied'),
   );
   const enterpriseLibrary = libraries?.find((kb) => kb.enterprise && ids?.includes(kb.id));
+  const params =
+    enterpriseLibrary && id ? { knowledgeBaseId: enterpriseLibrary.id, nodeId: id } : null;
+  const levelSync = enterpriseKnowledgeActions.useFetchNodeLevel(params);
+  const resolved = useEnterpriseKnowledgeStore(enterpriseKnowledgeSelectors.nodeLevel(params));
   return {
     allowed:
       !denied &&
       !!libraries &&
       (!hasEnterprise || (!!ids && !sync.error)) &&
-      getKnowledgeBaseCapabilities(enterpriseLibrary, role.allowed).canEditContent,
+      getKnowledgeBaseCapabilities(
+        enterpriseLibrary,
+        role.allowed,
+        enterpriseLibrary ? (levelSync.error ? null : (resolved?.level ?? null)) : undefined,
+      ).canEditContent,
   };
 };

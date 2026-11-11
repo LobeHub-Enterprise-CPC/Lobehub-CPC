@@ -8,6 +8,9 @@ import type {
   EnterpriseKbDirectory,
   EnterpriseKbEstimate,
   EnterpriseKbEvent,
+  EnterpriseNodeLevel,
+  NodeAccessEstimate,
+  NodeAccessView,
 } from '@/services/enterpriseKnowledge';
 
 import { createDevtools } from '../middleware/createDevtools';
@@ -23,8 +26,20 @@ export interface EnterpriseKnowledgeState {
   eventsReplica: ReplicaState<EnterpriseKbEvent[]>;
   fileLibrariesMap: Record<string, string[]>;
   fileLibrariesReplica: ReplicaState<string[]>;
+  nodeAccessMap: Record<string, NodeAccessView>;
+  nodeAccessReplica: ReplicaState<NodeAccessView>;
+  nodeEstimateMap: Record<string, NodeAccessEstimate>;
+  nodeEstimateReplica: ReplicaState<NodeAccessEstimate>;
+  nodeLevelMap: Record<string, { level: EnterpriseNodeLevel }>;
+  nodeLevelReplica: ReplicaState<{ level: EnterpriseNodeLevel }>;
 }
 export const initialState: EnterpriseKnowledgeState = {
+  nodeAccessMap: {},
+  nodeAccessReplica: createReplicaState(),
+  nodeLevelMap: {},
+  nodeLevelReplica: createReplicaState(),
+  nodeEstimateMap: {},
+  nodeEstimateReplica: createReplicaState(),
   fileLibrariesMap: {},
   fileLibrariesReplica: createReplicaState(),
   accessMap: {},

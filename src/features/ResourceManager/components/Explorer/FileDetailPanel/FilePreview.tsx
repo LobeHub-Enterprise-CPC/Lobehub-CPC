@@ -18,7 +18,12 @@ interface FilePreviewProps {
  * to a neutral hint for types the FileViewer cannot render.
  */
 const FilePreview = memo<FilePreviewProps>(({ file }) => {
-  const { allowed } = useLibraryPermission('edit_own_content');
+  const { allowed } = useLibraryPermission(
+    'edit_own_content',
+    undefined,
+    file.fileId ?? file.id,
+    file.enterpriseAccess,
+  );
   const { t } = useTranslation('file');
 
   if (!file?.url)

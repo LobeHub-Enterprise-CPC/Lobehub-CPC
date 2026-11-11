@@ -46,10 +46,29 @@ export const AccessEvents = ({ knowledgeBaseId }: { knowledgeBaseId: string }) =
     <Flexbox gap={20}>
       {events.map((event) => (
         <Flexbox gap={4} key={event.id}>
-          <Text weight={500}>{t(`enterprise.event.${event.action}`)}</Text>
+          <Text weight={500}>
+            {String(event.action) === 'node_access_updated'
+              ? t('enterprise.event.node_access_updated')
+              : t(`enterprise.event.${event.action}`)}
+          </Text>
           <Text type="secondary">
             {event.actor.name} · {new Date(event.createdAt).toLocaleString(i18n.language)}
           </Text>
+          {String(event.action) === 'node_access_updated' && (
+            <Text>
+              {t('enterprise.node.eventDetail', {
+                name: typeof event.detail.nodeName === 'string' ? event.detail.nodeName : '',
+                from:
+                  event.detail.fromMode === 'custom'
+                    ? t('enterprise.node.custom')
+                    : t('enterprise.node.inherit'),
+                to:
+                  event.detail.toMode === 'custom'
+                    ? t('enterprise.node.custom')
+                    : t('enterprise.node.inherit'),
+              })}
+            </Text>
+          )}
           {eventDetail(event, level, (kind, name, value) =>
             t(`enterprise.eventDetail.${kind}`, { name, level: value }),
           ).map((detail, i) => (

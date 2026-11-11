@@ -16,7 +16,9 @@ import { fileService } from '../file';
 /**
  * Map FileListItem to ResourceItem
  */
-const mapToResourceItem = (item: FileListItem): ResourceItem => {
+const mapToResourceItem = (
+  item: FileListItem,
+): ResourceItem & Pick<FileListItem, 'enterpriseAccess'> => {
   return {
     chunkCount: item.chunkCount,
     chunkTaskId: item.chunkingStatus ? 'placeholder' : null,
@@ -30,6 +32,7 @@ const mapToResourceItem = (item: FileListItem): ResourceItem => {
 
     editorData: item.editorData,
 
+    enterpriseAccess: item.enterpriseAccess,
     embeddingError: item.embeddingError,
 
     embeddingStatus: item.embeddingStatus,

@@ -1,4 +1,26 @@
 export default {
+  'enterprise.node.accessLost':
+    'You no longer have access to this folder. Returned to the library.',
+  'enterprise.node.refreshFailed':
+    'Permissions saved. Some lists could not refresh; refresh them to see the update.',
+  'enterprise.level.path': 'Path only',
+  'enterprise.node.permission': 'Permissions',
+  'enterprise.node.title': 'Permissions for “{{name}}”',
+  'enterprise.node.inherit': 'Inherit from parent',
+  'enterprise.node.custom': 'Custom permissions',
+  'enterprise.node.inheritedFrom': 'Inherited from {{name}}',
+  'enterprise.node.customHint':
+    'This list replaces the parent’s permissions for this item and descendants that inherit from it.',
+  'enterprise.node.inheritConfirmTitle': 'Inherit from parent?',
+  'enterprise.node.inheritConfirm':
+    'Clear this item’s custom permissions and use the list from {{name}}.',
+  'enterprise.node.pathOnly': 'They will also see the path to this item: {{path}}',
+  'enterprise.node.impact':
+    '{{lost}} people will lose access to “{{name}}”; {{downgraded}} will become viewers.',
+  'enterprise.node.eventDetail': '“{{name}}”: {{from}} → {{to}}',
+  'enterprise.event.node_access_updated': 'Item permissions updated',
+  'enterprise.node.readOnly':
+    'Some selected items are read-only. Select editable items to continue.',
   'enterprise.group': 'Enterprise knowledge bases',
   'enterprise.personalGroup': 'Personal libraries',
   'enterprise.level.view': 'View only',

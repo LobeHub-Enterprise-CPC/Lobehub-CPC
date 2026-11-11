@@ -13,6 +13,7 @@ import { FolderIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { type FolderTreeItem } from '@/features/ResourceManager/components/FolderTree';
 import FolderTree from '@/features/ResourceManager/components/FolderTree';
 import { fileService } from '@/services/file';
@@ -32,9 +33,20 @@ const MoveToFolderModalContent = memo<MoveToFolderModalContentProps>(
     const [folders, setFolders] = useState<FolderTreeItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+    const { allowed: canMoveHere } = useLibraryPermission(
+      'edit_own_content',
+      knowledgeBaseId,
+      selectedFolderId,
+    );
+    const { allowed: canMoveToRoot } = useLibraryPermission(
+      'edit_own_content',
+      knowledgeBaseId,
+      null,
+    );
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
     const [loadedFolders, setLoadedFolders] = useState<Set<string>>(() => new Set());
     const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+    const [moving, setMoving] = useState(false);
 
     const createFolder = useFileStore((s) => s.createFolder);
     const moveItem = useTreeStore((s) => s.moveItem);
@@ -226,39 +238,23 @@ const MoveToFolderModalContent = memo<MoveToFolderModalContentProps>(
       t,
     ]);
 
-    const handleMove = () => {
-      if (!selectedFolderId) return;
+    const handleMoveTo = async (target: string) => {
+      if (moving || (target ? !canMoveHere : !canMoveToRoot)) return;
       const { children } = useTreeStore.getState();
-      let fromParent = '';
-      for (const [parentKey, items] of Object.entries(children)) {
-        if (items.some((i) => i.id === fileId)) {
-          fromParent = parentKey;
-          break;
-        }
-      }
-
-      void moveItem(fileId, fromParent, selectedFolderId).catch(() => {
+      const fromParent =
+        Object.entries(children).find(([, items]) =>
+          items.some((item) => item.id === fileId),
+        )?.[0] ?? '';
+      setMoving(true);
+      try {
+        await moveItem(fileId, fromParent, target);
+        toast.success(t('FileManager.actions.moveSuccess'));
+        close();
+      } catch {
         toast.error(t('FileManager.actions.moveError'));
-      });
-      toast.success(t('FileManager.actions.moveSuccess'));
-      close();
-    };
-
-    const handleMoveToRoot = () => {
-      const { children } = useTreeStore.getState();
-      let fromParent = '';
-      for (const [parentKey, items] of Object.entries(children)) {
-        if (items.some((i) => i.id === fileId)) {
-          fromParent = parentKey;
-          break;
-        }
+      } finally {
+        setMoving(false);
       }
-
-      void moveItem(fileId, fromParent, '').catch(() => {
-        toast.error(t('FileManager.actions.moveError'));
-      });
-      toast.success(t('FileManager.actions.moveSuccess'));
-      close();
     };
 
     return (
@@ -266,6 +262,7 @@ const MoveToFolderModalContent = memo<MoveToFolderModalContentProps>(
         <Flexbox style={{ padding: 16 }}>
           <Flexbox horizontal justify="flex-end" style={{ marginBottom: 12 }}>
             <Button
+              disabled={!canMoveHere}
               icon={<Icon icon={FolderIcon} />}
               loading={isCreatingFolder}
               size="small"
@@ -298,11 +295,21 @@ const MoveToFolderModalContent = memo<MoveToFolderModalContentProps>(
           </Flexbox>
         </Flexbox>
         <ModalFooter>
-          <Button onClick={close}>{t('cancel', { ns: 'common' })}</Button>
-          <Button type="default" onClick={handleMoveToRoot}>
+          <Button disabled={moving} onClick={close}>
+            {t('cancel', { ns: 'common' })}
+          </Button>
+          <Button
+            disabled={!canMoveToRoot || moving}
+            type="default"
+            onClick={() => handleMoveTo('')}
+          >
             {t('FileManager.actions.moveToRoot')}
           </Button>
-          <Button disabled={!selectedFolderId} type="primary" onClick={handleMove}>
+          <Button
+            disabled={!selectedFolderId || !canMoveHere || moving}
+            type="primary"
+            onClick={() => selectedFolderId && handleMoveTo(selectedFolderId)}
+          >
             {t('FileManager.actions.moveHere')}
           </Button>
         </ModalFooter>

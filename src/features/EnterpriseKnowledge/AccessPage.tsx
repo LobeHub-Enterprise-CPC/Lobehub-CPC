@@ -1,5 +1,5 @@
 import type { KnowledgeBaseItem } from '@lobechat/types';
-import { Alert, Button, Empty, Flexbox, Segmented, Select, Spin, Text, toast } from '@lobehub/ui';
+import { Alert, Button, Flexbox, Segmented, Spin, Text, toast } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -22,6 +22,7 @@ import {
 import { isTrpcErrorCode } from '@/utils/trpcError';
 
 import { AccessEvents } from './AccessEvents';
+import { AccessGrantList } from './AccessGrantList';
 import { DirectoryPicker } from './DirectoryPicker';
 import { useAccessDraftGuard } from './useAccessDraftGuard';
 
@@ -42,8 +43,6 @@ export const EnterpriseAccessPage = ({ library }: { library: KnowledgeBaseItem }
   enterpriseKnowledgeActions.useFetchDirectory(
     library.enterprise?.accessLevel === 'owner' ? '' : null,
   );
-  const directory = useEnterpriseKnowledgeStore(enterpriseKnowledgeSelectors.directory(''));
-  const roots = new Set(directory?.departments.filter((d) => d.parentId === null).map((d) => d.id));
   const saved = useEnterpriseKnowledgeStore(enterpriseKnowledgeSelectors.access(id));
   const [draft, setDraft] = useState<EnterpriseKbAccessState | null>(null);
   const [tab, setTab] = useState('access');
@@ -157,72 +156,11 @@ export const EnterpriseAccessPage = ({ library }: { library: KnowledgeBaseItem }
                   <Spin />
                 ) : (
                   <>
-                    {current.grants.length === 0 ? (
-                      <Empty description={t('enterprise.noGrants')} />
-                    ) : (
-                      <Flexbox gap={16}>
-                        {current.grants.map((grant, index) => (
-                          <Flexbox
-                            horizontal
-                            align="center"
-                            gap={8}
-                            key={`${grant.principalType}:${grant.principalId}`}
-                            style={{ flexWrap: 'wrap' }}
-                          >
-                            <Flexbox flex={1} style={{ minWidth: 160 }}>
-                              <Text>
-                                {grant.deleted
-                                  ? t(
-                                      grant.principalType === 'department'
-                                        ? 'enterprise.deletedDepartment'
-                                        : 'enterprise.deletedMember',
-                                    )
-                                  : grant.principalType === 'department' &&
-                                      roots.has(grant.principalId)
-                                    ? t('enterprise.everyone')
-                                    : grant.name}
-                              </Text>
-                              <Text type="secondary">
-                                {grant.departmentName ||
-                                  (grant.memberCount !== null
-                                    ? t('enterprise.departmentMembers', {
-                                        count: grant.memberCount,
-                                      })
-                                    : '')}
-                              </Text>
-                            </Flexbox>
-                            <Select
-                              aria-label={t('enterprise.levelLabel', { name: grant.name })}
-                              disabled={saving || grant.deleted}
-                              value={grant.accessLevel}
-                              options={[
-                                { label: t('enterprise.level.view'), value: 'view' },
-                                { label: t('enterprise.level.edit'), value: 'edit' },
-                              ]}
-                              onChange={(value) =>
-                                changeGrants(
-                                  current.grants.map((g, i) =>
-                                    i === index
-                                      ? { ...g, accessLevel: value as 'view' | 'edit' }
-                                      : g,
-                                  ),
-                                )
-                              }
-                            />
-                            <Button
-                              danger
-                              disabled={saving}
-                              type="text"
-                              onClick={() =>
-                                changeGrants(current.grants.filter((_, i) => i !== index))
-                              }
-                            >
-                              {t('enterprise.remove')}
-                            </Button>
-                          </Flexbox>
-                        ))}
-                      </Flexbox>
-                    )}
+                    <AccessGrantList
+                      disabled={saving}
+                      grants={current.grants}
+                      onChange={changeGrants}
+                    />
                     <Button disabled={saving} onClick={() => setAdding(!adding)}>
                       {t(adding ? 'enterprise.closePicker' : 'enterprise.addPrincipals')}
                     </Button>

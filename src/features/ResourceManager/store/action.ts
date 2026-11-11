@@ -370,6 +370,24 @@ export class ResourceManagerStoreActionImpl {
 
     const fileStore = useFileStore.getState();
     const kbStore = useKnowledgeBaseStore.getState();
+    if (libraryId && (type === 'delete' || type === 'batchChunking')) {
+      const { knowledgeBaseSelectors } = await import('@/store/library');
+      const library = knowledgeBaseSelectors.getLoadedKnowledgeBaseById(libraryId)(kbStore);
+      if (library?.enterprise) {
+        const { enterpriseKnowledgeService } = await import('@/services/enterpriseKnowledge');
+        const ids = await resolveSelectedResourceIds();
+        const allowed = await enterpriseKnowledgeService.canEditNodes(libraryId, [
+          fileStore.queryParams?.parentId ?? null,
+          ...ids,
+        ]);
+        if (!allowed) {
+          const { toast } = await import('@lobehub/ui');
+          const { t } = await import('i18next');
+          toast.warning(t('enterprise.node.readOnly', { ns: 'knowledgeBase' }));
+          return;
+        }
+      }
+    }
 
     switch (type) {
       case 'delete': {

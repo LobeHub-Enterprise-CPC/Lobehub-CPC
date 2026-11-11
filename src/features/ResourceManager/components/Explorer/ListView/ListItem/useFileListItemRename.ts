@@ -27,7 +27,7 @@ export const useFileListItemRename = ({
   setPendingRenameItemId,
   updateResource,
 }: UseFileListItemRenameOptions) => {
-  const { allowed: canEdit } = useLibraryPermission('edit_own_content');
+  const { allowed: canEdit } = useLibraryPermission('edit_own_content', undefined, id);
   const { t } = useTranslation(['components', 'file', 'common']);
 
   const [isRenaming, setIsRenaming] = useState(false);

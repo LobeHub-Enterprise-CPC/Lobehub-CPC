@@ -13,5 +13,5 @@ export const usePageLibraryPermission = (action: 'create_content' | 'edit_own_co
   const libraryId =
     openedLibraryId ?? (typeof metadataLibraryId === 'string' ? metadataLibraryId : undefined);
   useKnowledgeBaseItem(libraryId || '');
-  return useLibraryPermission(action, libraryId ?? null);
+  return useLibraryPermission(action, libraryId ?? null, documentId ?? null);
 };

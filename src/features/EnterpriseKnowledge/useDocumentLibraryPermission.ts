@@ -13,5 +13,5 @@ export const useDocumentLibraryPermission = (
   );
   const id = openedLibraryId || libraryId;
   useKnowledgeBaseItem(id || '');
-  return useLibraryPermission('edit_own_content', id || null);
+  return useLibraryPermission('edit_own_content', id || null, documentId ?? null);
 };

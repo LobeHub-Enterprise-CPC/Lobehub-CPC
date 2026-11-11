@@ -208,3 +208,15 @@ describe('resourceService.queryResources', () => {
     expect(result.items[0].contentPreview).toBe('Server-generated preview');
   });
 });
+
+describe('enterprise item access metadata', () => {
+  it('preserves the server node level and custom marker through the unified resource list', async () => {
+    const enterpriseAccess = { custom: true, level: 'view' as const };
+    mockGetKnowledgeItems.mockResolvedValueOnce({
+      hasMore: false,
+      items: [createKnowledgeItem({ enterpriseAccess })],
+    });
+    const result = await resourceService.queryResources({});
+    expect(result.items[0]).toMatchObject({ enterpriseAccess });
+  });
+});

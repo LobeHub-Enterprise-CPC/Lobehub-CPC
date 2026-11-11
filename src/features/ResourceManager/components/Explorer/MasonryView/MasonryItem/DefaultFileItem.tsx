@@ -70,7 +70,7 @@ const DefaultFileItem = memo<DefaultFileItemProps>(
     size,
   }) => {
     const { t } = useTranslation('components');
-    const { allowed: canEdit } = useLibraryPermission('edit_own_content');
+    const { allowed: canEdit } = useLibraryPermission('edit_own_content', undefined, id);
     const [isCreatingFileParseTask, parseFiles] = useFileStore((s) => [
       fileManagerSelectors.isCreatingFileParseTask(id)(s),
       s.parseFilesToChunks,

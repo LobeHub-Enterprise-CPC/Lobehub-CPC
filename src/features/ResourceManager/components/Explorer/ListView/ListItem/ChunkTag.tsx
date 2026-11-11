@@ -12,7 +12,7 @@ interface ChunkTagProps extends FileParsingTask {
 }
 
 const ChunksBadge = memo<ChunkTagProps>(({ id, ...res }) => {
-  const { allowed: canEdit } = useLibraryPermission('edit_own_content');
+  const { allowed: canEdit } = useLibraryPermission('edit_own_content', undefined, id);
   const [
     isCreatingChunkEmbeddingTask,
     embeddingChunks,

@@ -8,6 +8,7 @@ import { createContext, lazy, memo, Suspense, use, useEffect, useRef, useState }
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
+import { LibraryDirectoryProvider } from '@/features/EnterpriseKnowledge/LibraryDirectoryProvider';
 import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useTreeStore } from '@/store/tree';
 
@@ -71,10 +72,14 @@ export const useSetCurrentDrag = () => {
  * Pragmatic DnD wrapper for resource drag-and-drop
  * Much more performant than dnd-kit for large virtualized lists
  */
-export const DndContextWrapper = memo<PropsWithChildren>(({ children }) => {
+const DndContextContent = memo<PropsWithChildren>(({ children }) => {
   const { t } = useTranslation('components');
 
-  const { allowed: canEditResources } = useLibraryPermission('edit_own_content');
+  const {
+    allowed: canEditResources,
+    enterprise,
+    library,
+  } = useLibraryPermission('edit_own_content');
   const [currentDrag, setCurrentDrag] = useState<DragState | null>(null);
   const currentDragRef = useRef<DragState | null>(null);
   currentDragRef.current = currentDrag;
@@ -154,10 +159,22 @@ export const DndContextWrapper = memo<PropsWithChildren>(({ children }) => {
 
       setCurrentDrag(null);
 
-      const treeState = useTreeStore.getState();
-      const movePromise = isDraggingSelection
-        ? treeState.moveItems(itemsToMove, fromParent, toParent)
-        : treeState.moveItem(drag.id, fromParent, toParent);
+      const movePromise = (async () => {
+        if (enterprise && library) {
+          const { enterpriseKnowledgeService } = await import('@/services/enterpriseKnowledge');
+          if (
+            !(await enterpriseKnowledgeService.canEditNodes(library.id, [
+              ...itemsToMove,
+              toParent || null,
+            ]))
+          )
+            throw new Error('Read-only move target or source');
+        }
+        const treeState = useTreeStore.getState();
+        return isDraggingSelection
+          ? treeState.moveItems(itemsToMove, fromParent, toParent)
+          : treeState.moveItem(drag.id, fromParent, toParent);
+      })();
 
       // Report once the server has the move: the tree's optimistic rows are
       // not proof it landed, and a rejected move must not read as success.
@@ -199,7 +216,7 @@ export const DndContextWrapper = memo<PropsWithChildren>(({ children }) => {
       document.removeEventListener('dragover', handleDragOver);
       document.removeEventListener('dragend', handleDragEnd);
     };
-  }, [canEditResources, setCurrentDrag, setSelectedFileIds, t]);
+  }, [canEditResources, enterprise, library, setCurrentDrag, setSelectedFileIds, t]);
 
   const appElement = useAppElement();
 
@@ -330,4 +347,10 @@ export const DndContextWrapper = memo<PropsWithChildren>(({ children }) => {
   );
 });
 
-DndContextWrapper.displayName = 'DndContextWrapper';
+DndContextContent.displayName = 'DndContextContent';
+
+export const DndContextWrapper = ({ children }: PropsWithChildren) => (
+  <LibraryDirectoryProvider>
+    <DndContextContent>{children}</DndContextContent>
+  </LibraryDirectoryProvider>
+);
