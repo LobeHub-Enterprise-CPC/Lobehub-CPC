@@ -6,11 +6,13 @@ import {
   knowledgeBaseFiles,
   trashItems,
   users,
+  workspaces,
 } from '@lobechat/database/schemas';
 import { getTestDB } from '@lobechat/database/test-utils';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DocumentModel } from '@/database/models/document';
 import { restoreStamp } from '@/database/utils/softDelete';
 import { createEnterpriseDocuments } from '@/server/services/enterpriseKnowledge/createDocuments';
 import { trashEnterpriseItems } from '@/server/services/enterpriseKnowledge/trash';
@@ -19,6 +21,8 @@ import { EnterpriseKbLibraryService } from '@/server/services/enterpriseKnowledg
 import { TrashService } from '@/server/services/trash';
 import { resetEnterpriseKbState } from '@/server/test-utils/enterpriseKnowledgeFake';
 
+import { documentRouter } from '../../document';
+import { fileRouter } from '../../file';
 import { trashRouter } from '../../trash';
 import {
   context,
@@ -58,6 +62,7 @@ vi.mock('@lobechat/business-knowledge', async () => {
 vi.mock('@/server/services/file', () => ({
   FileService: class {
     deleteFiles = vi.fn();
+    getFileAccessUrl = async ({ id }: { id: string }) => `/f/${id}`;
   },
 }));
 let db: LobeChatDatabase;
@@ -77,6 +82,25 @@ const entries = () => db.select().from(trashItems).where(eq(trashItems.userId, w
 const entryFor = async (id: string) =>
   (await db.select().from(trashItems).where(eq(trashItems.resourceId, id)))[0];
 const file = async (id: string) => (await db.select().from(files).where(eq(files.id, id)))[0];
+const document = async (id: string) =>
+  (await db.select().from(documents).where(eq(documents.id, id)))[0];
+// Match parseFile's persisted shape: the KB comes from the backing file, not necessarily the doc.
+const parsedDocument = (knowledgeBaseId?: string) =>
+  new DocumentModel(db, w.owner).create({
+    content: 'parsed file body',
+    fileId: w.entAFile,
+    fileType: 'custom/document',
+    filename: 'a.txt',
+    knowledgeBaseId,
+    source: 'files/a.txt',
+    sourceType: 'file',
+    title: 'a.txt',
+    totalCharCount: 16,
+    totalLineCount: 1,
+  });
+const frontendDocuments = () => documentRouter.createCaller(context(w.owner) as never);
+const frontendItems = () =>
+  fileRouter.createCaller(context(w.owner) as never).getKnowledgeItems({ knowledgeBaseId: w.entA });
 const visible = async (userId = w.owner) =>
   (await front(userId).list()).items.map((row) => row.resourceId);
 const transfer = (keepPreviousOwnerEdit = false) =>
@@ -101,6 +125,178 @@ afterEach(async () => {
 });
 
 describe('enterprise recycle lifecycle across frontend and governance', () => {
+  it.each([false, true])(
+    'restores the original parsed identity by physical file id (explicit KB: %s)',
+    async (explicitKb) => {
+      const doc = await parsedDocument(explicitKb ? w.entA : undefined);
+      expect(doc.knowledgeBaseId).toBe(explicitKb ? w.entA : null);
+      expect((await frontendItems()).items).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: doc.id, fileId: w.entAFile })]),
+      );
+      await frontendDocuments().deleteDocument({ id: w.entADoc });
+      await content.trash(w.entB, w.entBFile);
+      const independent = await entryFor(w.entADoc);
+      const foreign = await entryFor(w.entBFile);
+      await frontendDocuments().deleteDocument({ id: doc.id });
+      const root = await entryFor(doc.id);
+      expect(root).toMatchObject({ resourceType: 'document', rootId: null });
+      expect(await entryFor(w.entAFile)).toMatchObject({ rootId: root.id });
+      expect(await visible()).toContain(doc.id);
+      expect((await content.listTrash(w.entA, { page: 1, pageSize: 50 })).items).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: w.entAFile })]),
+      );
+      await expect(content.restore(w.entB, w.entAFile)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      await expect(content.restore(w.entA, w.entAFile)).resolves.toMatchObject({ id: w.entAFile });
+      expect(await document(doc.id)).toMatchObject({
+        id: doc.id,
+        content: 'parsed file body',
+        isDeleted: null,
+      });
+      expect(await file(w.entAFile)).toMatchObject({ isDeleted: null });
+      expect(await entryFor(doc.id)).toBeUndefined();
+      expect(await entryFor(w.entAFile)).toBeUndefined();
+      expect(await entryFor(w.entADoc)).toEqual(independent);
+      expect(await entryFor(w.entBFile)).toEqual(foreign);
+      expect((await frontendItems()).items.filter((item) => item.fileId === w.entAFile)).toEqual([
+        expect.objectContaining({ id: doc.id, sourceType: 'file' }),
+      ]);
+      expect((await frontendDocuments().getDocumentById({ id: doc.id }))?.content).toBe(
+        'parsed file body',
+      );
+      await expect(content.restore(w.entA, w.entAFile)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      await TrashService.sweepExpired(db, { now: new Date(root.expiresAt.getTime() + 1) });
+      expect(await document(doc.id)).toMatchObject({ isDeleted: null });
+      expect(await file(w.entAFile)).toMatchObject({ isDeleted: null });
+    },
+  );
+
+  it('rolls back parsed content and the whole registry graph when restore cleanup fails', async () => {
+    const doc = await parsedDocument();
+    await frontendDocuments().deleteDocument({ id: doc.id });
+    const before = await entries();
+    await db.execute(sql`CREATE FUNCTION fail_restore_cleanup() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'restore cleanup failed'; END; $$ LANGUAGE plpgsql`);
+    await db.execute(sql`CREATE TRIGGER fail_restore_cleanup BEFORE DELETE ON trash_items
+      FOR EACH ROW EXECUTE FUNCTION fail_restore_cleanup()`);
+    try {
+      await expect(content.restore(w.entA, w.entAFile)).rejects.toThrow();
+      expect(await document(doc.id)).toMatchObject({ isDeleted: true });
+      expect(await file(w.entAFile)).toMatchObject({ isDeleted: true });
+      expect(await entries()).toEqual(before);
+    } finally {
+      await db.execute(sql`DROP TRIGGER fail_restore_cleanup ON trash_items`);
+      await db.execute(sql`DROP FUNCTION fail_restore_cleanup()`);
+    }
+    await content.restore(w.entA, w.entAFile);
+    expect(await document(doc.id)).toMatchObject({ isDeleted: null });
+    expect(await entries()).toEqual([]);
+  });
+
+  it.each(['library', 'owner', 'workspace'] as const)(
+    'rejects a parsed deletion graph containing a different %s scope atomically',
+    async (scope) => {
+      const doc = await parsedDocument();
+      await frontendDocuments().deleteDocument({ id: doc.id });
+      const root = await entryFor(doc.id);
+      if (scope === 'library') {
+        await content.trash(w.entB, w.entBFile);
+        await db
+          .update(trashItems)
+          .set({ rootId: root.id })
+          .where(eq(trashItems.resourceId, w.entBFile));
+      } else {
+        await frontendDocuments().deleteDocument({ id: w.entADoc });
+        const other = await entryFor(w.entADoc);
+        if (scope === 'owner') {
+          await db
+            .update(trashItems)
+            .set({ rootId: root.id, userId: w.stranger })
+            .where(eq(trashItems.id, other.id));
+        } else {
+          const [workspace] = await db
+            .insert(workspaces)
+            .values({
+              name: 'Other scope',
+              slug: w.owner,
+              primaryOwnerId: w.owner,
+            })
+            .returning();
+          await db
+            .update(trashItems)
+            .set({ rootId: root.id, workspaceId: workspace.id })
+            .where(eq(trashItems.id, other.id));
+        }
+      }
+      const before = await db.select().from(trashItems);
+      await expect(content.restore(w.entA, w.entAFile)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      expect(await document(doc.id)).toMatchObject({ isDeleted: true });
+      expect(await file(w.entAFile)).toMatchObject({ isDeleted: true });
+      expect(await db.select().from(trashItems)).toEqual(before);
+    },
+  );
+
+  it.each([false, true])(
+    'restores a transferred parsed deletion graph by physical id (shared copy: %s)',
+    async (shared) => {
+      const doc = await parsedDocument();
+      if (shared)
+        await db.insert(knowledgeBaseFiles).values({
+          fileId: w.entAFile,
+          knowledgeBaseId: w.personalKb,
+          userId: w.owner,
+        });
+      await frontendDocuments().deleteDocument({ id: doc.id });
+      await transfer();
+      const [link] = await db
+        .select()
+        .from(knowledgeBaseFiles)
+        .where(eq(knowledgeBaseFiles.knowledgeBaseId, w.entA));
+      const [movedDoc] = await db.select().from(documents).where(eq(documents.fileId, link.fileId));
+      expect(link.fileId === w.entAFile).toBe(!shared);
+      expect(movedDoc.id === doc.id).toBe(!shared);
+      expect(await entryFor(movedDoc.id)).toMatchObject({ userId: w.viewer, rootId: null });
+      await content.restore(w.entA, link.fileId);
+      expect(await document(movedDoc.id)).toMatchObject({
+        isDeleted: null,
+        userId: w.viewer,
+        content: 'parsed file body',
+      });
+      expect(await file(link.fileId)).toMatchObject({ isDeleted: null, userId: w.viewer });
+      expect(await entryFor(movedDoc.id)).toBeUndefined();
+      expect(await entryFor(link.fileId)).toBeUndefined();
+      if (shared) {
+        expect(await document(doc.id)).toMatchObject({ isDeleted: true, userId: w.owner });
+        expect(await file(w.entAFile)).toMatchObject({ isDeleted: true, userId: w.owner });
+        const original = await entryFor(doc.id);
+        expect(original).toMatchObject({ userId: w.owner, rootId: null });
+        expect(await new TrashService(db, w.owner).restore([original.id])).toMatchObject({
+          failed: [],
+        });
+        expect(await document(doc.id)).toMatchObject({ isDeleted: null });
+      }
+    },
+  );
+
+  it('purges a parsed file and its registry without touching a foreign library', async () => {
+    const doc = await parsedDocument();
+    await frontendDocuments().deleteDocument({ id: doc.id });
+    await content.trash(w.entB, w.entBFile);
+    const foreign = await entryFor(w.entBFile);
+    await content.purge(w.entA, w.entAFile);
+    expect(await document(doc.id)).toBeUndefined();
+    expect(await file(w.entAFile)).toBeUndefined();
+    expect(await entryFor(doc.id)).toBeUndefined();
+    expect(await entryFor(w.entAFile)).toBeUndefined();
+    expect(await entryFor(w.entBFile)).toEqual(foreign);
+    expect(await file(w.entBFile)).toMatchObject({ isDeleted: true });
+  });
+
   it.each(['frontend', 'governance'] as const)(
     'restores native documents and their mirror files through %s',
     async (via) => {
