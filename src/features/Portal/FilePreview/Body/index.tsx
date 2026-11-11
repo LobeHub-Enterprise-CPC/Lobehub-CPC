@@ -28,7 +28,7 @@ const FilePreview = () => {
   const previewFileId = useChatStore(chatPortalSelectors.previewFileId);
   const chunkText = useChatStore(chatPortalSelectors.chunkText);
   const activeTopicId = useChatStore((s) => s.activeTopicId);
-  const { t } = useTranslation('portal');
+  const { t } = useTranslation(['portal', 'knowledgeBase']);
 
   const topicKey = activeTopicId ?? NO_TOPIC_KEY;
   const [tabByTopic, setTabByTopic] = useState<Record<string, FilePreviewTab>>({});

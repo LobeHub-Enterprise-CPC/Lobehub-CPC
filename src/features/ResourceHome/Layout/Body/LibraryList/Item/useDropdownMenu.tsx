@@ -39,7 +39,7 @@ export const useDropdownMenu = ({
   userId,
   visibility,
 }: ActionProps): (() => DropdownItem[]) => {
-  const { t } = useTranslation(['file', 'common', 'chat', 'setting']);
+  const { t } = useTranslation(['file', 'common', 'chat', 'setting', 'knowledgeBase']);
 
   const removeKnowledgeBase = useKnowledgeBaseStore((s) => s.removeKnowledgeBase);
   const publishKnowledgeBaseToWorkspace = useKnowledgeBaseStore(

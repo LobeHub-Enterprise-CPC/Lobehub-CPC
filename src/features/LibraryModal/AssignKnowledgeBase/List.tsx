@@ -24,7 +24,7 @@ import VisibilityTabs, { type PickerVisibility } from './VisibilityTabs';
 const EMPTY_KNOWLEDGE: KnowledgeItem[] = [];
 
 export const List = memo(() => {
-  const { t } = useTranslation(['file', 'chat']);
+  const { t } = useTranslation(['file', 'chat', 'knowledgeBase']);
 
   const [useFetchFilesAndKnowledgeBases, activeAgentId, agentVisibility, agentWorkspaceId] =
     useAgentStore((s) => [

@@ -20,7 +20,7 @@ import { getLibraryListAsyncState } from './state';
  * Show library list in the sidebar
  */
 const LibraryList = memo(() => {
-  const { t } = useTranslation('file');
+  const { t } = useTranslation(['file', 'knowledgeBase']);
   // Mirrors the file-explorer mode: `private` → only own private KBs,
   // `workspace` → only public KBs. Personal-mode users never render this list
   // with a filter (the toggle isn't shown), so `visibility` stays undefined

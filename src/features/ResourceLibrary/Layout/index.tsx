@@ -19,7 +19,7 @@ import { styles } from './style';
 
 const LibraryLayout: FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { t } = useTranslation('file');
+  const { t } = useTranslation(['file', 'knowledgeBase']);
   const navigate = useWorkspaceAwareNavigate();
   // Same SWR key as the page content's fetch, so this costs no extra request.
   const { data, error, isConfirmed } = useKnowledgeBaseItem(id || '');
