@@ -781,10 +781,14 @@ export const createReplicaSlice = <TStore, TParams, TData, TFetched = TData>(
         // clear) never surfaces on the query now on screen; an off-scope one is
         // still forwarded with the captured key/scope (see `settle`).
         onError: (error: unknown) => {
+          // SWR can deliver an in-flight result to the latest options after
+          // its key becomes null. The original promise already settles it.
+          if (syncKey === null) return;
           const settled = settle(takeRequest(error), { error });
           if (settled.current) onError?.(error, { isActive: settled.isActive, key, scope });
         },
         onSuccess: (data) => {
+          if (syncKey === null) return;
           const settled = settle(takeRequest(data), { data });
           if (!settled.current || !settled.isActive) return;
           // A key the hook has moved past (g1 → g2 while g1's request is in
