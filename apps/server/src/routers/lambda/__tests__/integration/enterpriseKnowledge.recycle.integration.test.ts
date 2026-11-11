@@ -40,7 +40,10 @@ vi.mock('@lobechat/business-knowledge', async (original) => {
     ...(await original<typeof BusinessKnowledge>()),
     ...fakeBusinessKnowledge,
     getEnterpriseKbItemUploaders: async () => ({}),
+    listEnterpriseKbNodePolicies: async () => [],
     removeEnterpriseKbItemUploaders: async () => {},
+    removeEnterpriseKbNodePolicies: async () => {},
+    remapEnterpriseKbNodePolicies: async () => {},
     summarizeEnterpriseKbAccess: async () => ({}),
     findEnterpriseKbMember: async (_db: unknown, p: { id: string }) => ({
       id: p.id,

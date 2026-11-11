@@ -101,6 +101,7 @@ const handle =
   };
 const empty = z.object({});
 const withActor = z.object({ actor });
+const nodeAccess = z.object({ grants, mode: z.enum(['custom', 'inherit']) });
 
 export const listKnowledgeBases = handle(
   pagination(20).extend({ q: z.string().optional() }),
@@ -165,6 +166,17 @@ export const listItems = handle(
   }),
   'query',
   (s, c, p) => s.content.list(c.req.param('id')!, p),
+);
+export const getItemAccess = handle(empty, 'query', (s, c) =>
+  s.nodeAccess.get(c.req.param('id')!, c.req.param('itemId')!),
+);
+export const updateItemAccess = handle(
+  nodeAccess.extend({ actor, version: z.number().int().min(0) }),
+  'body',
+  (s, c, p) => s.nodeAccess.update(c.req.param('id')!, c.req.param('itemId')!, p),
+);
+export const estimateItemAccess = handle(nodeAccess, 'body', (s, c, p) =>
+  s.nodeAccess.estimate(c.req.param('id')!, c.req.param('itemId')!, p),
 );
 export const presignUpload = handle(upload, 'body', (s, c, p) =>
   s.content.presign(c.req.param('id')!, p),

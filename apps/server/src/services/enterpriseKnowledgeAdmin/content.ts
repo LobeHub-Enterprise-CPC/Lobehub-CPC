@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   recordEnterpriseKbItemUploaders,
   removeEnterpriseKbItemUploaders,
+  removeEnterpriseKbNodePolicies,
 } from '@lobechat/business-knowledge';
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 
@@ -299,6 +300,10 @@ export class EnterpriseKbContentService {
         tx,
         target.map((row) => row.item.id),
       );
+      await removeEnterpriseKbNodePolicies(tx, {
+        knowledgeBaseId: id,
+        nodeIds: target.map((row) => row.item.id),
+      });
       return [...deleted.map((file) => file.url), ...(await orphanedHashlessKeys(db, fileRows))];
     });
     if (keys.length) await new FileService(this.db, kb.userId).deleteFiles(keys);

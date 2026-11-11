@@ -1,5 +1,8 @@
 import type { EnterpriseKbActor } from '@lobechat/business-knowledge';
-import { getEnterpriseKbItemUploaders } from '@lobechat/business-knowledge';
+import {
+  getEnterpriseKbItemUploaders,
+  listEnterpriseKbNodePolicies,
+} from '@lobechat/business-knowledge';
 import { isRecord } from '@lobechat/utils/object';
 import { and, count, eq, inArray, isNull, or } from 'drizzle-orm';
 
@@ -28,6 +31,7 @@ export interface ContentItem {
   childCount: number | null;
   chunkCount: number | null;
   createdAt: string;
+  customAccess: boolean;
   fileType: string | null;
   id: string;
   kind: 'document' | 'file' | 'folder';
@@ -124,7 +128,11 @@ export const loadContent = async (
   // File-derived documents are mirrors of the file entry, not a second item in its folder.
   const standaloneDocs = docRows.filter((doc) => !doc.fileId);
   const ids = [...linkedIds, ...docRows.map((doc) => doc.id)];
-  const uploaders = await getEnterpriseKbItemUploaders(db, ids);
+  const [uploaders, policies] = await Promise.all([
+    getEnterpriseKbItemUploaders(db, ids),
+    listEnterpriseKbNodePolicies(db, kb.id),
+  ]);
+  const customNodes = new Set(policies.map((policy) => policy.nodeId));
   const chunkCounts = linkedIds.length
     ? await db
         .select({ id: fileChunks.fileId, total: count() })
@@ -151,6 +159,7 @@ export const loadContent = async (
         trashed: file.isDeleted === true || native?.isDeleted === true,
         item: {
           id: native?.id ?? file.id,
+          customAccess: customNodes.has(native?.id ?? file.id),
           kind: native ? 'document' : 'file',
           name: native?.title ?? file.name,
           parentId: native?.parentId ?? file.parentId,
@@ -180,6 +189,7 @@ export const loadContent = async (
       trashed: doc.isDeleted === true,
       item: {
         id: doc.id,
+        customAccess: customNodes.has(doc.id),
         kind: doc.fileType === DOCUMENT_FOLDER_TYPE ? 'folder' : 'document',
         name: doc.title ?? doc.filename ?? '',
         parentId: doc.parentId,

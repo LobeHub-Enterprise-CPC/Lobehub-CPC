@@ -12,15 +12,18 @@ import type { LobeChatDatabase } from '@/database/type';
 
 import { EnterpriseKbContentService } from './content';
 import { EnterpriseKbLibraryService } from './libraries';
+import { EnterpriseKbNodeAccessService } from './nodeAccess';
 import { type AdminActor, loadEnterpriseKb, toEnterpriseActor } from './shared';
 
 export class EnterpriseKnowledgeAdminService {
   readonly libraries: EnterpriseKbLibraryService;
   readonly content: EnterpriseKbContentService;
+  readonly nodeAccess: EnterpriseKbNodeAccessService;
 
   constructor(private readonly db: LobeChatDatabase) {
     this.libraries = new EnterpriseKbLibraryService(db);
     this.content = new EnterpriseKbContentService(db);
+    this.nodeAccess = new EnterpriseKbNodeAccessService(db);
   }
 
   members = async (params: { keyword: string; limit?: number }) => ({

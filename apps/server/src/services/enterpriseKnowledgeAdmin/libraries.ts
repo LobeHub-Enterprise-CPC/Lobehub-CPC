@@ -4,6 +4,7 @@ import {
   listEnterpriseKbIds,
   markEnterpriseKb,
   recordEnterpriseKbTransfer,
+  remapEnterpriseKbNodePolicies,
   summarizeEnterpriseKbAccess,
   unmarkEnterpriseKb,
 } from '@lobechat/business-knowledge';
@@ -381,6 +382,19 @@ export class EnterpriseKbLibraryService {
         fromUserId,
         toUserId,
       });
+
+      if (copiedResources.size) {
+        // The registry map uses kind-prefixed keys; policies use the content node's raw id.
+        await remapEnterpriseKbNodePolicies(trx, {
+          idMap: Object.fromEntries(
+            [...copiedResources].map(([resource, copiedId]) => [
+              resource.slice(resource.indexOf(':') + 1),
+              copiedId,
+            ]),
+          ),
+          knowledgeBaseId: id,
+        });
+      }
 
       await recordEnterpriseKbTransfer(trx, {
         actor: toEnterpriseActor(params.actor),
