@@ -1,3 +1,4 @@
+import { removeEnterpriseKbNodePolicies } from '@lobechat/business-knowledge';
 import { TRASH_RETENTION_MS } from '@lobechat/const';
 import { TRPCError } from '@trpc/server';
 import { and, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
@@ -13,6 +14,7 @@ import {
   type EnterpriseScope,
   itemsBelongToKnowledgeBase,
   resolveItemsScope,
+  resolveKnowledgeBaseScope,
 } from './index';
 
 /** Enterprise content uses the existing text-valued registry, without changing the kernel schema. */
@@ -73,6 +75,8 @@ export const trashEnterpriseItems = async (
           .where(eq(documents.fileId, file.id));
         pending.push(...derived.map((row) => row.id));
       }
+      // A folder edit grant must not cascade into a separately restricted child.
+      await resolveKnowledgeBaseScope({ ...ctx, serverDB: db }, scope.knowledgeBaseId, 'edit', id);
       const type = doc ? 'document' : 'file';
       const table = doc ? documents : files;
       await db
@@ -202,7 +206,7 @@ export const enterpriseContentTrashHandler: Pick<TrashHandler, 'restore' | 'purg
     // its complete reference/global-object bookkeeping. Other requests never see these rows live.
     const removed = await ctx.db.transaction(async (tx) => {
       const db = tx as unknown as LobeChatDatabase;
-      await resolveItemsScope(
+      const scope = await resolveItemsScope(
         { serverDB: db, userId: ctx.userId },
         rows.map((row) => row.resourceId),
         'owner',
@@ -255,6 +259,11 @@ export const enterpriseContentTrashHandler: Pick<TrashHandler, 'restore' | 'purg
               isTrashed(documents.isDeleted),
             ),
           );
+      if (scope.enterprise)
+        await removeEnterpriseKbNodePolicies(db, {
+          knowledgeBaseId: scope.knowledgeBaseId,
+          nodeIds: rows.map((row) => row.resourceId),
+        });
       return removed;
     });
     if (removed.length)

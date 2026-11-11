@@ -102,7 +102,11 @@ export const enterpriseContentContext = async (
       scope = await resolveContentScope(
         ctx,
         contentTargetSchema.pick(mask).parse(raw ?? {}),
-        write ? 'edit' : 'view',
+        write
+          ? 'edit'
+          : options.domain === 'document' && options.procedure === 'getFolderBreadcrumb'
+            ? 'path'
+            : 'view',
       );
     }
   }

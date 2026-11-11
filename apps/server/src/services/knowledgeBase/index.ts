@@ -27,6 +27,8 @@ import {
   resolveItemsScope,
 } from '@/server/services/enterpriseKnowledge';
 import { resolveEnterpriseContentScopes } from '@/server/services/enterpriseKnowledge/contentAccess';
+import { createEnterpriseListFilter } from '@/server/services/enterpriseKnowledge/listAccess';
+import type { EnterpriseNodeAccess } from '@/server/services/enterpriseKnowledge/nodeAccess';
 import { createFtsSearchRepo } from '@/server/services/ftsSearch';
 import { assertContentsNotInRestrictedKnowledgeBase } from '@/server/services/knowledgeBaseAccess';
 
@@ -147,6 +149,7 @@ export class KnowledgeBaseSearchService {
 
   private async searchScoped(
     input: SemanticSearchSchemaType,
+    nodeAccess?: EnterpriseNodeAccess,
   ): Promise<SemanticSearchForChatResult> {
     const topK = input.topK ?? 20;
     const knowledgeIds = input.knowledgeIds ?? [];
@@ -190,6 +193,21 @@ export class KnowledgeBaseSearchService {
         finalFileIds = (await this.fileModel.findByIds(finalFileIds)).map((file) => file.id);
       }
 
+      if (nodeAccess)
+        finalFileIds = finalFileIds.filter((id) => {
+          const level = nodeAccess.levels.get(id);
+          return level && level !== 'path' && nodeAccess.nodes.get(id)?.kind === 'file';
+        });
+      // A non-enterprise library can reference an enterprise file too. Gate those exact
+      // files before querying, including anonymous/share calls and policy failures.
+      if (!nodeAccess)
+        finalFileIds = (
+          await createEnterpriseListFilter({
+            serverDB: this.serverDB,
+            userId: this.askerId ?? '',
+            workspaceId: this.workspaceId,
+          })(finalFileIds.map((id) => ({ id })))
+        ).map((row) => row.id);
       return this.chunkModel.semanticSearchForChat({
         embedding: embeddings![0],
         fileIds: finalFileIds,
@@ -212,7 +230,24 @@ export class KnowledgeBaseSearchService {
         usage: 'knowledge_base',
         workspaceId: this.workspaceId,
       });
-      return ftsSearchRepo.searchKnowledgeBaseDocuments(input.query, knowledgeIds, topK);
+      // Providers currently scope full-text by library. Retrieve enough candidates to cover the
+      // whole authoritative tree, then filter before snippets leave this service and before topK.
+      const hits = await ftsSearchRepo.searchKnowledgeBaseDocuments(
+        input.query,
+        knowledgeIds,
+        nodeAccess ? Math.max(topK, nodeAccess.nodes.size) : topK,
+      );
+      const permitted = nodeAccess
+        ? hits.filter((hit) => {
+            const level = nodeAccess.levels.get(hit.fileId ?? hit.documentId);
+            return level && level !== 'path';
+          })
+        : await createEnterpriseListFilter({
+            serverDB: this.serverDB,
+            userId: this.askerId ?? '',
+            workspaceId: this.workspaceId,
+          })(hits.map((hit) => ({ ...hit, id: hit.documentId })));
+      return permitted.slice(0, topK);
     };
 
     const [vectorResult, bm25Result] = await Promise.allSettled([vectorPath(), bm25Path()]);
@@ -271,7 +306,14 @@ export class KnowledgeBaseSearchService {
     const plainFiles = (input.fileIds ?? []).filter((id) => !enterpriseFiles.has(id));
     const groups = [
       ...(plan.plainIds.length || plainFiles.length || requestedIds.length === 0
-        ? [{ fileIds: plainFiles, knowledgeIds: plan.plainIds, userId: this.userId }]
+        ? [
+            {
+              fileIds: plainFiles,
+              knowledgeIds: plan.plainIds,
+              userId: this.userId,
+              nodeAccess: undefined as EnterpriseNodeAccess | undefined,
+            },
+          ]
         : []),
       ...plan.enterpriseGroups.map((group) => ({
         fileIds: (input.fileIds ?? []).filter((id) =>
@@ -281,6 +323,7 @@ export class KnowledgeBaseSearchService {
         ),
         knowledgeIds: group.knowledgeBaseIds.filter((id) => input.knowledgeIds?.includes(id)),
         userId: group.ownerId,
+        nodeAccess: group.nodeAccess,
       })),
     ];
     const results = await Promise.all(
@@ -291,16 +334,23 @@ export class KnowledgeBaseSearchService {
           undefined,
           this.callerAgentVisibility,
           this.askerId,
-        ).searchScoped({ ...input, fileIds: group.fileIds, knowledgeIds: group.knowledgeIds }),
+        ).searchScoped(
+          { ...input, fileIds: group.fileIds, knowledgeIds: group.knowledgeIds },
+          group.nodeAccess,
+        ),
       ),
     );
     const topK = input.topK ?? 20;
-    const chunks = results
-      .flatMap((result) => result.chunks)
+    const chunks = [
+      ...new Map(results.flatMap((result) => result.chunks).map((hit) => [hit.id, hit])).values(),
+    ]
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, topK);
-    const documents = results
-      .flatMap((result) => result.documents)
+    const documents = [
+      ...new Map(
+        results.flatMap((result) => result.documents).map((hit) => [hit.documentId, hit]),
+      ).values(),
+    ]
       .sort((a, b) => a.relevance - b.relevance)
       .slice(0, topK);
     const errors = Object.assign({}, ...results.map((result) => result.errors));

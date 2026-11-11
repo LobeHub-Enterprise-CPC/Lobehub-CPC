@@ -16,10 +16,10 @@ import {
   assertNotEnterpriseKnowledgeBase,
   filterEnterpriseKnowledgeBaseIds,
   getUserDisplayNames,
-  itemsBelongToKnowledgeBase,
   mergeEnterpriseKnowledgeBases,
   resolveKnowledgeBaseScope,
 } from '@/server/services/enterpriseKnowledge';
+import { resolveContentScope } from '@/server/services/enterpriseKnowledge/contentScope';
 import { FileService } from '@/server/services/file';
 import {
   getWorkspaceScopedPermissionMatches,
@@ -227,7 +227,7 @@ export const knowledgeBaseRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }): Promise<KnowledgeBaseItem | undefined> => {
       // An enterprise library is read through its owner once the caller's tier is known.
-      const scope = await resolveKnowledgeBaseScope(ctx, input.id, 'view');
+      const scope = await resolveKnowledgeBaseScope(ctx, input.id, 'path');
       if (scope.enterprise) {
         const owned = await new KnowledgeBaseModel(ctx.serverDB, scope.ownerId).findById(input.id);
         if (!owned) throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge base not found' });
@@ -401,20 +401,16 @@ export const knowledgeBaseRouter = router({
     .use(withScopedPermission('knowledge_base:update'))
     .input(z.object({ ids: z.array(z.string()), knowledgeBaseId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const scope = await resolveKnowledgeBaseScope(ctx, input.knowledgeBaseId, 'edit');
-      if (scope.enterprise) {
-        // The rows are the owner's: act through the owner, on this library's own rows only.
-        if (!(await itemsBelongToKnowledgeBase(ctx.serverDB, input.ids, input.knowledgeBaseId))) {
-          throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'One or more resources were not found or are not accessible',
-          });
-        }
-        return new KnowledgeBaseModel(ctx.serverDB, scope.ownerId).removeFilesFromKnowledgeBase(
-          input.knowledgeBaseId,
-          input.ids,
-        );
-      }
+      const scope = await resolveContentScope(
+        ctx,
+        { knowledgeBaseId: input.knowledgeBaseId, ids: input.ids },
+        'edit',
+      );
+      if (scope.enterprise)
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Enterprise content cannot leave its library',
+        });
 
       const kb = await ctx.knowledgeBaseModel.findById(input.knowledgeBaseId);
       if (!kb) throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge base not found' });

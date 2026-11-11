@@ -9,6 +9,8 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { documents, files, knowledgeBaseFiles, knowledgeBases } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
 
+import { resolveKnowledgeBaseScope } from './index';
+
 interface ContentAccessContext {
   serverDB: LobeChatDatabase;
   /** Authenticated caller, distinct from the data owner's scope. */
@@ -123,20 +125,30 @@ export const resolveEnterpriseContentScopes = async (
       if (governedIds.length === 0) continue;
       const permitted =
         !item.isDeleted &&
-        governedIds.some((kbId) => {
-          const resolution = resolutions.get(kbId);
-          const library = libraries.find((row) => row.id === kbId);
-          return (
-            resolution?.enterprise &&
-            resolution.access &&
-            library &&
-            !library.isDeleted &&
-            resolution.access.knowledgeBaseId === kbId &&
-            resolution.access.ownerId === library.userId &&
-            library.userId === item.userId &&
-            ['owner', 'edit', 'view'].includes(resolution.access.level)
-          );
-        });
+        (
+          await Promise.all(
+            governedIds.map(async (kbId) => {
+              const resolution = resolutions.get(kbId);
+              const library = libraries.find((row) => row.id === kbId);
+              const valid =
+                resolution?.enterprise &&
+                resolution.access &&
+                library &&
+                !library.isDeleted &&
+                resolution.access.knowledgeBaseId === kbId &&
+                resolution.access.ownerId === library.userId &&
+                library.userId === item.userId &&
+                ['owner', 'edit', 'view', 'path'].includes(resolution.access.level);
+              if (!valid || !ctx.userId) return false;
+              try {
+                await resolveKnowledgeBaseScope({ ...ctx, userId: ctx.userId }, kbId, 'view', id);
+                return true;
+              } catch {
+                return false;
+              }
+            }),
+          )
+        ).some(Boolean);
       if (!permitted) throw new TRPCError({ code: 'NOT_FOUND' });
       scopes.set(id, item.userId);
     }

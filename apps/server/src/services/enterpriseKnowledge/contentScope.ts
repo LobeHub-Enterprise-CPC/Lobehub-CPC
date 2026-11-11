@@ -1,4 +1,4 @@
-import type { EnterpriseKbLevel } from '@lobechat/business-knowledge';
+import type { EnterpriseKbAccessLevel } from '@lobechat/business-knowledge';
 import { isEnterpriseKnowledgeEnabled } from '@lobechat/business-knowledge';
 import { TRPCError } from '@trpc/server';
 import { and, eq, isNull, or } from 'drizzle-orm';
@@ -52,11 +52,11 @@ const resolveDirectoryTarget = async (
 export const resolveContentScope = async (
   ctx: EnterpriseAccessCtx,
   target: ContentTarget,
-  required: EnterpriseKbLevel,
+  required: EnterpriseKbAccessLevel,
 ): Promise<KnowledgeAccessScope> => {
   if (ctx.workspaceId || !isEnterpriseKnowledgeEnabled()) return { enterprise: false };
   const kbScope = target.knowledgeBaseId
-    ? await resolveKnowledgeBaseScope(ctx, target.knowledgeBaseId, required)
+    ? await resolveKnowledgeBaseScope(ctx, target.knowledgeBaseId, 'path')
     : undefined;
   const ownerId = kbScope?.enterprise ? kbScope.ownerId : undefined;
   const ids =
@@ -76,7 +76,7 @@ export const resolveContentScope = async (
       )
     : undefined;
   const parentScope = parentId
-    ? await resolveItemsScope(ctx, [parentId], required)
+    ? await resolveItemsScope(ctx, [parentId], required === 'edit' ? 'edit' : 'path')
     : { enterprise: false as const };
   const scope = kbScope ?? (itemScope.enterprise ? itemScope : parentScope);
   if (!scope.enterprise) {
@@ -93,5 +93,16 @@ export const resolveContentScope = async (
   ) {
     throw new TRPCError({ code: 'NOT_FOUND' });
   }
+  // Check the exact library, not another library that happens to reference the same file.
+  for (const id of ids) await resolveKnowledgeBaseScope(ctx, scope.knowledgeBaseId, required, id);
+  if (parentId)
+    await resolveKnowledgeBaseScope(
+      ctx,
+      scope.knowledgeBaseId,
+      required === 'edit' ? 'edit' : 'path',
+      parentId,
+    );
+  else if (required === 'edit' && (ids.length === 0 || target.parentId === null))
+    await resolveKnowledgeBaseScope(ctx, scope.knowledgeBaseId, 'edit');
   return scope;
 };

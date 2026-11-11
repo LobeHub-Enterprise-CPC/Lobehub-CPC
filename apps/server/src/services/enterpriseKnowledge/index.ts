@@ -1,6 +1,6 @@
 import {
   type EnterpriseKbAccess,
-  type EnterpriseKbLevel,
+  type EnterpriseKbAccessLevel,
   isEnterpriseKnowledgeEnabled,
   listAccessibleEnterpriseKbs,
   listEnterpriseKbIds,
@@ -14,6 +14,8 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { KnowledgeBaseModel } from '@/database/models/knowledgeBase';
 import { documents, files, knowledgeBaseFiles, knowledgeBases, users } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
+
+import { type EnterpriseNodeAccess, nodeLevel, resolveNodeAccess } from './nodeAccess';
 
 /**
  * Enterprise knowledge bases: one place that answers "may this caller touch
@@ -31,7 +33,12 @@ import type { LobeChatDatabase } from '@/database/type';
  * Any error while deciding is a denial.
  */
 
-const TIER_RANK: Record<EnterpriseKbLevel, number> = { edit: 2, owner: 3, view: 1 };
+const TIER_RANK: Record<EnterpriseKbAccessLevel, number> = {
+  path: 0,
+  edit: 2,
+  owner: 3,
+  view: 1,
+};
 
 export interface EnterpriseAccessCtx {
   serverDB: LobeChatDatabase;
@@ -47,9 +54,11 @@ export interface PlainScope {
 /** The target lives in an enterprise knowledge base the caller may use at the required tier. */
 export interface EnterpriseScope {
   enterprise: true;
+  hasNodePolicies?: boolean;
   knowledgeBaseId: string;
   /** The tier the caller actually holds (>= the required tier). */
-  level: EnterpriseKbLevel;
+  level: EnterpriseKbAccessLevel;
+  nodeAccess?: EnterpriseNodeAccess;
   /** Scope every read and write by this user id (`knowledge_bases.user_id`). */
   ownerId: string;
 }
@@ -81,7 +90,8 @@ const resolveAccess = async (
       resolution.access &&
       (resolution.access.knowledgeBaseId !== knowledgeBaseId ||
         !resolution.access.ownerId ||
-        !TIER_RANK[resolution.access.level])
+        !(resolution.access.level in TIER_RANK) ||
+        (resolution.access.level === 'path' && !resolution.access.hasNodePolicies))
     )
       return { access: null, enterprise: true };
     return { access: resolution.access, enterprise: true };
@@ -101,27 +111,32 @@ const resolveAccess = async (
 export const resolveKnowledgeBaseScope = async (
   ctx: EnterpriseAccessCtx,
   knowledgeBaseId: string,
-  required: EnterpriseKbLevel,
+  required: EnterpriseKbAccessLevel,
+  nodeId?: string | null,
 ): Promise<KnowledgeAccessScope> => {
   if (!isPersonalMode(ctx)) return { enterprise: false };
 
   const { access, enterprise } = await resolveAccess(ctx.serverDB, ctx.userId, knowledgeBaseId);
   if (!enterprise) return { enterprise: false };
-  if (!access || access.knowledgeBaseId !== knowledgeBaseId || !TIER_RANK[access.level])
-    throw notFound();
-  if (TIER_RANK[access.level] < TIER_RANK[required]) {
+  if (!access || access.knowledgeBaseId !== knowledgeBaseId) throw notFound();
+  const nodeAccess = await resolveNodeAccess(ctx.serverDB, ctx.userId, access);
+  const level = nodeLevel(access, nodeAccess, nodeId);
+  if (!level) throw notFound();
+  if (TIER_RANK[level] < TIER_RANK[required]) {
+    if (level === 'path') throw notFound();
     throw forbidden(
       required === 'owner'
         ? 'Only the knowledge base owner can do this'
-        : 'You do not have edit access to this knowledge base',
+        : 'You do not have edit access to this node',
     );
   }
-
   return {
     enterprise: true,
     knowledgeBaseId,
-    level: access.level,
+    level,
     ownerId: access.ownerId,
+    nodeAccess,
+    hasNodePolicies: access.hasNodePolicies,
   };
 };
 
@@ -134,7 +149,7 @@ export const assertNotEnterpriseKnowledgeBase = async (
   knowledgeBaseId: string,
   message = 'This operation is not allowed on an enterprise knowledge base',
 ): Promise<void> => {
-  const scope = await resolveKnowledgeBaseScope(ctx, knowledgeBaseId, 'view');
+  const scope = await resolveKnowledgeBaseScope(ctx, knowledgeBaseId, 'path');
   if (scope.enterprise) throw forbidden(message);
 };
 
@@ -236,7 +251,7 @@ export const loadItemMemberships = async (
 export const resolveItemsScope = async (
   ctx: EnterpriseAccessCtx,
   ids: string[],
-  required: EnterpriseKbLevel,
+  required: EnterpriseKbAccessLevel,
   includeTrashed = false,
 ): Promise<KnowledgeAccessScope> => {
   if (!isPersonalMode(ctx) || ids.length === 0 || !isEnterpriseKnowledgeEnabled()) {
@@ -273,30 +288,41 @@ export const resolveItemsScope = async (
     accessByKb.set(kbId, (await resolveAccess(ctx.serverDB, ctx.userId, kbId)).access);
   }
 
+  const snapshots = new Map<string, EnterpriseNodeAccess | undefined>();
+  for (const [kbId, access] of accessByKb) {
+    if (access) snapshots.set(kbId, await resolveNodeAccess(ctx.serverDB, ctx.userId, access));
+  }
   let scope: EnterpriseScope | undefined;
   let tooLow = false;
   for (const id of uniqueIds) {
     const membership = memberships.get(id);
     if (!membership || (membership.isDeleted && !includeTrashed)) throw notFound('Not found');
-    let best: { access: EnterpriseKbAccess; knowledgeBaseId: string } | undefined;
+    let best:
+      | { access: EnterpriseKbAccess; knowledgeBaseId: string; level: EnterpriseKbAccessLevel }
+      | undefined;
     for (const kbId of membership.knowledgeBaseIds) {
       const access = accessByKb.get(kbId);
       // The row must carry the owner id of the very knowledge base that grants the tier.
       if (!access || access.ownerId !== membership.userId) continue;
-      if (!best || TIER_RANK[access.level] > TIER_RANK[best.access.level]) {
-        best = { access, knowledgeBaseId: kbId };
+      const level = nodeLevel(access, snapshots.get(kbId), id);
+      if (!level) continue;
+      if (!best || TIER_RANK[level] > TIER_RANK[best.level]) {
+        best = { access, knowledgeBaseId: kbId, level };
       }
     }
     if (!best) throw notFound('Not found');
     if (scope && scope.ownerId !== best.access.ownerId) throw notFound('Not found');
-    if (TIER_RANK[best.access.level] < TIER_RANK[required]) tooLow = true;
+    if (best.level === 'path' && required !== 'path') throw notFound('Not found');
+    if (TIER_RANK[best.level] < TIER_RANK[required]) tooLow = true;
     scope ??= {
       enterprise: true,
       knowledgeBaseId: best.knowledgeBaseId,
-      level: best.access.level,
+      level: best.level,
+      nodeAccess: snapshots.get(best.knowledgeBaseId),
+      hasNodePolicies: best.access.hasNodePolicies,
       ownerId: best.access.ownerId,
     };
-    if (TIER_RANK[best.access.level] < TIER_RANK[scope.level]) scope.level = best.access.level;
+    if (TIER_RANK[best.level] < TIER_RANK[scope.level]) scope.level = best.level;
   }
 
   if (tooLow) throw forbidden('You do not have edit access to this knowledge base');
@@ -359,7 +385,11 @@ const safeListAccessible = async (db: LobeChatDatabase, userId: string) => {
     const current: EnterpriseKbAccess[] = [];
     for (const candidate of candidates) {
       const { access } = await resolveAccess(db, userId, candidate.knowledgeBaseId);
-      if (access) current.push(access);
+      if (access) {
+        const nodeAccess = await resolveNodeAccess(db, userId, access);
+        const level = nodeLevel(access, nodeAccess);
+        if (level) current.push({ ...access, level });
+      }
     }
     return current;
   } catch (error) {
@@ -469,14 +499,22 @@ export const getInaccessibleEnterpriseKnowledgeBaseIds = async (
   }
   const denied: string[] = [];
   for (const id of ids) {
-    if (!(await resolveAccess(ctx.serverDB, ctx.userId, id)).access) denied.push(id);
+    try {
+      await resolveKnowledgeBaseScope(ctx, id, 'path');
+    } catch {
+      denied.push(id);
+    }
   }
   return denied;
 };
 
 export interface RetrievalPlan {
   /** Enterprise knowledge bases the asker may search, grouped by the owner whose scope to use. */
-  enterpriseGroups: { knowledgeBaseIds: string[]; ownerId: string }[];
+  enterpriseGroups: {
+    knowledgeBaseIds: string[];
+    ownerId: string;
+    nodeAccess?: EnterpriseNodeAccess;
+  }[];
   /** Knowledge bases to search with the caller's own scope, exactly as before. */
   plainIds: string[];
   /** Enterprise knowledge bases left out; surfaced to the caller as a count only. */
@@ -502,7 +540,7 @@ export const planRetrieval = async (
   );
   const plainIds = knowledgeBaseIds.filter((id) => !enterpriseIds.has(id));
 
-  const groups = new Map<string, string[]>();
+  const groups: RetrievalPlan['enterpriseGroups'] = [];
   let skippedCount = 0;
   for (const kbId of enterpriseIds) {
     const { access } = askerId
@@ -512,11 +550,16 @@ export const planRetrieval = async (
       skippedCount += 1;
       continue;
     }
-    groups.set(access.ownerId, [...(groups.get(access.ownerId) ?? []), kbId]);
+    try {
+      const nodeAccess = await resolveNodeAccess(ctx.serverDB, askerId!, access);
+      groups.push({ knowledgeBaseIds: [kbId], ownerId: access.ownerId, nodeAccess });
+    } catch {
+      skippedCount += 1;
+    }
   }
 
   return {
-    enterpriseGroups: [...groups].map(([ownerId, ids]) => ({ knowledgeBaseIds: ids, ownerId })),
+    enterpriseGroups: groups,
     plainIds,
     skippedCount,
   };

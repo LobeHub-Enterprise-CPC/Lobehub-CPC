@@ -1,7 +1,12 @@
 import type { FtsSearchDatabaseResult } from '@/database/repositories/ftsSearch';
 import { KnowledgeRepo } from '@/database/repositories/knowledge';
 
-import { type EnterpriseAccessCtx, listAccessibleEnterpriseKnowledgeBases } from './index';
+import {
+  type EnterpriseAccessCtx,
+  listAccessibleEnterpriseKnowledgeBases,
+  resolveKnowledgeBaseScope,
+} from './index';
+import { queryEnterprisePage } from './listAccess';
 
 /** Search names inside the requester's currently accessible libraries, never an owner's global scope. */
 export const searchEnterpriseKnowledge = async (
@@ -34,12 +39,18 @@ export const searchEnterpriseKnowledge = async (
       });
     }
     if (input.type === 'knowledgeBase') continue;
-    const rows = await new KnowledgeRepo(ctx.serverDB, kb.userId!).query({
-      knowledgeBaseId: kb.id,
-      q: input.query,
-      includeContent: false,
-      limit: limit + offset,
-    });
+    const scope = await resolveKnowledgeBaseScope(ctx, kb.id, 'path');
+    const rows = await queryEnterprisePage(
+      ctx,
+      (page) =>
+        new KnowledgeRepo(ctx.serverDB, kb.userId!).query({
+          knowledgeBaseId: kb.id,
+          q: input.query,
+          includeContent: false,
+          ...page,
+        }),
+      { limit: limit + offset, scope: scope.enterprise ? scope : undefined },
+    );
     for (const row of rows) {
       const type =
         row.fileType === 'custom/folder'
@@ -49,6 +60,7 @@ export const searchEnterpriseKnowledge = async (
             : 'file';
       if (!input.type || input.type === type) {
         const base = {
+          enterpriseAccess: row.enterpriseAccess,
           createdAt: row.createdAt,
           id: type === 'file' ? row.id : (row.documentId ?? row.id),
           relevance: 1,
