@@ -99,6 +99,15 @@ describe('lambdaClient large-input query transport', () => {
       'topicIds',
       1000,
     ],
+    [
+      'file.getKnowledgeItemStatusesByIds',
+      () =>
+        lambdaClient.file.getKnowledgeItemStatusesByIds.query({
+          ids: Array.from({ length: 150 }, (_, i) => `file_${String(i).padStart(12, '0')}`),
+        }),
+      'ids',
+      150,
+    ],
   ] as const)(
     'sends %s with a large path/id array as a POST request',
     async (path, call, arrayField, expectedLength) => {
