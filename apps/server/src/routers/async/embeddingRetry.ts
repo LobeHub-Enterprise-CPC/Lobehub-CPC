@@ -1,10 +1,24 @@
 const BASE_DELAY_MS = 2000;
 const MAX_DELAY_MS = 60_000;
 
+/**
+ * The HTTP status behind an error, wherever the runtime left it: a numeric `status`, or
+ * only the SDK's message, which starts with it (`504 upstream unreachable`).
+ */
 const statusOf = (error: unknown): number | undefined => {
   if (!error || typeof error !== 'object') return undefined;
-  const { error: inner, status } = error as { error?: unknown; status?: unknown };
+  const {
+    error: inner,
+    message,
+    status,
+  } = error as {
+    error?: unknown;
+    message?: unknown;
+    status?: unknown;
+  };
   if (typeof status === 'number') return status;
+  const leading = typeof message === 'string' ? /^(\d{3})\b/.exec(message) : null;
+  if (leading) return Number(leading[1]);
   return statusOf(inner);
 };
 

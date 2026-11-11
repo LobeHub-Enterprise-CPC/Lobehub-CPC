@@ -30,6 +30,15 @@ describe('isTransientEmbeddingError', () => {
     expect(
       isTransientEmbeddingError({ error: { status: 503 }, errorType: 'ProviderBizError' }),
     ).toBe(true);
+    // A gateway in front of the provider: no numeric status, only the SDK message.
+    expect(
+      isTransientEmbeddingError({
+        error: { code: 'upstream_unreachable' },
+        errorType: 'ProviderBizError',
+        message: '504 <urlopen error EOF occurred in violation of protocol>',
+      }),
+    ).toBe(true);
+    expect(isTransientEmbeddingError({ message: '400 invalid input' })).toBe(false);
     expect(isTransientEmbeddingError(invalidKey)).toBe(false);
     expect(isTransientEmbeddingError({ errorType: 'ExceededContextWindow' })).toBe(false);
     expect(isTransientEmbeddingError(undefined)).toBe(false);
