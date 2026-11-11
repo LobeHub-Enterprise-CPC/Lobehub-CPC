@@ -177,6 +177,11 @@ describe('DocumentBody', () => {
     mockDocumentState.current.documentDetailMap = {};
     mockLibraryState.current.knowledgeBaseDetailMap = {};
     mockLibraryState.current.knowledgeBaseSessionAccess = {};
+    mockNodeState.current.nodeLevelMap = {
+      [JSON.stringify(['library-1', 'document-1'])]: { level: 'edit' },
+      [JSON.stringify(['old-library', 'document-1'])]: { level: 'edit' },
+      [JSON.stringify(['next-library', 'document-2'])]: { level: 'view' },
+    };
     mockUpdateDocument.mockClear();
     mockDocumentState.current.internal_dispatchDocument.mockClear();
     vi.useFakeTimers();
@@ -274,7 +279,10 @@ describe('DocumentBody', () => {
       if (access === 'view') {
         mockLibraryState.current.knowledgeBaseDetailMap['library-1'] = {
           id: 'library-1',
-          enterprise: { accessLevel: 'view' },
+          enterprise: { accessLevel: 'edit' },
+        };
+        mockNodeState.current.nodeLevelMap[JSON.stringify(['library-1', 'document-1'])] = {
+          level: 'view',
         };
       }
       if (access === 'denied') {
@@ -321,7 +329,7 @@ describe('DocumentBody', () => {
     expect(screen.getByRole('textbox')).toHaveValue('name: example\ndescription: Example skill');
   });
 
-  it('allows an enterprise edit grant to autosave', async () => {
+  it('allows autosave after the enterprise node resolves edit', async () => {
     mockDocumentMeta.current = { content: 'before', filename: 'config.json' };
     mockDocumentState.current.documentDetailMap = {
       'document-1': { document: { knowledgeBaseId: 'library-1' } },
@@ -330,7 +338,21 @@ describe('DocumentBody', () => {
       id: 'library-1',
       enterprise: { accessLevel: 'edit' },
     };
-    render(<DocumentBody />);
+    mockNodeState.current.nodeLevelMap = {};
+    const { rerender } = render(
+      <DocumentViewProvider value={{ documentId: 'document-1' }}>
+        <DocumentBody />
+      </DocumentViewProvider>,
+    );
+    expect(screen.queryByTestId('highlight-editor')).toBeNull();
+    mockNodeState.current.nodeLevelMap[JSON.stringify(['library-1', 'document-1'])] = {
+      level: 'edit',
+    };
+    rerender(
+      <DocumentViewProvider value={{ documentId: 'document-1' }}>
+        <DocumentBody />
+      </DocumentViewProvider>,
+    );
     fireEvent.change(screen.getByTestId('highlight-editor'), { target: { value: 'allowed edit' } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
@@ -343,7 +365,7 @@ describe('DocumentBody', () => {
   });
 
   it.each(['view', 'denied'] as const)(
-    'does not flush a pending edit when its library becomes %s',
+    'does not flush a pending edit when its node becomes %s or the library is denied',
     async (access) => {
       mockDocumentMeta.current = { content: 'before', filename: 'config.json' };
       mockDocumentState.current.documentDetailMap = {
@@ -362,9 +384,8 @@ describe('DocumentBody', () => {
         target: { value: 'pending edit' },
       });
       if (access === 'view') {
-        mockLibraryState.current.knowledgeBaseDetailMap['library-1'] = {
-          id: 'library-1',
-          enterprise: { accessLevel: 'view' },
+        mockNodeState.current.nodeLevelMap[JSON.stringify(['library-1', 'document-1'])] = {
+          level: 'view',
         };
       } else {
         mockLibraryState.current.knowledgeBaseSessionAccess['test-scope|library-1'] = 'denied';
@@ -525,4 +546,15 @@ vi.mock('@/hooks/usePermission', () => ({ usePermission: () => ({ allowed: true 
 vi.mock('@/libs/replica', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   cacheScope: { use: () => 'test-scope' },
+}));
+
+// Keep the real permission hooks and selectors; the network/cache boundary supplies node tiers.
+const mockNodeState = vi.hoisted(() => ({
+  current: { nodeLevelMap: {} as Record<string, { level: 'edit' | 'view' | 'path' | 'owner' }> },
+}));
+vi.mock('@/store/enterpriseKnowledge', async () => ({
+  ...(await import('@/store/enterpriseKnowledge/selectors')),
+  enterpriseKnowledgeActions: { useFetchNodeLevel: () => ({ error: undefined }) },
+  useEnterpriseKnowledgeStore: (selector: (state: typeof mockNodeState.current) => unknown) =>
+    selector(mockNodeState.current),
 }));

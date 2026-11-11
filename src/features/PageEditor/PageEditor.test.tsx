@@ -8,6 +8,10 @@ import PageExplorer from '@/features/PageExplorer';
 import { cacheScope } from '@/libs/replica';
 import { setScopedMutate } from '@/libs/swr/mutate';
 import { documentService } from '@/services/document';
+import {
+  enterpriseKnowledgeActions,
+  useEnterpriseKnowledgeStore,
+} from '@/store/enterpriseKnowledge';
 import { useKnowledgeBaseStore } from '@/store/library';
 import { pageActions, pageSelectors, usePageStore } from '@/store/page';
 import { DocumentSourceType, type LobeDocument } from '@/types/document';
@@ -238,8 +242,14 @@ vi.mock('@lobehub/editor/react', () => ({
   EditorProvider: ({ children }: { children: ReactNode }) => children,
   useEditor: () => undefined,
 }));
-vi.mock('./store/action', () => ({ store: (initial: object) => () => initial }));
-vi.mock('./StoreUpdater', () => ({ default: () => null }));
+// Keep the real store and StoreUpdater: callbacks must follow asynchronously resolved permissions.
+vi.mock('./useDocumentLock', () => ({ useDocumentLock: vi.fn() }));
+vi.mock('./usePageDraft', () => ({ usePageDraft: vi.fn() }));
+vi.mock('./useResourceEvents', () => ({ useResourceEvents: vi.fn() }));
+const nodeApi = vi.hoisted(() => ({ resolveLevel: vi.fn() }));
+vi.mock('@/services/enterpriseKnowledge', () => ({
+  enterpriseKnowledgeService: { resolveLevel: nodeApi.resolveLevel },
+}));
 vi.mock('./PageAgentProvider', () => ({
   PageAgentProvider: ({ children }: { children: ReactNode }) => children,
 }));
@@ -284,7 +294,23 @@ vi.mock('./RightPanel', () => ({ default: () => null }));
 vi.mock('@/features/EditorCanvas/DiffAllToolbar', () => ({ default: () => null }));
 
 describe('PageEditor provider boundary', () => {
+  afterEach(() => {
+    cleanup();
+    enterpriseKnowledgeActions.reset();
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
   beforeEach(() => {
+    const scope = 'page-node-' + crypto.randomUUID();
+    vi.spyOn(cacheScope, 'get').mockReturnValue(scope);
+    vi.spyOn(cacheScope, 'use').mockReturnValue(scope);
+    vi.spyOn(cacheScope, 'canPersist').mockReturnValue(false);
+    enterpriseKnowledgeActions.reset();
+    nodeApi.resolveLevel.mockImplementation(
+      async ({ knowledgeBaseId }: { knowledgeBaseId: string }) => ({
+        level: knowledgeBaseId === 'edit-library' ? 'edit' : 'view',
+      }),
+    );
     useKnowledgeBaseStore.setState({
       knowledgeBaseDetailMap: Object.fromEntries(
         (['edit', 'view'] as const).map((level) => [
@@ -306,18 +332,33 @@ describe('PageEditor provider boundary', () => {
   });
   it.each([undefined, 'edit-library'])(
     'mounts directly and saves with library %s',
-    (knowledgeBaseId) => {
+    async (knowledgeBaseId) => {
       const onSave = vi.fn();
       render(<PageEditor knowledgeBaseId={knowledgeBaseId} pageId="page-1" onSave={onSave} />);
 
+      if (knowledgeBaseId)
+        await waitFor(() =>
+          expect(
+            useEnterpriseKnowledgeStore.getState().nodeLevelMap[
+              JSON.stringify([knowledgeBaseId, 'page-1'])
+            ],
+          ).toEqual({ level: 'edit' }),
+        );
       fireEvent.click(screen.getByRole('button', { name: 'Save page-1' }));
       expect(onSave).toHaveBeenCalledOnce();
     },
   );
 
-  it('keeps the outer callback guarded by the opened library permission', () => {
+  it('keeps the outer callback guarded by the resolved node permission', async () => {
     const onSave = vi.fn();
     render(<PageEditor knowledgeBaseId="view-library" pageId="page-1" onSave={onSave} />);
+    await waitFor(() =>
+      expect(
+        useEnterpriseKnowledgeStore.getState().nodeLevelMap[
+          JSON.stringify(['view-library', 'page-1'])
+        ],
+      ).toEqual({ level: 'view' }),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Save page-1' }));
     expect(onSave).not.toHaveBeenCalled();
