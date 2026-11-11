@@ -24,11 +24,15 @@ interface FileJobPayload {
  * Queued half of a file task (`ChunkService.publishFileJob`): runs the async router's
  * parsing or embedding procedure in this process, as the user the task belongs to.
  *
- * Deliveries arrive at least once, and only a `pending` task is started: a redelivery of
- * one that already began (its first attempt is still running, or died and is left to the
- * watchdog) is acknowledged untouched, so no file is parsed or embedded twice. The
- * procedures record their own outcome on the task; an attempt that fails before the task
- * starts is retried, and the last one marks the task failed so it does not stay queued.
+ * Deliveries arrive at least once, and a delivery whose connection broke is repeated
+ * while its first attempt may still be working. So the task is taken atomically
+ * (`pending` → `processing`) before anything else: a redelivery of one that already
+ * began is acknowledged untouched, and no file is parsed or embedded twice. A task whose
+ * attempt died is left to the watchdog.
+ *
+ * The procedures record their own outcome on the task. An attempt that fails before they
+ * get that far (the task is still `processing`) goes back to the queue for a redelivery,
+ * and the last one marks the task failed so it does not stay queued.
  */
 const runFileJob = (job: FileJob) => async (c: Context) => {
   const { fileId, taskId, userId, workspaceId } = ((await c.req.json().catch(() => ({}))) ??
@@ -39,9 +43,7 @@ const runFileJob = (job: FileJob) => async (c: Context) => {
   }
 
   const asyncTaskModel = new AsyncTaskModel(await getServerDB(), userId, workspaceId);
-  const task = await asyncTaskModel.findById(taskId);
-  if (task?.status !== AsyncTaskStatus.Pending)
-    return c.json({ skipped: task?.status ?? 'missing', success: true });
+  if (!(await asyncTaskModel.start(taskId))) return c.json({ skipped: true, success: true });
 
   try {
     const caller = createAsyncCallerFactory(asyncRouter)({
@@ -57,10 +59,13 @@ const runFileJob = (job: FileJob) => async (c: Context) => {
 
     const current = await asyncTaskModel.findById(taskId);
     // The procedure recorded the failure itself; a redelivery would change nothing.
-    if (current?.status !== AsyncTaskStatus.Pending) return c.json({ success: false });
+    if (current?.status !== AsyncTaskStatus.Processing) return c.json({ success: false });
 
     const attempt = Number(c.req.header('Upstash-Retried') ?? 0);
-    if (attempt < FILE_JOB_RETRIES) return c.json({ error: 'file job did not start' }, 500);
+    if (attempt < FILE_JOB_RETRIES) {
+      await asyncTaskModel.update(taskId, { status: AsyncTaskStatus.Pending });
+      return c.json({ error: 'file job did not start' }, 500);
+    }
 
     await asyncTaskModel.update(taskId, {
       error: new AsyncTaskError(

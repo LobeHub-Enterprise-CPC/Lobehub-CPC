@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   embeddingChunks: vi.fn(),
   findById: vi.fn(),
   parseFileToChunks: vi.fn(),
+  start: vi.fn(),
   taskModel: vi.fn(),
   update: vi.fn(),
 }));
@@ -17,7 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/database/models/asyncTask', () => ({
   AsyncTaskModel: vi.fn(function (...args: unknown[]) {
     mocks.taskModel(...args);
-    return { findById: mocks.findById, update: mocks.update };
+    return { findById: mocks.findById, start: mocks.start, update: mocks.update };
   }),
 }));
 vi.mock('@/database/server', () => ({ getServerDB: async () => 'db' }));
@@ -51,7 +52,8 @@ describe('file job receiver', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('DELIVERY_SIGNING_KEY', '');
-    mocks.findById.mockResolvedValue({ id: 't1', status: AsyncTaskStatus.Pending });
+    mocks.start.mockResolvedValue(true);
+    mocks.findById.mockResolvedValue({ id: 't1', status: AsyncTaskStatus.Processing });
     mocks.parseFileToChunks.mockResolvedValue({ success: true });
     mocks.embeddingChunks.mockResolvedValue({ success: true });
   });
@@ -81,34 +83,32 @@ describe('file job receiver', () => {
     });
   });
 
-  it.each([AsyncTaskStatus.Processing, AsyncTaskStatus.Success, AsyncTaskStatus.Error])(
-    'acknowledges a redelivery of a task that is already %s without running it again',
-    async (status) => {
-      mocks.findById.mockResolvedValue({ id: 't1', status });
+  it('takes the task before working on it', async () => {
+    mocks.parseFileToChunks.mockImplementation(async () => {
+      expect(mocks.start).toHaveBeenCalledWith('t1');
+      return { success: true };
+    });
 
-      const res = await post('parse', payload, 1);
+    await post('parse');
 
-      expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ skipped: status, success: true });
-      expect(mocks.parseFileToChunks).not.toHaveBeenCalled();
-    },
-  );
+    expect(mocks.parseFileToChunks).toHaveBeenCalledTimes(1);
+  });
 
-  it('acknowledges a job whose task is gone', async () => {
-    mocks.findById.mockResolvedValue(undefined);
+  it('acknowledges a redelivery of a task that already began, or is gone, without running it', async () => {
+    mocks.start.mockResolvedValue(false);
 
-    const res = await post('embed');
+    const res = await post('parse', payload, 1);
 
     expect(res.status).toBe(200);
-    expect(mocks.embeddingChunks).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({ skipped: true, success: true });
+    expect(mocks.parseFileToChunks).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 
   it('acknowledges a failure the procedure recorded on the task itself', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.parseFileToChunks.mockRejectedValue(new Error('File content unavailable in storage.'));
-    mocks.findById
-      .mockResolvedValueOnce({ id: 't1', status: AsyncTaskStatus.Pending })
-      .mockResolvedValueOnce({ id: 't1', status: AsyncTaskStatus.Error });
+    mocks.findById.mockResolvedValue({ id: 't1', status: AsyncTaskStatus.Error });
 
     const res = await post('parse');
 
@@ -117,14 +117,14 @@ describe('file job receiver', () => {
     errorSpy.mockRestore();
   });
 
-  it('asks for a redelivery when the task never started', async () => {
+  it('puts the task back in the queue and asks for a redelivery when the work never started', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.embeddingChunks.mockRejectedValue(new Error('TENANT_UNAVAILABLE'));
 
     const res = await post('embed', payload, 1);
 
     expect(res.status).toBe(500);
-    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.update).toHaveBeenCalledWith('t1', { status: AsyncTaskStatus.Pending });
     errorSpy.mockRestore();
   });
 
@@ -147,6 +147,6 @@ describe('file job receiver', () => {
 
     expect(res.status).toBe(400);
     expect(res.headers.get('Upstash-NonRetryable-Error')).toBe('true');
-    expect(mocks.findById).not.toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
   });
 });

@@ -288,6 +288,39 @@ describe('AsyncTaskModel', () => {
     });
   });
 
+  describe('start', () => {
+    it('takes a pending task once, restarting its clock, and refuses any other', async () => {
+      const queuedAt = new Date(Date.now() - 20 * 60_000);
+      const [pending, done] = await serverDB
+        .insert(asyncTasks)
+        .values([
+          {
+            createdAt: queuedAt,
+            status: AsyncTaskStatus.Pending,
+            type: AsyncTaskType.Chunking,
+            userId,
+          },
+          { status: AsyncTaskStatus.Success, type: AsyncTaskType.Chunking, userId },
+        ])
+        .returning();
+
+      // Two deliveries of the same job race for it.
+      const taken = await Promise.all([
+        asyncTaskModel.start(pending.id),
+        asyncTaskModel.start(pending.id),
+      ]);
+      expect(taken.sort()).toEqual([false, true]);
+      expect(await asyncTaskModel.start(done.id)).toBe(false);
+      expect(await new AsyncTaskModel(serverDB, 'someone-else').start(pending.id)).toBe(false);
+
+      const task = await serverDB.query.asyncTasks.findFirst({
+        where: eq(asyncTasks.id, pending.id),
+      });
+      expect(task?.status).toBe(AsyncTaskStatus.Processing);
+      expect(task!.createdAt.getTime()).toBeGreaterThan(queuedAt.getTime() + 19 * 60_000);
+    });
+  });
+
   describe('checkTimeoutTasks', () => {
     it('should mark tasks as error if they timeout', async () => {
       // Create a task with old timestamp (beyond timeout)

@@ -79,6 +79,27 @@ export class AsyncTaskModel {
     return this.db.delete(asyncTasks).where(and(eq(asyncTasks.id, id), this.ownership()));
   };
 
+  /**
+   * Takes a queued task: `pending` becomes `processing` and the watchdog clock restarts,
+   * in one statement, so of several deliveries of the same job only one starts it.
+   * Resolves false when the task is not pending (any more).
+   */
+  start = async (id: string): Promise<boolean> => {
+    const started = await this.db
+      .update(asyncTasks)
+      .set({ createdAt: new Date(), status: AsyncTaskStatus.Processing })
+      .where(
+        and(
+          eq(asyncTasks.id, id),
+          this.ownership(),
+          eq(asyncTasks.status, AsyncTaskStatus.Pending),
+        ),
+      )
+      .returning({ id: asyncTasks.id });
+
+    return started.length > 0;
+  };
+
   findById = async (id: string) => {
     return this.db.query.asyncTasks.findFirst({
       where: and(eq(asyncTasks.id, id), this.ownership()),
