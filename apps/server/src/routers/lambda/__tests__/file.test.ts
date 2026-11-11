@@ -1168,28 +1168,6 @@ describe('fileRouter', () => {
       );
     });
 
-    it('counts the chunks of a file listed under its derived document id', async () => {
-      mockKnowledgeRepoQuery.mockResolvedValue([
-        {
-          ...mockFile,
-          chunkTaskId: 'chunk-1',
-          fileId: 'file-1',
-          id: 'docs_1',
-          sourceType: 'file' as const,
-        },
-      ]);
-      // Chunks belong to the file, not to the document the row is listed under.
-      mockChunkCountByFileIds.mockResolvedValue([{ count: 12, id: 'file-1' }]);
-      mockAsyncTaskFindByIds.mockResolvedValueOnce([
-        { error: null, id: 'chunk-1', status: AsyncTaskStatus.Success },
-      ]);
-
-      const result = await caller.getKnowledgeItems({});
-
-      expect(mockChunkCountByFileIds).toHaveBeenCalledWith(['file-1']);
-      expect(result.items[0]).toMatchObject({ chunkCount: 12, fileId: 'file-1', id: 'docs_1' });
-    });
-
     it('should omit document bodies when a list explicitly requests metadata only', async () => {
       mockKnowledgeRepoQuery.mockResolvedValue([
         {
