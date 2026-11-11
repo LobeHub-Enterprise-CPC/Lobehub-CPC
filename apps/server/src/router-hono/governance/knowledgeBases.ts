@@ -1,0 +1,32 @@
+import { Hono } from 'hono';
+
+import * as handlers from './handlers/knowledgeBases';
+import { serviceTokenAuth } from './middlewares/serviceTokenAuth';
+
+export const knowledgeBasesApp = new Hono({ strict: false });
+knowledgeBasesApp.use('*', serviceTokenAuth(), handlers.enterpriseKnowledgeEnabled);
+knowledgeBasesApp.get('/', handlers.listKnowledgeBases);
+knowledgeBasesApp.post('/', handlers.createKnowledgeBase);
+knowledgeBasesApp.get('/members', handlers.searchMembers);
+knowledgeBasesApp.get('/directory', handlers.directory);
+knowledgeBasesApp.get('/:id', handlers.getKnowledgeBase);
+knowledgeBasesApp.patch('/:id', handlers.updateKnowledgeBase);
+knowledgeBasesApp.delete('/:id', handlers.removeKnowledgeBase);
+knowledgeBasesApp.post('/:id/transfer', handlers.transferKnowledgeBase);
+knowledgeBasesApp.get('/:id/access', handlers.getAccess);
+knowledgeBasesApp.put('/:id/access', handlers.updateAccess);
+knowledgeBasesApp.post('/:id/access/estimate', handlers.estimateAccess);
+knowledgeBasesApp.get('/:id/events', handlers.listEvents);
+knowledgeBasesApp.get('/:id/items', handlers.listItems);
+knowledgeBasesApp.post('/:id/uploads/presign', handlers.presignUpload);
+knowledgeBasesApp.post('/:id/files', handlers.registerFile);
+knowledgeBasesApp.post('/:id/folders', handlers.createFolder);
+knowledgeBasesApp.patch('/:id/items/:itemId', handlers.updateItem);
+knowledgeBasesApp.delete('/:id/items/:itemId', handlers.removeItem);
+knowledgeBasesApp.post('/:id/items/:itemId/retry', handlers.retryItem);
+knowledgeBasesApp.post('/:id/retry-failed', handlers.retryFailed);
+knowledgeBasesApp.post('/:id/reprocess', handlers.reprocess);
+knowledgeBasesApp.get('/:id/items/:itemId/download', handlers.downloadItem);
+knowledgeBasesApp.get('/:id/trash', handlers.listTrash);
+knowledgeBasesApp.post('/:id/trash/:itemId/restore', handlers.restoreItem);
+knowledgeBasesApp.delete('/:id/trash/:itemId', handlers.purgeItem);
