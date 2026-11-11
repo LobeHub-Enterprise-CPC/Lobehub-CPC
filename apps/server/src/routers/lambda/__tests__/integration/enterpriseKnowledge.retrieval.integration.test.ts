@@ -1,3 +1,4 @@
+import type * as BusinessKnowledge from '@lobechat/business-knowledge';
 // @vitest-environment node
 import type { LobeChatDatabase } from '@lobechat/database';
 import {
@@ -31,10 +32,10 @@ import {
   seedEnterpriseWorld,
 } from './enterpriseKnowledge.fixture';
 
-vi.mock(
-  '@lobechat/business-knowledge',
-  async () => (await import('@/server/test-utils/enterpriseKnowledgeFake')).fakeBusinessKnowledge,
-);
+vi.mock('@lobechat/business-knowledge', async (original) => ({
+  ...(await original<typeof BusinessKnowledge>()),
+  ...(await import('@/server/test-utils/enterpriseKnowledgeFake')).fakeBusinessKnowledge,
+}));
 vi.mock('@/server/services/file', () => ({ FileService: vi.fn() }));
 vi.mock('@/server/globalConfig', () => ({ getServerDefaultFilesConfig: vi.fn(async () => ({})) }));
 vi.mock('@/server/modules/ModelRuntime', () => ({
@@ -223,16 +224,14 @@ describe('enterprise retrieval uses the actual asker and exact library membershi
   it('searches an assistant with both a valid and a revoked mount, keeping the revoked identity and count', async () => {
     const agentId = 'agt_' + w.viewer;
     await db.insert(agents).values({ id: agentId, slug: agentId, userId: w.viewer });
-    await db
-      .insert(agentsKnowledgeBases)
-      .values(
-        [w.entA, w.entB].map((knowledgeBaseId) => ({
-          agentId,
-          knowledgeBaseId,
-          userId: w.viewer,
-          enabled: true,
-        })),
-      );
+    await db.insert(agentsKnowledgeBases).values(
+      [w.entA, w.entB].map((knowledgeBaseId) => ({
+        agentId,
+        knowledgeBaseId,
+        userId: w.viewer,
+        enabled: true,
+      })),
+    );
     const mounts = await new AgentModel(db, w.viewer).getAgentAssignedKnowledge(agentId);
     expect(mounts.knowledgeBases.find((item) => item.id === w.entB)).toMatchObject({
       accessRevoked: true,

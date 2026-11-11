@@ -54,7 +54,7 @@ export const knowledgeRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      await resolveKnowledgeBaseScope(ctx, input.knowledgeBaseId, 'view');
+      await resolveKnowledgeBaseScope(ctx, input.knowledgeBaseId, 'path');
       if (ctx.workspaceId) {
         await assertCanPerformResourceAction({
           action: 'edit',
@@ -247,7 +247,7 @@ export const knowledgeRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      await resolveKnowledgeBaseScope(ctx, input.knowledgeBaseId, 'view');
+      await resolveKnowledgeBaseScope(ctx, input.knowledgeBaseId, 'path');
       if (ctx.workspaceId) {
         await assertCanPerformResourceAction({
           action: 'edit',

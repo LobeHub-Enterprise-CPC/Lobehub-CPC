@@ -1,3 +1,4 @@
+import type * as BusinessKnowledge from '@lobechat/business-knowledge';
 // @vitest-environment node
 import type { LobeChatDatabase } from '@lobechat/database';
 import { getTestDB } from '@lobechat/database/test-utils';
@@ -8,10 +9,10 @@ import { resetEnterpriseKbState } from '@/server/test-utils/enterpriseKnowledgeF
 import { enterpriseKnowledgeRouter } from '../../enterpriseKnowledge';
 import { context, type EnterpriseWorld, seedEnterpriseWorld } from './enterpriseKnowledge.fixture';
 
-vi.mock(
-  '@lobechat/business-knowledge',
-  async () => (await import('@/server/test-utils/enterpriseKnowledgeFake')).fakeBusinessKnowledge,
-);
+vi.mock('@lobechat/business-knowledge', async (original) => ({
+  ...(await original<typeof BusinessKnowledge>()),
+  ...(await import('@/server/test-utils/enterpriseKnowledgeFake')).fakeBusinessKnowledge,
+}));
 let db: LobeChatDatabase;
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: vi.fn(() => db) }));
 

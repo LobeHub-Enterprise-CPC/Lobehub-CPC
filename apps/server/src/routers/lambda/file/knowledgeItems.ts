@@ -10,6 +10,10 @@ import { z } from 'zod';
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { serverDBEnv } from '@/config/db';
 import { router } from '@/libs/trpc/lambda';
+import {
+  createEnterpriseListFilter,
+  queryEnterprisePage,
+} from '@/server/services/enterpriseKnowledge/listAccess';
 import { trashEnterpriseItems } from '@/server/services/enterpriseKnowledge/trash';
 import { createResourceContentPreview } from '@/server/utils/resourceContentPreview';
 import type { FileListItem, KnowledgeItemStatus } from '@/types/files';
@@ -84,16 +88,25 @@ export const knowledgeItemsRouter = router({
     // surfaces explicitly send false (metadata only) or true (bounded preview).
     const includeContent = input.includeContentPreview === undefined;
     const includeContentPreview = input.includeContentPreview === true;
-    const knowledgeItems = await ctx.knowledgeRepo.query({
-      ...input,
-      ...(ctx.enterpriseScope.enterprise
-        ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
-        : {}),
-      excludeKnowledgeBaseIds,
-      includeContent,
-      includeContentPreview,
-      limit: limit + 1,
-    });
+    const knowledgeItems = await queryEnterprisePage(
+      { ...ctx, userId: ctx.enterpriseCallerId },
+      (page) =>
+        ctx.knowledgeRepo.query({
+          ...input,
+          ...(ctx.enterpriseScope.enterprise
+            ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+            : {}),
+          excludeKnowledgeBaseIds,
+          includeContent,
+          includeContentPreview,
+          ...page,
+        }),
+      {
+        limit: limit + 1,
+        offset: input.offset,
+        scope: ctx.enterpriseScope.enterprise ? ctx.enterpriseScope : undefined,
+      },
+    );
 
     // Check if there are more items
     const hasMore = knowledgeItems.length > limit;
@@ -150,6 +163,7 @@ export const knowledgeItemsRouter = router({
             ...(includeContent ? { content: item.content } : {}),
             ...(includeContent ? { editorData: null } : {}),
             ...(includeContentPreview ? { contentPreview } : {}),
+            enterpriseAccess: item.enterpriseAccess,
             createdAt: item.createdAt,
             embeddingError: status.embeddingError,
             embeddingStatus: status.embeddingStatus,
@@ -176,6 +190,7 @@ export const knowledgeItemsRouter = router({
           ...(includeContent ? { content: item.content } : {}),
           ...(includeContent ? { editorData: item.editorData } : {}),
           ...(includeContentPreview ? { contentPreview } : {}),
+          enterpriseAccess: item.enterpriseAccess,
           createdAt: item.createdAt,
           embeddingError: null,
           embeddingStatus: null,
@@ -216,6 +231,10 @@ export const knowledgeItemsRouter = router({
       let offset = 0;
       let hasMore = true;
 
+      const filterEnterpriseItems = createEnterpriseListFilter(
+        { ...ctx, userId: ctx.enterpriseCallerId },
+        ctx.enterpriseScope.enterprise ? ctx.enterpriseScope : undefined,
+      );
       while (hasMore) {
         const knowledgeItems = await ctx.knowledgeRepo.query({
           ...input,
@@ -231,7 +250,9 @@ export const knowledgeItemsRouter = router({
 
         const currentHasMore = knowledgeItems.length > batchSize;
         const itemsToProcess = currentHasMore ? knowledgeItems.slice(0, batchSize) : knowledgeItems;
-        const filteredItems = filterKnowledgeItems(itemsToProcess, input.knowledgeBaseId);
+        const filteredItems = await filterEnterpriseItems(
+          filterKnowledgeItems(itemsToProcess, input.knowledgeBaseId),
+        );
 
         ids.push(...filteredItems.map((item) => item.id));
 
@@ -258,6 +279,10 @@ export const knowledgeItemsRouter = router({
       let offset = 0;
       let hasMore = true;
 
+      const filterEnterpriseItems = createEnterpriseListFilter(
+        { ...ctx, userId: ctx.enterpriseCallerId },
+        ctx.enterpriseScope.enterprise ? ctx.enterpriseScope : undefined,
+      );
       while (hasMore) {
         const knowledgeItems = await ctx.knowledgeRepo.query({
           ...query,
@@ -273,9 +298,9 @@ export const knowledgeItemsRouter = router({
 
         const currentHasMore = knowledgeItems.length > batchSize;
         const itemsToProcess = currentHasMore ? knowledgeItems.slice(0, batchSize) : knowledgeItems;
-        const filteredItems = filterKnowledgeItems(itemsToProcess, query.knowledgeBaseId).filter(
-          (item) => !excludedIdSet.has(item.id),
-        );
+        const filteredItems = (
+          await filterEnterpriseItems(filterKnowledgeItems(itemsToProcess, query.knowledgeBaseId))
+        ).filter((item) => !excludedIdSet.has(item.id));
 
         for (const item of filteredItems) {
           if (item.sourceType === DERIVED_DOCUMENT_SOURCE_TYPE) {

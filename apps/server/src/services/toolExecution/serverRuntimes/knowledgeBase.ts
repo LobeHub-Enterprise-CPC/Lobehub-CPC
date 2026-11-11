@@ -17,6 +17,7 @@ import {
 } from '@/server/services/enterpriseKnowledge';
 import { resolveContentScope } from '@/server/services/enterpriseKnowledge/contentScope';
 import { createEnterpriseDocuments } from '@/server/services/enterpriseKnowledge/createDocuments';
+import { queryEnterprisePage } from '@/server/services/enterpriseKnowledge/listAccess';
 import { FileService } from '@/server/services/file';
 import { KnowledgeBaseSearchService } from '@/server/services/knowledgeBase';
 
@@ -126,7 +127,7 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
           return data?.id ?? '';
         },
         getKnowledgeBaseById: async (id) => {
-          const scope = await resolveKnowledgeBaseScope(accessCtx, id, 'view');
+          const scope = await resolveKnowledgeBaseScope(accessCtx, id, 'path');
           const item = await (
             scope.enterprise ? new KnowledgeBaseModel(serverDB, scope.ownerId) : knowledgeBaseModel
           ).findById(id);
@@ -157,16 +158,20 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
           }));
         },
         getKnowledgeItems: async ({ knowledgeBaseId, limit, offset }) => {
-          const scope = await resolveKnowledgeBaseScope(accessCtx, knowledgeBaseId, 'view');
+          const scope = await resolveKnowledgeBaseScope(accessCtx, knowledgeBaseId, 'path');
           const repo = scope.enterprise
             ? new KnowledgeRepo(serverDB, scope.ownerId)
             : knowledgeRepo;
-          const items = await repo.query({
-            includeContent: false,
-            knowledgeBaseId,
-            limit: limit + 1,
-            offset,
-          });
+          const items = await queryEnterprisePage(
+            accessCtx,
+            (page) =>
+              repo.query({
+                includeContent: false,
+                knowledgeBaseId,
+                ...page,
+              }),
+            { limit: limit + 1, offset, scope: scope.enterprise ? scope : undefined },
+          );
           const hasMore = items.length > limit;
           const slice = hasMore ? items.slice(0, limit) : items;
           return {
@@ -183,9 +188,12 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
         },
         removeFilesFromKnowledgeBase: async (knowledgeBaseId, ids) => {
           const scope = await resolveContentScope(accessCtx, { knowledgeBaseId, ids }, 'edit');
-          return (
-            scope.enterprise ? new KnowledgeBaseModel(serverDB, scope.ownerId) : knowledgeBaseModel
-          ).removeFilesFromKnowledgeBase(knowledgeBaseId, ids);
+          if (scope.enterprise)
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Enterprise content cannot leave its library',
+            });
+          return knowledgeBaseModel.removeFilesFromKnowledgeBase(knowledgeBaseId, ids);
         },
         removeKnowledgeBase: async (id) => {
           await assertNotEnterpriseKnowledgeBase(accessCtx, id);
@@ -240,14 +248,18 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
           };
         },
         getKnowledgeItems: async ({ category, limit, offset, q, showFilesInKnowledgeBase }) => {
-          const items = await knowledgeRepo.query({
-            category,
-            includeContent: false,
-            limit: limit + 1,
-            offset,
-            q,
-            showFilesInKnowledgeBase,
-          });
+          const items = await queryEnterprisePage(
+            accessCtx,
+            (page) =>
+              knowledgeRepo.query({
+                category,
+                includeContent: false,
+                ...page,
+                q,
+                showFilesInKnowledgeBase,
+              }),
+            { limit: limit + 1, offset },
+          );
           const hasMore = items.length > limit;
           const slice = hasMore ? items.slice(0, limit) : items;
           return {

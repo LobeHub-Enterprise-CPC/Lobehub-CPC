@@ -1,3 +1,4 @@
+import type * as BusinessKnowledge from '@lobechat/business-knowledge';
 // @vitest-environment node
 import type { LobeChatDatabase } from '@lobechat/database';
 import {
@@ -34,10 +35,10 @@ import {
   seedEnterpriseWorld,
 } from './enterpriseKnowledge.fixture';
 
-vi.mock(
-  '@lobechat/business-knowledge',
-  async () => (await import('@/server/test-utils/enterpriseKnowledgeFake')).fakeBusinessKnowledge,
-);
+vi.mock('@lobechat/business-knowledge', async (original) => ({
+  ...(await original<typeof BusinessKnowledge>()),
+  ...(await import('@/server/test-utils/enterpriseKnowledgeFake')).fakeBusinessKnowledge,
+}));
 let testDB: LobeChatDatabase;
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: vi.fn(() => testDB) }));
 const delivery = vi.hoisted(() => vi.fn(async () => ({})));

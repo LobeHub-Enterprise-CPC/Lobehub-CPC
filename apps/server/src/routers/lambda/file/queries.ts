@@ -2,6 +2,10 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { router } from '@/libs/trpc/lambda';
+import {
+  createEnterpriseListFilter,
+  queryEnterprisePage,
+} from '@/server/services/enterpriseKnowledge/listAccess';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import type { FileListItem } from '@/types/files';
 import { QueryFileListSchema } from '@/types/files';
@@ -109,13 +113,23 @@ export const queriesRouter = router({
         ? await getRestrictedKnowledgeBaseIds(ctx)
         : undefined;
 
-    const fileList = await ctx.fileModel.query({
-      ...input,
-      ...(ctx.enterpriseScope.enterprise
-        ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
-        : {}),
-      excludeKnowledgeBaseIds,
-    });
+    const fileList = await queryEnterprisePage(
+      { ...ctx, userId: ctx.enterpriseCallerId },
+      (page) =>
+        ctx.fileModel.query({
+          ...input,
+          ...(ctx.enterpriseScope.enterprise
+            ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+            : {}),
+          excludeKnowledgeBaseIds,
+          ...page,
+        }),
+      {
+        limit: input.limit,
+        offset: input.offset,
+        scope: ctx.enterpriseScope.enterprise ? ctx.enterpriseScope : undefined,
+      },
+    );
     const statusMap = await getKnowledgeItemStatusMap(ctx, fileList);
 
     const resultFiles = [] as any[];
@@ -145,7 +159,10 @@ export const queriesRouter = router({
       const limit = input?.limit ?? 12;
       // Files only (pages are excluded in SQL, so `limit` can't be eaten by
       // page rows that are then filtered out).
-      const fileItems = await ctx.knowledgeRepo.queryRecent(limit, 'file', input?.visibility);
+      const fileItems = await createEnterpriseListFilter({
+        ...ctx,
+        userId: ctx.enterpriseCallerId,
+      })(await ctx.knowledgeRepo.queryRecent(limit, 'file', input?.visibility));
 
       if (fileItems.length === 0) return [];
 
@@ -209,6 +226,8 @@ export const queriesRouter = router({
       const limit = input?.limit ?? 12;
       // Pages only (folders and files are excluded in SQL, so `limit` can't be
       // eaten by rows that are then filtered out).
-      return ctx.knowledgeRepo.queryRecent(limit, 'page', input?.visibility);
+      return createEnterpriseListFilter({ ...ctx, userId: ctx.enterpriseCallerId })(
+        await ctx.knowledgeRepo.queryRecent(limit, 'page', input?.visibility),
+      );
     }),
 });

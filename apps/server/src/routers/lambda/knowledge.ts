@@ -6,6 +6,7 @@ import { FileModel } from '@/database/models/file';
 import { KnowledgeRepo } from '@/database/repositories/knowledge';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { queryEnterprisePage } from '@/server/services/enterpriseKnowledge/listAccess';
 import { FileService } from '@/server/services/file';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import { type FileListItem } from '@/types/files';
@@ -46,13 +47,23 @@ export const knowledgeRouter = router({
       : await getRestrictedKnowledgeBaseIds(ctx);
     if (input.knowledgeBaseId) await assertKnowledgeBaseBrowsable(ctx, input.knowledgeBaseId);
 
-    const knowledgeItems = await ctx.knowledgeRepo.query({
-      ...input,
-      ...(ctx.enterpriseScope.enterprise
-        ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
-        : {}),
-      excludeKnowledgeBaseIds,
-    });
+    const knowledgeItems = await queryEnterprisePage(
+      { ...ctx, userId: ctx.enterpriseCallerId },
+      (page) =>
+        ctx.knowledgeRepo.query({
+          ...input,
+          ...(ctx.enterpriseScope.enterprise
+            ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+            : {}),
+          excludeKnowledgeBaseIds,
+          ...page,
+        }),
+      {
+        limit: input.limit,
+        offset: input.offset,
+        scope: ctx.enterpriseScope.enterprise ? ctx.enterpriseScope : undefined,
+      },
+    );
 
     // Process files (add chunk info and async task status)
     const fileItems = knowledgeItems.filter((item) => item.sourceType === 'file');

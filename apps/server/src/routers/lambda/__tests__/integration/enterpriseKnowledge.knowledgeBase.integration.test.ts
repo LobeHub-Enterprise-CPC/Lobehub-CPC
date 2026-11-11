@@ -1,3 +1,4 @@
+import type * as BusinessKnowledge from '@lobechat/business-knowledge';
 // @vitest-environment node
 import type { LobeChatDatabase } from '@lobechat/database';
 import { agentsKnowledgeBases, knowledgeBases } from '@lobechat/database/schemas';
@@ -14,10 +15,10 @@ import { agentRouter } from '../../agent';
 import { knowledgeBaseRouter } from '../../knowledgeBase';
 import { context, type EnterpriseWorld, seedEnterpriseWorld } from './enterpriseKnowledge.fixture';
 
-vi.mock(
-  '@lobechat/business-knowledge',
-  async () => (await import('@/server/test-utils/enterpriseKnowledgeFake')).fakeBusinessKnowledge,
-);
+vi.mock('@lobechat/business-knowledge', async (original) => ({
+  ...(await original<typeof BusinessKnowledge>()),
+  ...(await import('@/server/test-utils/enterpriseKnowledgeFake')).fakeBusinessKnowledge,
+}));
 
 let testDB: LobeChatDatabase;
 vi.mock('@/database/core/db-adaptor', () => ({
@@ -161,7 +162,13 @@ describe('knowledgeBase router with enterprise knowledge bases', () => {
   });
 
   describe('files inside the library', () => {
-    it('lets an edit member unlink a file of the library but never another owner row', async () => {
+    it('rejects unlinking enterprise content and hides foreign rows', async () => {
+      await expect(
+        kbCaller(w.editor).removeFilesFromKnowledgeBase({
+          ids: [w.entAFile],
+          knowledgeBaseId: w.entA,
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
       await kbCaller(w.viewer)
         .removeFilesFromKnowledgeBase({ ids: [w.entAFile], knowledgeBaseId: w.entA })
         .catch((error) => expect(error.code).toBe('FORBIDDEN'));

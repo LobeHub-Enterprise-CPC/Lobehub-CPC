@@ -1,10 +1,13 @@
 import {
   estimateEnterpriseKbAccess,
+  estimateEnterpriseKbNodeAccess,
   getEnterpriseKbAccessState,
   getEnterpriseKbDirectory,
+  getEnterpriseKbNodeAccessState,
   listAccessibleEnterpriseKbs,
   listEnterpriseKbEvents,
   updateEnterpriseKbAccess,
+  updateEnterpriseKbNodeAccess,
 } from '@lobechat/business-knowledge';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
@@ -16,8 +19,11 @@ import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import {
   findKnowledgeBaseOwned,
   getUserDisplayNames,
+  itemsBelongToKnowledgeBase,
+  resolveItemsScope,
   resolveKnowledgeBaseScope,
 } from '@/server/services/enterpriseKnowledge';
+import { getEnterpriseNodeMetadata } from '@/server/services/enterpriseKnowledge/nodeAccess';
 
 const grant = z.object({
   accessLevel: z.enum(['view', 'edit']),
@@ -25,6 +31,34 @@ const grant = z.object({
   principalType: z.enum(['department', 'user']),
 });
 const libraryInput = z.object({ knowledgeBaseId: z.string().min(1) });
+const nodeInput = libraryInput.extend({ nodeId: z.string().min(1) });
+const nodeChange = nodeInput.extend({
+  mode: z.enum(['inherit', 'custom']),
+  grants: z.array(grant),
+});
+const nodeAccessView = async (
+  db: LobeChatDatabase,
+  userId: string,
+  input: z.infer<typeof nodeInput>,
+) => {
+  const metadata = await getEnterpriseNodeMetadata(db, input.knowledgeBaseId, userId, input.nodeId);
+  const state = await getEnterpriseKbNodeAccessState(db, {
+    ...input,
+    nodeId: metadata.node.id,
+    ancestorIds: metadata.ancestorIds,
+  });
+  const library = await findKnowledgeBaseOwned(db, input.knowledgeBaseId, userId);
+  return {
+    ...state,
+    inheritedFrom: {
+      id: state.inheritedFromNodeId,
+      name: state.inheritedFromNodeId
+        ? (metadata.nodes.get(state.inheritedFromNodeId)?.name ?? '')
+        : (library?.name ?? ''),
+    },
+    node: metadata.node,
+  };
+};
 
 const ownerProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -66,6 +100,74 @@ const ownerProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) =>
 });
 
 export const enterpriseKnowledgeRouter = router({
+  resolveLevel: wsCompatProcedure
+    .use(serverDatabase)
+    .input(libraryInput.extend({ nodeId: z.string().nullable().optional() }))
+    .query(async ({ ctx, input }) => {
+      const scope = await resolveKnowledgeBaseScope(
+        ctx,
+        input.knowledgeBaseId,
+        'path',
+        input.nodeId,
+      );
+      if (!scope.enterprise) throw new TRPCError({ code: 'NOT_FOUND' });
+      if (input.nodeId && !scope.nodeAccess) {
+        if (
+          !(await itemsBelongToKnowledgeBase(ctx.serverDB, [input.nodeId], input.knowledgeBaseId))
+        )
+          throw new TRPCError({ code: 'NOT_FOUND' });
+        await resolveItemsScope(ctx, [input.nodeId], 'path');
+      }
+      return { level: scope.level };
+    }),
+  getNodeAccess: ownerProcedure
+    .input(nodeInput)
+    .query(({ ctx, input }) => nodeAccessView(ctx.serverDB, ctx.userId, input)),
+  estimateNodeAccess: ownerProcedure.input(nodeChange).query(async ({ ctx, input }) => {
+    const metadata = await getEnterpriseNodeMetadata(
+      ctx.serverDB,
+      input.knowledgeBaseId,
+      ctx.userId,
+      input.nodeId,
+    );
+    return estimateEnterpriseKbNodeAccess(ctx.serverDB, {
+      ...input,
+      nodeId: metadata.node.id,
+      ancestorIds: metadata.ancestorIds,
+    });
+  }),
+  updateNodeAccess: ownerProcedure
+    .input(nodeChange.extend({ version: z.number().int().min(0) }))
+    .mutation(async ({ ctx, input }) => {
+      const name =
+        (await getUserDisplayNames(ctx.serverDB, [ctx.userId])).get(ctx.userId) ?? ctx.userId;
+      try {
+        return await ctx.serverDB.transaction(async (tx) => {
+          const db = tx as unknown as LobeChatDatabase;
+          const metadata = await getEnterpriseNodeMetadata(
+            db,
+            input.knowledgeBaseId,
+            ctx.userId,
+            input.nodeId,
+          );
+          await updateEnterpriseKbNodeAccess(db, {
+            ...input,
+            nodeId: metadata.node.id,
+            ancestorIds: metadata.ancestorIds,
+            nodeKind: metadata.node.kind,
+            nodeName: metadata.node.name,
+            actor: { id: ctx.userId, kind: 'member', name },
+          });
+          return nodeAccessView(db, ctx.userId, input);
+        });
+      } catch (error) {
+        if ((error as { code?: string }).code === 'STALE_VERSION')
+          throw new TRPCError({ code: 'CONFLICT' });
+        if ((error as { code?: string }).code === 'INVALID_PRINCIPAL')
+          throw new TRPCError({ code: 'BAD_REQUEST' });
+        throw error;
+      }
+    }),
   directory: ownerProcedure
     .input(z.object({ keyword: z.string().optional() }))
     .query(({ ctx, input }) => getEnterpriseKbDirectory(ctx.serverDB, input)),
