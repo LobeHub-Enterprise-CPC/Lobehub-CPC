@@ -91,8 +91,8 @@ vi.mock('@/features/Workspace/useWorkspaceAwareNavigate', () => ({
   useWorkspaceAwareNavigate: () => wsNavigateMock,
 }));
 
-vi.mock('@/hooks/usePermission', () => ({
-  usePermission: (action: 'create_content' | 'edit_own_content') => ({
+vi.mock('@/features/EnterpriseKnowledge/usePageLibraryPermission', () => ({
+  usePageLibraryPermission: (action: 'create_content' | 'edit_own_content') => ({
     allowed: permissionMock[action],
     reason: '',
   }),

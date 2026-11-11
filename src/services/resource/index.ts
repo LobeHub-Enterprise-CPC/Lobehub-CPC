@@ -1,5 +1,6 @@
 import { CUSTOM_DOCUMENT_FILE_TYPE, DERIVED_DOCUMENT_SOURCE_TYPE } from '@lobechat/const';
 
+import { observeKnowledgeAccess } from '@/services/knowledgeAccessEvents';
 import { type FileListItem, type KnowledgeItemStatus } from '@/types/files';
 import {
   type CreateResourceParams,
@@ -333,4 +334,4 @@ export class ResourceService {
   }
 }
 
-export const resourceService = new ResourceService();
+export const resourceService = observeKnowledgeAccess(new ResourceService());

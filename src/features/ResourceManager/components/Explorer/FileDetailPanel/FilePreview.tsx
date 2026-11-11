@@ -4,6 +4,7 @@ import { Center, Empty } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import FileViewer from '@/features/FileViewer';
 import ImageEditTools from '@/features/FileViewer/ImageEditTools';
 import { type FileListItem } from '@/types/files';
@@ -17,6 +18,7 @@ interface FilePreviewProps {
  * to a neutral hint for types the FileViewer cannot render.
  */
 const FilePreview = memo<FilePreviewProps>(({ file }) => {
+  const { allowed } = useLibraryPermission('edit_own_content');
   const { t } = useTranslation('file');
 
   if (!file?.url)
@@ -26,7 +28,13 @@ const FilePreview = memo<FilePreviewProps>(({ file }) => {
       </Center>
     );
 
-  return <FileViewer {...file} id={file.fileId ?? file.id} imageTools={<ImageEditTools />} />;
+  return (
+    <FileViewer
+      {...file}
+      id={file.fileId ?? file.id}
+      imageTools={allowed ? <ImageEditTools /> : undefined}
+    />
+  );
 });
 
 export default FilePreview;

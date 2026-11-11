@@ -13,6 +13,7 @@ import type {
   UpdateDocumentInput,
   UpdateDocumentOutput,
 } from '@/server/routers/lambda/_schema/documentHistory';
+import { observeKnowledgeAccess } from '@/services/knowledgeAccessEvents';
 import { workService } from '@/services/work';
 
 import { abortableRequest } from '../utils/abortableRequest';
@@ -317,5 +318,5 @@ export class DocumentService {
   }
 }
 
-export const documentService = new DocumentService() as DocumentService &
+export const documentService = observeKnowledgeAccess(new DocumentService()) as DocumentService &
   DocumentHistoryClientSurface;

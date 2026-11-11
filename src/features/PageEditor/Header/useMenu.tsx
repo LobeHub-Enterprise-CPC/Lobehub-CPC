@@ -17,10 +17,10 @@ import { useTranslation } from 'react-i18next';
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useAuthorInfo } from '@/business/client/hooks/useAuthorInfo';
 import { useDocumentTransferMenuItem } from '@/business/client/hooks/useDocumentTransferMenuItem';
+import { usePageLibraryPermission } from '@/features/EnterpriseKnowledge/usePageLibraryPermission';
 import { useResourcePermission } from '@/features/ResourcePermission/useResourcePermission';
 import VisibilityConfirmContent from '@/features/VisibilityConfirmContent';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
-import { usePermission } from '@/hooks/usePermission';
 import { useDocumentStore } from '@/store/document';
 import { editorSelectors } from '@/store/document/slices/editor';
 import { useFileStore } from '@/store/file';
@@ -55,8 +55,8 @@ export const useMenu = (options: UseMenuOptions = {}): { menuItems: any[] } => {
   const documentId = usePageEditorStore((s) => s.documentId);
   // An HTML page has no rich-text body: it exports as HTML and has no editor history.
   const isHtmlPage = useIsHtmlPage(documentId);
-  const { allowed: canCreatePage } = usePermission('create_content');
-  const { allowed: canEditPage } = usePermission('edit_own_content');
+  const { allowed: canCreatePage } = usePageLibraryPermission('create_content');
+  const { allowed: canEditPage, enterprise } = usePageLibraryPermission('edit_own_content');
 
   // Get lastUpdatedTime from DocumentStore (live save status within the session)
   const editorUpdatedTime = useDocumentStore((s) =>
@@ -308,7 +308,7 @@ export const useMenu = (options: UseMenuOptions = {}): { menuItems: any[] } => {
       {
         type: 'divider' as const,
       },
-      ...((transferMenuItems ?? []) as DropdownItem[]),
+      ...((!enterprise ? (transferMenuItems ?? []) : []) as DropdownItem[]),
       ...(canPublish
         ? [
             {
@@ -367,8 +367,21 @@ export const useMenu = (options: UseMenuOptions = {}): { menuItems: any[] } => {
         },
       );
     }
-    return items;
+    return items.filter(
+      (item) =>
+        !item ||
+        !('key' in item) ||
+        !(
+          (enterprise && !canEditPage && item.key === 'delete') ||
+          (enterprise && item.key === 'duplicate') ||
+          (enterprise &&
+            ['member-permissions', 'publish-to-workspace', 'make-private'].includes(
+              String(item.key),
+            ))
+        ),
+    );
   }, [
+    enterprise,
     isHtmlPage,
     lastUpdatedTime,
     authorName,

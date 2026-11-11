@@ -7,12 +7,12 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useFileBatchTransferActions } from '@/business/client/hooks/useFileBatchTransferActions';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import NavHeader from '@/features/NavHeader';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { getExplorerSelectedCount } from '@/features/ResourceManager/store/selectors';
 import { openWorkspaceDeleteAllModal } from '@/features/WorkspaceDeleteAllModal';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { usePermission } from '@/hooks/usePermission';
 import { useFileStore } from '@/store/file';
 import { FilesTabs } from '@/types/files';
 
@@ -50,7 +50,11 @@ const Header = memo(() => {
     s.selectionTotal,
     s.viewMode,
   ]);
-  const { allowed: canEditResources, reason } = usePermission('edit_own_content');
+  const {
+    allowed: canEditResources,
+    reason,
+    enterprise,
+  } = useLibraryPermission('edit_own_content');
   const isMobile = useIsMobile();
   const total = useFileStore((s) => s.total);
   const selectCount = getExplorerSelectedCount({
@@ -63,118 +67,120 @@ const Header = memo(() => {
   const batchTransferActions = useFileBatchTransferActions(selectCount);
 
   // If no libraryId, show category name or "Resource" for All
-  const leftContent = hasSelected ? (
-    <Flexbox horizontal align={'center'} gap={8} style={{ marginLeft: 0 }}>
-      {libraryId ? (
+  const leftContent =
+    hasSelected && (!enterprise || canEditResources) ? (
+      <Flexbox horizontal align={'center'} gap={8} style={{ marginLeft: 0 }}>
+        {libraryId && !enterprise ? (
+          <ActionIcon
+            disabled={!canEditResources}
+            icon={BookMinusIcon}
+            title={canEditResources ? t('FileManager.actions.removeFromLibrary') : reason}
+            onClick={() => {
+              if (!canEditResources) return;
+              confirmModal({
+                cancelText: t('cancel', { ns: 'common' }),
+                content: t('FileManager.actions.confirmRemoveFromLibrary', {
+                  count: selectCount,
+                }),
+                okButtonProps: {
+                  danger: true,
+                },
+                okText: t('FileManager.actions.removeFromLibrary'),
+                onOk: async () => {
+                  await onActionClick('removeFromKnowledgeBase');
+                  toast.success(t('FileManager.actions.removeFromLibrarySuccess'));
+                },
+                title: t('FileManager.actions.removeFromLibrary'),
+              });
+            }}
+          />
+        ) : null}
+
         <ActionIcon
           disabled={!canEditResources}
-          icon={BookMinusIcon}
-          title={canEditResources ? t('FileManager.actions.removeFromLibrary') : reason}
+          icon={FileBoxIcon}
+          title={canEditResources ? t('FileManager.actions.batchChunking') : reason}
+          onClick={async () => {
+            if (!canEditResources) return;
+            await onActionClick('batchChunking');
+          }}
+        />
+
+        {!enterprise &&
+          batchTransferActions?.map((action) => (
+            <ActionIcon
+              disabled={!canEditResources}
+              icon={action.icon}
+              key={action.key}
+              title={canEditResources ? action.label : reason}
+              onClick={() => {
+                if (!canEditResources) return;
+                action.onClick();
+              }}
+            />
+          ))}
+
+        <ActionIcon
+          disabled={!canEditResources}
+          icon={Trash2Icon}
+          title={
+            canEditResources
+              ? t(isWorkspaceDeleteAll ? 'FileManager.actions.deleteAll' : 'delete', {
+                  ns: isWorkspaceDeleteAll ? 'components' : 'common',
+                })
+              : reason
+          }
           onClick={() => {
             if (!canEditResources) return;
+
+            const handleDelete = async () => {
+              await onActionClick('delete');
+              toast.success(t('FileManager.actions.deleteSuccess'));
+            };
+
+            if (isWorkspaceDeleteAll) {
+              openWorkspaceDeleteAllModal({
+                acknowledgeText: t('FileManager.actions.confirmDeleteAllWorkspaceAcknowledge'),
+                cancelText: t('cancel', { ns: 'common' }),
+                confirmText: t('FileManager.actions.deleteAll'),
+                description: t('FileManager.actions.confirmDeleteAllWorkspaceFiles'),
+                onConfirm: handleDelete,
+                title: t('FileManager.actions.deleteAll'),
+              });
+              return;
+            }
+
             confirmModal({
               cancelText: t('cancel', { ns: 'common' }),
-              content: t('FileManager.actions.confirmRemoveFromLibrary', {
-                count: selectCount,
-              }),
+              content: t(
+                selectAllState === 'all'
+                  ? 'FileManager.actions.confirmDeleteAllFiles'
+                  : 'FileManager.actions.confirmDeleteMultiFiles',
+                { count: selectCount },
+              ),
               okButtonProps: {
                 danger: true,
               },
-              okText: t('FileManager.actions.removeFromLibrary'),
+              okText: t('delete', { ns: 'common' }),
               onOk: async () => {
-                await onActionClick('removeFromKnowledgeBase');
-                toast.success(t('FileManager.actions.removeFromLibrarySuccess'));
+                await handleDelete();
               },
-              title: t('FileManager.actions.removeFromLibrary'),
+              title: t('delete', { ns: 'common' }),
             });
           }}
         />
-      ) : null}
-
-      <ActionIcon
-        disabled={!canEditResources}
-        icon={FileBoxIcon}
-        title={canEditResources ? t('FileManager.actions.batchChunking') : reason}
-        onClick={async () => {
-          if (!canEditResources) return;
-          await onActionClick('batchChunking');
-        }}
-      />
-
-      {batchTransferActions?.map((action) => (
-        <ActionIcon
-          disabled={!canEditResources}
-          icon={action.icon}
-          key={action.key}
-          title={canEditResources ? action.label : reason}
-          onClick={() => {
-            if (!canEditResources) return;
-            action.onClick();
-          }}
-        />
-      ))}
-
-      <ActionIcon
-        disabled={!canEditResources}
-        icon={Trash2Icon}
-        title={
-          canEditResources
-            ? t(isWorkspaceDeleteAll ? 'FileManager.actions.deleteAll' : 'delete', {
-                ns: isWorkspaceDeleteAll ? 'components' : 'common',
-              })
-            : reason
-        }
-        onClick={() => {
-          if (!canEditResources) return;
-
-          const handleDelete = async () => {
-            await onActionClick('delete');
-            toast.success(t('FileManager.actions.deleteSuccess'));
-          };
-
-          if (isWorkspaceDeleteAll) {
-            openWorkspaceDeleteAllModal({
-              acknowledgeText: t('FileManager.actions.confirmDeleteAllWorkspaceAcknowledge'),
-              cancelText: t('cancel', { ns: 'common' }),
-              confirmText: t('FileManager.actions.deleteAll'),
-              description: t('FileManager.actions.confirmDeleteAllWorkspaceFiles'),
-              onConfirm: handleDelete,
-              title: t('FileManager.actions.deleteAll'),
-            });
-            return;
-          }
-
-          confirmModal({
-            cancelText: t('cancel', { ns: 'common' }),
-            content: t(
-              selectAllState === 'all'
-                ? 'FileManager.actions.confirmDeleteAllFiles'
-                : 'FileManager.actions.confirmDeleteMultiFiles',
-              { count: selectCount },
-            ),
-            okButtonProps: {
-              danger: true,
-            },
-            okText: t('delete', { ns: 'common' }),
-            onOk: async () => {
-              await handleDelete();
-            },
-            title: t('delete', { ns: 'common' }),
-          });
-        }}
-      />
-    </Flexbox>
-  ) : !libraryId ? (
-    <Flexbox style={{ marginLeft: 8, minWidth: 0 }}>
-      {category === FilesTabs.All
-        ? t('resource', { ns: 'file' })
-        : t(`tab.${category as FilesTabs}` as any, { ns: 'file' })}
-    </Flexbox>
-  ) : (
-    <Flexbox horizontal align={'center'} gap={4} style={{ marginLeft: 8 }}>
-      <Breadcrumb category={category} knowledgeBaseId={libraryId} />
-    </Flexbox>
-  );
+      </Flexbox>
+    ) : !libraryId ? (
+      <Flexbox style={{ marginLeft: 8, minWidth: 0 }}>
+        {category === FilesTabs.All
+          ? t('resource', { ns: 'file' })
+          : t(`tab.${category as FilesTabs}` as any, { ns: 'file' })}
+      </Flexbox>
+    ) : (
+      <Flexbox horizontal align={'center'} gap={4} style={{ marginLeft: 8 }}>
+        <Breadcrumb category={category} knowledgeBaseId={libraryId} />
+      </Flexbox>
+    );
 
   return (
     <NavHeader

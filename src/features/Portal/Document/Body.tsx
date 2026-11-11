@@ -5,19 +5,22 @@ import {
   Button,
   createStaticStyles,
   cssVar,
+  Empty,
   Flexbox,
+  Markdown,
   Text,
   TextArea,
 } from '@lobehub/ui';
 import { CheckIcon, PencilIcon, XIcon } from 'lucide-react';
 import type { ChangeEvent } from 'react';
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncError from '@/components/AsyncError';
 import CodeEditorPane from '@/components/CodeEditorPane';
 import { HtmlDocumentFrame } from '@/components/HtmlPreview';
 import Loading from '@/components/Loading/CircleLoading';
+import { useDocumentLibraryPermission } from '@/features/EnterpriseKnowledge/useDocumentLibraryPermission';
 import FileNotFound from '@/features/FileNotFound';
 import { FileDocumentPreview } from '@/features/FileViewer/FileDocumentPreview';
 import WideScreenContainer from '@/features/WideScreenContainer';
@@ -27,6 +30,7 @@ import {
   getSkillMarkdownMetadataError,
   parseSkillMarkdownFrontmatterFields,
 } from '@/utils/skillMarkdown';
+import { isTrpcErrorCode } from '@/utils/trpcError';
 
 import { useDocumentViewFullPage, useResolvedDocumentId } from './documentViewContext';
 import EditorCanvas from './EditorCanvas';
@@ -171,6 +175,7 @@ const SkillFrontmatterBlock = memo<SkillFrontmatterBlockProps>(({ documentId, fr
 });
 
 interface HighlightEditorProps {
+  canSave: () => boolean;
   content: string;
   documentId: string;
   filename: string;
@@ -179,8 +184,9 @@ interface HighlightEditorProps {
 }
 
 const HighlightEditor = memo<HighlightEditorProps>(
-  ({ content, documentId, filename, onSaveStart, updatedAt }) => {
+  ({ canSave, content, documentId, filename, onSaveStart, updatedAt }) => {
     const { editingValue, handleChange, handleSave } = useHighlightSave({
+      canSave,
       content,
       documentId,
       onSaveStart,
@@ -222,6 +228,7 @@ const HighlightEditor = memo<HighlightEditorProps>(
 HighlightEditor.displayName = 'HighlightEditor';
 
 const DocumentBody = memo(() => {
+  const { t } = useTranslation('knowledgeBase');
   const documentId = useResolvedDocumentId();
   const fullPage = useDocumentViewFullPage();
   const [skillFrontmatter, contentFormat] = useDocumentStore((s) =>
@@ -253,11 +260,21 @@ const DocumentBody = memo(() => {
       commit({ content: saved, ...(updatedAt ? { updatedAt: new Date(updatedAt) } : {}) });
   }, [documentId, beginDocumentDetailPatch]);
 
+  const { allowed: canEditLibrary } = useDocumentLibraryPermission(documentId);
+  const canEditLibraryRef = useRef(canEditLibrary);
+  canEditLibraryRef.current = canEditLibrary;
+  // The highlight editor flushes on unmount; permission loss must also stop that write.
+  const canSaveHighlight = useCallback(() => canEditLibraryRef.current, []);
   const editorContent = (
     <>
-      {renderMode.mode !== 'file' && documentId && isSkillMarkdown && (
-        <SkillFrontmatterBlock documentId={documentId} frontmatter={skillFrontmatter} />
-      )}
+      {renderMode.mode !== 'file' &&
+        documentId &&
+        isSkillMarkdown &&
+        (canEditLibrary ? (
+          <SkillFrontmatterBlock documentId={documentId} frontmatter={skillFrontmatter} />
+        ) : (
+          <SkillFrontmatterCard frontmatter={skillFrontmatter} />
+        ))}
       {renderMode.mode === 'file' ? (
         <FileDocumentPreview fileId={documentMeta?.fileId} />
       ) : renderMode.mode === 'html' ? (
@@ -265,8 +282,11 @@ const DocumentBody = memo(() => {
           content={documentMeta?.content ?? ''}
           title={documentMeta?.title ?? undefined}
         />
+      ) : !canEditLibrary ? (
+        <Markdown>{documentMeta?.content ?? ''}</Markdown>
       ) : renderMode.mode === 'highlight' && documentId ? (
         <HighlightEditor
+          canSave={canSaveHighlight}
           content={documentMeta?.content ?? ''}
           documentId={documentId}
           filename={documentMeta?.filename ?? ''}
@@ -286,6 +306,8 @@ const DocumentBody = memo(() => {
   // The document is a persisted replica (stale-while-revalidate): a transient
   // refresh failure keeps the cached document on screen. A denial (FORBIDDEN /
   // UNAUTHORIZED) purges the cached row, so it lands here with no data.
+  if (isTrpcErrorCode(documentError, 'NOT_FOUND'))
+    return <Empty description={t('enterprise.fileUnavailable', { ns: 'knowledgeBase' })} />;
   if (documentError && !documentMeta)
     return (
       <AsyncError

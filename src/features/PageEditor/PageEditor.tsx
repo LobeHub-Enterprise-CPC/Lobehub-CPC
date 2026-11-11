@@ -8,10 +8,10 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { CONVERSATION_MIN_WIDTH } from '@/const/layoutTokens';
 import type { ComposerTarget } from '@/features/Conversation/types';
 import DiffAllToolbar from '@/features/EditorCanvas/DiffAllToolbar';
+import { useDocumentLibraryPermission } from '@/features/EnterpriseKnowledge/useDocumentLibraryPermission';
 import PageMetaBar from '@/features/PageEditor/PageMetaBar';
 import WideScreenContainer from '@/features/WideScreenContainer';
 import { useRegisterFilesHotkeys } from '@/hooks/useHotkeys';
-import { usePermission } from '@/hooks/usePermission';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { pageActions } from '@/store/page';
@@ -486,7 +486,7 @@ export const PageEditor: FC<PageEditorProps> = ({
   rightPanel,
   syncPageAgentActiveState,
 }) => {
-  const { allowed: canEdit } = usePermission('edit_own_content');
+  const { allowed: canEdit } = useDocumentLibraryPermission(pageId, knowledgeBaseId);
 
   return (
     <PageAgentProvider pageId={pageId} syncActiveAgent={syncPageAgentActiveState}>

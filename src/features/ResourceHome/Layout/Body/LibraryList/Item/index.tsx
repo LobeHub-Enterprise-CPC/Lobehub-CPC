@@ -1,8 +1,11 @@
+import type { EnterpriseKnowledgeBaseInfo } from '@lobechat/types';
 import { cssVar, Spin } from '@lobehub/ui';
 import { type CSSProperties } from 'react';
 import React, { memo, useCallback, useMemo } from 'react';
 
 import LibraryStatusIcon from '@/components/LibIcon/StatusIcon';
+import { EnterpriseAccessBadge } from '@/features/EnterpriseKnowledge/AccessBadge';
+import { getKnowledgeBaseCapabilities } from '@/features/EnterpriseKnowledge/capabilities';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -17,6 +20,7 @@ interface KnowledgeBaseItemProps {
   active?: boolean;
   className?: string;
   description?: string | null;
+  enterprise?: EnterpriseKnowledgeBaseInfo;
   id: string;
   memberRestricted?: boolean;
   name: string;
@@ -31,6 +35,7 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
     id,
     name,
     description,
+    enterprise,
     active,
     style,
     className,
@@ -41,7 +46,8 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
   }) => {
     const setLibraryId = useResourceManagerStore((s) => s.setLibraryId);
     const navigate = useWorkspaceAwareNavigate();
-    const { allowed: canEdit } = usePermission('edit_own_content');
+    const { allowed: roleAllowed } = usePermission('edit_own_content');
+    const canEdit = getKnowledgeBaseCapabilities({ enterprise }, roleAllowed).canManageInfo;
 
     const [editing, isLoading] = useKnowledgeBaseStore((s) => [
       s.knowledgeBaseRenamingId === id,
@@ -99,6 +105,7 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
 
     const dropdownMenu = useDropdownMenu({
       description,
+      enterprise,
       id,
       name,
       permissionManageable,
@@ -110,16 +117,24 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
     return (
       <div style={{ position: 'relative' }}>
         <NavItem
-          actions={<Actions dropdownMenu={dropdownMenu} />}
+          actions={dropdownMenu().length > 0 ? <Actions dropdownMenu={dropdownMenu} /> : undefined}
           active={active}
           className={className}
           contextMenuItems={dropdownMenu}
-          disabled={editing}
+          disabled={editing && canEdit}
           icon={icon}
           key={id}
           loading={isLoading}
           style={style}
-          title={editing ? <Editing id={id} name={name} toggleEditing={toggleEditing} /> : name}
+          title={
+            editing && canEdit ? (
+              <Editing id={id} name={name} toggleEditing={toggleEditing} />
+            ) : (
+              <>
+                {name} <EnterpriseAccessBadge enterprise={enterprise} />
+              </>
+            )
+          }
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
         />

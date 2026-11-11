@@ -2,6 +2,7 @@ import { toast } from '@lobehub/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { useEventCallback } from '@/hooks/useEventCallback';
 import { useTreeStore } from '@/store/tree';
@@ -26,6 +27,7 @@ export const useFileListItemRename = ({
   setPendingRenameItemId,
   updateResource,
 }: UseFileListItemRenameOptions) => {
+  const { allowed: canEdit } = useLibraryPermission('edit_own_content');
   const { t } = useTranslation(['components', 'file', 'common']);
 
   const [isRenaming, setIsRenaming] = useState(false);
@@ -34,6 +36,7 @@ export const useFileListItemRename = ({
   const isConfirmingRef = useRef(false);
 
   const handleRenameStart = useCallback(() => {
+    if (!canEdit) return;
     setIsRenaming(true);
     setRenamingValue(name || '');
 
@@ -41,10 +44,10 @@ export const useFileListItemRename = ({
       inputRef.current?.focus();
       inputRef.current?.select();
     }, 0);
-  }, [name]);
+  }, [name, canEdit]);
 
   const handleRenameConfirm = useEventCallback(async () => {
-    if (isConfirmingRef.current) return;
+    if (!canEdit || isConfirmingRef.current) return;
     isConfirmingRef.current = true;
 
     if (!renamingValue.trim()) {
@@ -100,7 +103,7 @@ export const useFileListItemRename = ({
     handleRenameConfirm,
     handleRenameStart,
     inputRef,
-    isRenaming,
+    isRenaming: isRenaming && canEdit,
     renamingValue,
     setRenamingValue,
   };

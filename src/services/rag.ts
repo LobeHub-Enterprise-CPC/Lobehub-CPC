@@ -1,4 +1,5 @@
 import { lambdaClient } from '@/libs/trpc/client';
+import { observeKnowledgeAccess } from '@/services/knowledgeAccessEvents';
 import { type SemanticSearchSchemaType } from '@/types/rag';
 
 class RAGService {
@@ -35,4 +36,4 @@ class RAGService {
   };
 }
 
-export const ragService = new RAGService();
+export const ragService = observeKnowledgeAccess(new RAGService());

@@ -15,10 +15,12 @@ export interface KnowledgeBaseState {
   knowledgeBaseLoadingIds: string[];
   /** The row currently being renamed inline. */
   knowledgeBaseRenamingId?: string | null;
+  knowledgeBaseSessionAccess: Record<string, 'confirmed' | 'denied'>;
 }
 
 export const initialKnowledgeBaseState: KnowledgeBaseState = {
   activeKnowledgeBaseId: null,
+  knowledgeBaseSessionAccess: {},
   knowledgeBaseDetailMap: {},
   knowledgeBaseDetailReplica: createReplicaState(),
   knowledgeBaseListMap: {},

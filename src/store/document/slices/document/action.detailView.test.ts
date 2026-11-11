@@ -100,7 +100,7 @@ describe('document detail without an editor (portal / goal / preview views)', ()
     );
   });
 
-  it.each(['FORBIDDEN', 'UNAUTHORIZED'])(
+  it.each(['FORBIDDEN', 'UNAUTHORIZED', 'NOT_FOUND'])(
     'purges the cached document when the refresh is denied (%s)',
     async (code) => {
       await documentDetailResource.storage!.set(

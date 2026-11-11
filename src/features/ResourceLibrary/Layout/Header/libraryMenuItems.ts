@@ -1,11 +1,13 @@
 import type { DropdownItem } from '@lobehub/ui';
 
 export interface LibraryMenuEntry {
+  enterprise?: boolean;
   item: NonNullable<DropdownItem>;
   visibility?: 'private' | 'public';
 }
 
 interface LibraryMenuLabels {
+  enterprise?: string;
   private: string;
   workspace: string;
 }
@@ -19,6 +21,21 @@ export const buildLibraryMenuItems = (
   hasActiveWorkspace: boolean,
   labels: LibraryMenuLabels,
 ): DropdownItem[] => {
+  const enterpriseItems = entries.filter((entry) => entry.enterprise).map((entry) => entry.item);
+  if (enterpriseItems.length > 0)
+    return [
+      ...buildLibraryMenuItems(
+        entries.filter((entry) => !entry.enterprise),
+        hasActiveWorkspace,
+        labels,
+      ),
+      {
+        children: enterpriseItems,
+        key: 'library-group-enterprise',
+        label: labels.enterprise,
+        type: 'group',
+      },
+    ];
   const flatItems = entries.map(({ item }) => item);
   const privateItems = entries
     .filter(({ visibility }) => visibility === 'private')

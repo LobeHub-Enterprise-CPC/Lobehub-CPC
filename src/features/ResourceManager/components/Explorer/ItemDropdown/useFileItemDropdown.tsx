@@ -21,13 +21,13 @@ import { shallow } from 'zustand/shallow';
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import RepoIcon from '@/components/LibIcon';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useSendToMessengerMenuItem } from '@/features/Messenger/PushResourceModal/useSendToMessengerMenuItem';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
 import { PAGE_FILE_TYPE } from '@/features/ResourceManager/constants';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { buildPagePath } from '@/features/ResourceManager/utils/resourcePath';
 import VisibilityConfirmContent from '@/features/VisibilityConfirmContent';
-import { usePermission } from '@/hooks/usePermission';
 import { documentService } from '@/services/document';
 import { fileService } from '@/services/file';
 import { useFileStore } from '@/store/file';
@@ -110,7 +110,7 @@ export const useFileItemDropdown = ({
   const { t } = useTranslation(['components', 'common', 'knowledgeBase', 'chat']);
 
   const appOrigin = useAppBaseUrl();
-  const { allowed: canEditResources } = usePermission('edit_own_content');
+  const { allowed: canEditResources, enterprise } = useLibraryPermission('edit_own_content');
   const currentUserId = useUserStore(userProfileSelectors.userId);
   const activeWorkspaceId = useActiveWorkspaceId();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
@@ -178,7 +178,7 @@ export const useFileItemDropdown = ({
     // only join a public KB. Personal-mode files (visibility null/undefined)
     // ignore the scope filter.
     const availableKnowledgeBases = libraries.filter((kb) => {
-      if (kb.id === libraryId) return false;
+      if (kb.id === libraryId || kb.enterprise) return false;
       if (visibility === 'private' || visibility === 'public') {
         return kb.visibility === visibility;
       }
@@ -247,7 +247,7 @@ export const useFileItemDropdown = ({
     }));
 
     const libraryRelatedActions = (
-      !canEditResources
+      !canEditResources || enterprise
         ? []
         : isInLibrary
           ? [
@@ -300,6 +300,7 @@ export const useFileItemDropdown = ({
     // is meaningless. Without this gate every personal file would offer
     // "Make private" (and, once flipped, "Publish to workspace").
     const isOwnWorkspaceFile =
+      !enterprise &&
       !!activeWorkspaceId &&
       sourceType !== DERIVED_DOCUMENT_SOURCE_TYPE &&
       !isFolder &&
@@ -533,6 +534,7 @@ export const useFileItemDropdown = ({
     activeWorkspaceId,
     activeWorkspaceSlug,
     canEditResources,
+    enterprise,
     currentUserId,
     deleteResource,
     fileId,

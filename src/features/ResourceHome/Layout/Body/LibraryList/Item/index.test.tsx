@@ -49,7 +49,7 @@ vi.mock('./Actions', () => ({
 }));
 
 vi.mock('./useDropdownMenu', () => ({
-  useDropdownMenu: () => [],
+  useDropdownMenu: () => () => [],
 }));
 
 describe('KnowledgeBaseItem', () => {

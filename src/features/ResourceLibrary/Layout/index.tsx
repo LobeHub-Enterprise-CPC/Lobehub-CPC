@@ -1,7 +1,7 @@
 'use client';
 
-import { Button, Flexbox } from '@lobehub/ui';
-import { type FC } from 'react';
+import { Button, Empty, Flexbox, toast } from '@lobehub/ui';
+import { type FC, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useParams } from 'react-router';
 
@@ -9,7 +9,10 @@ import AsyncError from '@/components/AsyncError';
 import RegisterHotkeys from '@/features/ResourceLibrary/RegisterHotkeys';
 import { useKnowledgeBaseItem } from '@/features/ResourceManager/hooks/useKnowledgeItem';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
+import { subscribeKnowledgeAccessRefused } from '@/services/knowledgeAccessEvents';
+import { useKnowledgeBaseStore } from '@/store/library';
 import { isForbiddenError } from '@/utils/forbiddenError';
+import { isTrpcErrorCode } from '@/utils/trpcError';
 
 import Sidebar from './Sidebar';
 import { styles } from './style';
@@ -19,7 +22,32 @@ const LibraryLayout: FC = () => {
   const { t } = useTranslation('file');
   const navigate = useWorkspaceAwareNavigate();
   // Same SWR key as the page content's fetch, so this costs no extra request.
-  const { error } = useKnowledgeBaseItem(id || '');
+  const { data, error, isConfirmed } = useKnowledgeBaseItem(id || '');
+  const openedEnterprise = useRef<string | null>(null);
+  const leaving = useRef(false);
+  useEffect(() => {
+    if (isConfirmed && data?.enterprise && id) openedEnterprise.current = id;
+  }, [isConfirmed, data, id]);
+  useLayoutEffect(() => {
+    if (!id || !data?.enterprise) return;
+    return subscribeKnowledgeAccessRefused(() => {
+      void useKnowledgeBaseStore
+        .getState()
+        .refreshKnowledgeBaseItem(id)
+        .catch(() => {});
+    });
+  }, [id, data?.enterprise]);
+  const unavailable =
+    isTrpcErrorCode(error, 'NOT_FOUND') ||
+    (!data && openedEnterprise.current === id && !isConfirmed);
+  useEffect(() => {
+    if (!unavailable || openedEnterprise.current !== id || leaving.current) return;
+    leaving.current = true;
+    toast.warning(t('enterprise.accessLost', { ns: 'knowledgeBase' }));
+    void useKnowledgeBaseStore.getState().refreshKnowledgeBaseList();
+    navigate('/resource', { replace: true });
+  }, [unavailable, id, navigate, t]);
+  if (unavailable) return <Empty description={t('enterprise.notFound', { ns: 'knowledgeBase' })} />;
 
   // A restricted KB (resource-permission `use` level) 403s for members. Catch
   // it at the layout so the route shows one error page in the content area

@@ -1,7 +1,7 @@
 'use client';
 
+import { usePageLibraryPermission } from '@/features/EnterpriseKnowledge/usePageLibraryPermission';
 import { useResourceAccess } from '@/features/ResourcePermission/useResourceAccess';
-import { usePermission } from '@/hooks/usePermission';
 import { useDocumentStore } from '@/store/document';
 import { editorSelectors } from '@/store/document/slices/editor';
 
@@ -17,7 +17,7 @@ import { usePageLockedByOther } from './usePageLockedByOther';
  * surfaces an existing holder so the page is read-only up front.
  */
 export const usePageEditable = (): boolean => {
-  const { allowed: hasEditPermission } = usePermission('edit_own_content');
+  const { allowed: hasEditPermission } = usePageLibraryPermission('edit_own_content');
   const documentId = usePageEditorStore((s) => s.documentId);
   const isWorkspacePage = usePageEditorStore((s) => s.isWorkspacePage);
   const isLockedByOther = usePageLockedByOther();

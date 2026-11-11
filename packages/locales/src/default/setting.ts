@@ -1,4 +1,6 @@
 export default {
+  'trash.type.file': 'File',
+  'trash.type.document': 'Document or folder',
   'chatPreference.assist.desc':
     'Personal preferences: they only apply to you, in your personal space and every workspace.',
   'chatPreference.assist.title': 'Chat Assist',

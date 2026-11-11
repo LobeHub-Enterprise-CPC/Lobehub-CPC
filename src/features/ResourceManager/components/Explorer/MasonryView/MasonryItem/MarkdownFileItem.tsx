@@ -5,6 +5,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import FileIcon from '@/components/FileIcon';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { isChunkingSupported } from '@/libs/document-loaders/loaderType';
 import { fileManagerSelectors, useFileStore } from '@/store/file';
 import { type AsyncTaskStatus, type IAsyncTaskError } from '@/types/asyncTask';
@@ -143,6 +144,7 @@ const MarkdownFileItem = memo<MarkdownFileItemProps>(
     size,
   }) => {
     const { t } = useTranslation('components');
+    const { allowed: canEdit } = useLibraryPermission('edit_own_content');
     const [isCreatingFileParseTask, parseFiles] = useFileStore((s) => [
       fileManagerSelectors.isCreatingFileParseTask(id)(s),
       s.parseFilesToChunks,
@@ -183,6 +185,7 @@ const MarkdownFileItem = memo<MarkdownFileItemProps>(
             />
           </div>
         ) : (
+          canEdit &&
           isSupportedForChunking && (
             <Tooltip title={t('FileManager.actions.chunkingTooltip')}>
               <div
@@ -190,7 +193,7 @@ const MarkdownFileItem = memo<MarkdownFileItemProps>(
                 style={{ cursor: 'pointer' }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!isCreatingFileParseTask) {
+                  if (canEdit && !isCreatingFileParseTask) {
                     parseFiles([id]);
                   }
                 }}

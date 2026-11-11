@@ -1,9 +1,11 @@
+import { cacheScope } from '@/libs/replica';
 import { knowledgeBaseSelectors, useKnowledgeBaseStore } from '@/store/library';
 import type { KnowledgeBaseItem } from '@/types/knowledgeBase';
 
 export interface KnowledgeBaseItemState {
   data: KnowledgeBaseItem | undefined;
   error: unknown;
+  isConfirmed: boolean;
   isLoading: boolean;
   mutate: () => Promise<unknown>;
 }
@@ -21,9 +23,17 @@ export const useKnowledgeBaseItem = (id: string): KnowledgeBaseItemState => {
   const sync = useFetchKnowledgeBaseItem(id);
   const data = useKnowledgeBaseStore(knowledgeBaseSelectors.getKnowledgeBaseById(id));
 
+  const scope = cacheScope.use();
+  const session = useKnowledgeBaseStore(knowledgeBaseSelectors.sessionAccess(scope, id));
   const active = !!id;
   const isLoading =
     active && data === undefined && (sync.error ? false : !sync.isHydrated || sync.isValidating);
 
-  return { data, error: sync.error, isLoading, mutate: sync.revalidate };
+  return {
+    data: session === 'denied' ? undefined : data,
+    isConfirmed: session === 'confirmed',
+    error: sync.error,
+    isLoading,
+    mutate: sync.revalidate,
+  };
 };

@@ -1,8 +1,7 @@
 'use client';
 
 import type { BuiltinInspectorProps } from '@lobechat/types';
-import { Text } from '@lobehub/ui';
-import { cssVar, cx } from '@lobehub/ui';
+import { cssVar, cx, Text } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -74,6 +73,11 @@ export const SearchKnowledgeBaseInspector = memo<
             </Text>
           ))}
       </span>
+      {!isLoading && !!pluginState?.skippedKnowledgeBaseCount && (
+        <Text fontSize={12} type="secondary">
+          {t('builtins.lobe-knowledge-base.render.skippedKnowledgeBases')}
+        </Text>
+      )}
     </div>
   );
 });

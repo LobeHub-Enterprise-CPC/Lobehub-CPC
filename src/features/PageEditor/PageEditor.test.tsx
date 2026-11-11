@@ -1,15 +1,19 @@
 import { cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
-import { useEffect } from 'react';
+import { type ReactNode, useEffect } from 'react';
 import { SWRConfig, useSWRConfig } from 'swr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { usePageLibraryPermission } from '@/features/EnterpriseKnowledge/usePageLibraryPermission';
 import PageExplorer from '@/features/PageExplorer';
 import { cacheScope } from '@/libs/replica';
 import { setScopedMutate } from '@/libs/swr/mutate';
 import { documentService } from '@/services/document';
+import { useKnowledgeBaseStore } from '@/store/library';
 import { pageActions, pageSelectors, usePageStore } from '@/store/page';
 import { DocumentSourceType, type LobeDocument } from '@/types/document';
 
+import { PageEditor } from './PageEditor';
+import { usePageEditorStore } from './store';
 import { getTitleTextAreaInteractionProps, isTitleSubmitKey } from './TitleSection';
 
 vi.mock('@/features/PageEditor', () => ({
@@ -224,5 +228,98 @@ describe('PageEditor beforeunload handler', () => {
     unmount();
 
     expect(removeEventListenerSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+  });
+});
+
+// Keep the real PageEditor, PageEditorProvider, Zustand context and permission hooks.
+// Replace editor/network side effects and unrelated visual children only.
+vi.mock('@lobehub/editor/react', () => ({
+  DEFAULT_BLOCK_ANCHOR_PADDING: 16,
+  EditorProvider: ({ children }: { children: ReactNode }) => children,
+  useEditor: () => undefined,
+}));
+vi.mock('./store/action', () => ({ store: (initial: object) => () => initial }));
+vi.mock('./StoreUpdater', () => ({ default: () => null }));
+vi.mock('./PageAgentProvider', () => ({
+  PageAgentProvider: ({ children }: { children: ReactNode }) => children,
+}));
+vi.mock('@/features/ResourceManager/hooks/useKnowledgeItem', () => ({
+  useKnowledgeBaseItem: vi.fn(),
+}));
+vi.mock('./usePageEditable', () => ({
+  usePageEditable: () => usePageLibraryPermission('edit_own_content').allowed,
+}));
+vi.mock('@/hooks/useHotkeys', () => ({ useRegisterFilesHotkeys: vi.fn() }));
+vi.mock('@/features/WideScreenContainer', () => ({
+  default: ({ children }: { children: ReactNode }) => children,
+}));
+vi.mock('./DocumentComments/context', () => ({
+  DocumentCommentsProvider: ({ children }: { children: ReactNode }) => children,
+}));
+vi.mock('./DocumentComments/Gutter/useGutterLayout', () => ({
+  GUTTER_COLUMN_ATTRIBUTE: 'data-gutter',
+}));
+vi.mock('./HtmlPageBody', () => ({ default: () => null, useIsHtmlPage: () => false }));
+vi.mock('./EditorCanvas', () => ({
+  default: function EditorCanvasProbe() {
+    const documentId = usePageEditorStore((s) => s.documentId);
+    const onSave = usePageEditorStore((s) => s.onSave);
+    return <button onClick={onSave}>Save {documentId}</button>;
+  },
+}));
+vi.mock('./Header', () => ({ default: () => null }));
+vi.mock('./TitleSection', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  default: () => null,
+}));
+vi.mock('./PageMetaBar', () => ({ default: () => null }));
+vi.mock('./LockStatusBanner', () => ({ default: () => null }));
+vi.mock('./LockedAlert', () => ({ default: () => null }));
+vi.mock('./DocumentLikes', () => ({ default: () => null }));
+vi.mock('./DocumentComments', () => ({ default: () => null }));
+vi.mock('./DocumentComments/BlockCommentMarker', () => ({ default: () => null }));
+vi.mock('./DocumentComments/Gutter', () => ({ default: () => null }));
+vi.mock('./TableOfContents', () => ({ default: () => null }));
+vi.mock('./RightPanel', () => ({ default: () => null }));
+vi.mock('@/features/EditorCanvas/DiffAllToolbar', () => ({ default: () => null }));
+
+describe('PageEditor provider boundary', () => {
+  beforeEach(() => {
+    useKnowledgeBaseStore.setState({
+      knowledgeBaseDetailMap: Object.fromEntries(
+        (['edit', 'view'] as const).map((level) => [
+          level + '-library',
+          {
+            avatar: null,
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+            enterprise: { accessLevel: level, ownerName: 'Owner' },
+            id: level + '-library',
+            isPublic: false,
+            name: 'Enterprise',
+            settings: {},
+            type: null,
+          },
+        ]),
+      ),
+    });
+  });
+  it.each([undefined, 'edit-library'])(
+    'mounts directly and saves with library %s',
+    (knowledgeBaseId) => {
+      const onSave = vi.fn();
+      render(<PageEditor knowledgeBaseId={knowledgeBaseId} pageId="page-1" onSave={onSave} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save page-1' }));
+      expect(onSave).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('keeps the outer callback guarded by the opened library permission', () => {
+    const onSave = vi.fn();
+    render(<PageEditor knowledgeBaseId="view-library" pageId="page-1" onSave={onSave} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save page-1' }));
+    expect(onSave).not.toHaveBeenCalled();
   });
 });
