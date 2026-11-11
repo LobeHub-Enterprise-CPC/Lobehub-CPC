@@ -365,6 +365,29 @@ describe('ChunkModel', () => {
       expect(result[0].text).toBe('Chunk 1');
       expect(result[1].text).toBe('Chunk 2');
     });
+
+    it('returns only the chunks without an embedding when asked to', async () => {
+      const fileId = '1';
+      const [embedded, missing] = await serverDB
+        .insert(chunks)
+        .values([
+          { text: 'Embedded', userId },
+          { text: 'Missing', userId },
+        ])
+        .returning();
+      await serverDB.insert(fileChunks).values([
+        { fileId, chunkId: embedded.id, userId },
+        { fileId, chunkId: missing.id, userId },
+      ]);
+      await serverDB
+        .insert(embeddings)
+        .values({ chunkId: embedded.id, embeddings: codeEmbedding, userId });
+
+      const result = await chunkModel.getChunksTextByFileId(fileId, { withoutEmbedding: true });
+
+      expect(result).toEqual([{ id: missing.id, text: 'Missing' }]);
+      expect(await chunkModel.getChunksTextByFileId(fileId)).toHaveLength(2);
+    });
   });
 
   describe('countByFileIds', () => {

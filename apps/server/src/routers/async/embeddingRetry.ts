@@ -1,0 +1,65 @@
+const BASE_DELAY_MS = 2000;
+const MAX_DELAY_MS = 60_000;
+
+const statusOf = (error: unknown): number | undefined => {
+  if (!error || typeof error !== 'object') return undefined;
+  const { error: inner, status } = error as { error?: unknown; status?: unknown };
+  if (typeof status === 'number') return status;
+  return statusOf(inner);
+};
+
+/**
+ * Whether an embedding request failed for a reason that passes on its own: the provider's
+ * rate limit or a 5xx. Providers report the rate limit in different places (HTTP 429, an
+ * error type, or only a code such as `ModelAccountTpmRateLimitExceeded` in the body), so
+ * the whole error is searched.
+ */
+export const isTransientEmbeddingError = (error: unknown): boolean => {
+  const status = statusOf(error);
+  if (status === 429 || (status !== undefined && status >= 500)) return true;
+
+  let text: string | undefined;
+  try {
+    // An Error serializes to `{}`: its message is not enumerable.
+    text =
+      error instanceof Error ? `${error.message} ${JSON.stringify(error)}` : JSON.stringify(error);
+  } catch {
+    return false;
+  }
+  return /rate.?limit|too.?many.?requests/i.test(text ?? '');
+};
+
+interface RetryOptions {
+  /** Epoch ms after which no further attempt starts. */
+  deadline: number;
+  now?: () => number;
+  random?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Runs `request`, backing off and trying again while it fails transiently. The wait
+ * doubles from 2s up to a minute, the length of a per-minute quota window, with jitter
+ * so the batches of a bulk import do not all return at once. Gives up with the last
+ * error once the next wait would pass `deadline`.
+ */
+export const retryTransientEmbeddingError = async <T>(
+  request: () => Promise<T>,
+  {
+    deadline,
+    now = Date.now,
+    random = Math.random,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  }: RetryOptions,
+): Promise<T> => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await request();
+    } catch (error) {
+      if (!isTransientEmbeddingError(error)) throw error;
+      const delay = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt) * (0.5 + random() / 2);
+      if (now() + delay >= deadline) throw error;
+      await sleep(delay);
+    }
+  }
+};

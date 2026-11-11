@@ -18,7 +18,7 @@ import { inProcessWorkCount, settleInProcessWork } from './inProcessWork';
 import { pendingPublishCount, settlePendingPublishes } from './pending';
 import { getScheduleTasks } from './schedules';
 import { getDeliverySigningKey } from './signature';
-import { getAgentStepTask, getDeliveryTask, getMemoryDeliveryTask } from './tasks';
+import { getAgentStepTask, getDeliveryTask, getFileJobTask, getMemoryDeliveryTask } from './tasks';
 
 type Workflows = Extract<
   Parameters<ReturnType<typeof getHatchetClient>['worker']>[1],
@@ -413,6 +413,8 @@ export const startHatchetWorkers = (): HatchetWorkersStatus => {
         slots: capacity.deliverySlots,
         workflows: [getDeliveryTask(), ...getScheduleTasks()],
       },
+      // Parsing a file is synchronous CPU work: few slots, so a batch import waits in the queue.
+      { name: `cpc-files-${id}`, slots: capacity.fileSlots, workflows: [getFileJobTask()] },
     ],
     async () => {
       const ready = await retryUntilDraining(async () => {

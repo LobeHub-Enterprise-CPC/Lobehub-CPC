@@ -5,14 +5,17 @@ import { getChunkTargetId, useFileStore } from '@/store/file';
 import { AsyncTaskStatus } from '@/types/asyncTask';
 import { type FileListItem } from '@/types/files';
 
+/** Queued or running: the status will change without the user doing anything. */
+const isActive = (status?: string | null) =>
+  status === AsyncTaskStatus.Pending || status === AsyncTaskStatus.Processing;
+
 export const useCheckTaskStatus = (data: FileListItem[] | undefined) => {
   const processingFileIds =
     data
       ?.filter(
         (item) =>
           item.sourceType === 'file' &&
-          (item.chunkingStatus === AsyncTaskStatus.Processing ||
-            item.embeddingStatus === AsyncTaskStatus.Processing),
+          (isActive(item.chunkingStatus) || isActive(item.embeddingStatus)),
       )
       .map(getChunkTargetId) ?? [];
   const processingKey = processingFileIds.join(',');

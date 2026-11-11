@@ -117,6 +117,8 @@ export default {
   'FileParsingStatus.chunks.embeddingStatus.error': 'Embedding failed',
   'FileParsingStatus.chunks.embeddingStatus.errorResult':
     'Vectorization failed, please check and try again. Error detail:',
+  'FileParsingStatus.chunks.embeddingStatus.pending':
+    'Text chunks are queued for embedding; closing the page will not affect the progress.',
   'FileParsingStatus.chunks.embeddingStatus.processing':
     'Text chunks are being embedded, please be patient.',
   'FileParsingStatus.chunks.embeddingStatus.success': 'All current text chunks have been embedded',
@@ -124,6 +126,9 @@ export default {
   'FileParsingStatus.chunks.status.error': 'Chunking failed',
   'FileParsingStatus.chunks.status.errorResult':
     'Chunking failed, please check and try again. Error detail:',
+  'FileParsingStatus.chunks.status.pending': 'Queued',
+  'FileParsingStatus.chunks.status.pendingTip':
+    'The file is queued for chunking; closing the page will not affect the progress.',
   'FileParsingStatus.chunks.status.processing': 'Chunking',
   'FileParsingStatus.chunks.status.processingTip':
     'The server is splitting text chunks; closing the page will not affect the chunking progress.',

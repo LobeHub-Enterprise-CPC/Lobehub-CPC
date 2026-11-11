@@ -10,7 +10,7 @@ import {
   Tag,
   Tooltip,
 } from '@lobehub/ui';
-import { BoltIcon, RotateCwIcon } from 'lucide-react';
+import { BoltIcon, ClockIcon, RotateCwIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -58,6 +58,19 @@ const FileParsingStatus = memo<FileParsingStatusProps>(
     const { t } = useTranslation(['components', 'common']);
 
     switch (chunkingStatus) {
+      case AsyncTaskStatus.Pending: {
+        return (
+          <Tooltip
+            styles={{ root: { pointerEvents: 'none' } }}
+            title={t('FileParsingStatus.chunks.status.pendingTip')}
+          >
+            <Tag className={className} icon={<Icon icon={ClockIcon} />} variant={'filled'}>
+              {t('FileParsingStatus.chunks.status.pending')}
+            </Tag>
+          </Tooltip>
+        );
+      }
+
       case AsyncTaskStatus.Processing: {
         return (
           <Tooltip

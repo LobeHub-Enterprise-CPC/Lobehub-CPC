@@ -6,12 +6,18 @@ import { FileModel } from '@/database/models/file';
 import { getChunkingLoaderType } from '@/libs/document-loaders/loaderType';
 import { type ChunkContentParams } from '@/server/modules/ContentChunk';
 import { ContentChunk } from '@/server/modules/ContentChunk';
+import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery';
+import { FILE_WORKFLOW_PATH } from '@/server/modules/Hatchet/fileRoute';
+import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import {
   AsyncTaskError,
   AsyncTaskErrorType,
   AsyncTaskStatus,
   AsyncTaskType,
 } from '@/types/asyncTask';
+
+/** Redeliveries of a file job whose attempt failed before the task started. */
+export const FILE_JOB_RETRIES = 2;
 
 export class ChunkService {
   private userId: string;
@@ -47,31 +53,7 @@ export class ChunkService {
 
     await this.fileModel.update(fileId, { embeddingTaskId: asyncTaskId });
 
-    // Async router will read keyVaults from DB, no need to pass jwtPayload.
-    // Kept dynamic on purpose: the async router imports this chunk service, so a
-    // static import here would form a real module cycle that `lint:circular`
-    // (madge) rejects. Call-time import breaks the static edge.
-    const { createAsyncCaller } = await import('@/server/routers/async');
-    const asyncCaller = await createAsyncCaller({ userId: this.userId });
-
-    // trigger embedding task asynchronously
-    try {
-      await asyncCaller.file.embeddingChunks({
-        fileId,
-        taskId: asyncTaskId,
-        workspaceId: this.workspaceId,
-      });
-    } catch (e) {
-      console.error('[embeddingFileChunks] error:', e);
-
-      await this.asyncTaskModel.update(asyncTaskId, {
-        error: new AsyncTaskError(
-          AsyncTaskErrorType.TaskTriggerError,
-          'trigger chunk embedding async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
-        ),
-        status: AsyncTaskStatus.Error,
-      });
-    }
+    await this.publishFileJob('embed', fileId, asyncTaskId);
 
     return asyncTaskId;
   }
@@ -93,8 +75,8 @@ export class ChunkService {
 
     // 1. create a asyncTaskId
     const asyncTaskId = await this.asyncTaskModel.create({
-      status:
-        result.size > MAX_FILE_PARSE_SIZE ? AsyncTaskStatus.Error : AsyncTaskStatus.Processing,
+      // Queued until a file job worker takes it.
+      status: result.size > MAX_FILE_PARSE_SIZE ? AsyncTaskStatus.Error : AsyncTaskStatus.Pending,
       type: AsyncTaskType.Chunking,
     });
 
@@ -112,28 +94,34 @@ export class ChunkService {
       return asyncTaskId;
     }
 
-    // Async router will read keyVaults from DB, no need to pass jwtPayload.
-    // Kept dynamic on purpose: the async router imports this chunk service, so a
-    // static import here would form a real module cycle that `lint:circular`
-    // (madge) rejects. Call-time import breaks the static edge.
-    const { createAsyncCaller } = await import('@/server/routers/async');
-    const asyncCaller = await createAsyncCaller({ userId: this.userId });
-
-    // trigger parse file task asynchronously
-    asyncCaller.file
-      .parseFileToChunks({ fileId, taskId: asyncTaskId, workspaceId: this.workspaceId })
-      .catch(async (e) => {
-        console.error('[ParseFileToChunks] error:', e);
-
-        await this.asyncTaskModel.update(asyncTaskId, {
-          error: new AsyncTaskError(
-            AsyncTaskErrorType.TaskTriggerError,
-            'trigger chunk embedding async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
-          ),
-          status: AsyncTaskStatus.Error,
-        });
-      });
+    await this.publishFileJob('parse', fileId, asyncTaskId);
 
     return asyncTaskId;
+  }
+
+  /**
+   * Queue the work for a file task. It is delivered to `/api/workflows/file/{job}`: by a
+   * file job worker in queue mode, where its slots bound how many files a process works
+   * on, and by this process in local mode. The task stays `pending` until then.
+   */
+  private async publishFileJob(job: 'embed' | 'parse', fileId: string, taskId: string) {
+    try {
+      await getDirectDeliveryClient().publishJSON({
+        body: { fileId, taskId, userId: this.userId, workspaceId: this.workspaceId },
+        deduplicationId: `file-${job}:${taskId}`,
+        retries: FILE_JOB_RETRIES,
+        url: buildTenantCallbackUrl(`${FILE_WORKFLOW_PATH}${job}`),
+      });
+    } catch (e) {
+      console.error(`[ChunkService] failed to queue the ${job} job of file ${fileId}:`, e);
+
+      await this.asyncTaskModel.update(taskId, {
+        error: new AsyncTaskError(
+          AsyncTaskErrorType.TaskTriggerError,
+          'Failed to queue the file task. Please try again later.',
+        ),
+        status: AsyncTaskStatus.Error,
+      });
+    }
   }
 }

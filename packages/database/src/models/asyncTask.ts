@@ -1,4 +1,9 @@
-import { ASYNC_TASK_TIMEOUT, VIDEO_GENERATION_TASK_TIMEOUT } from '@lobechat/business-config/server';
+import {
+  ASYNC_TASK_TIMEOUT,
+  FILE_EMBEDDING_TASK_TIMEOUT,
+  FILE_TASK_QUEUE_TIMEOUT,
+  VIDEO_GENERATION_TASK_TIMEOUT,
+} from '@lobechat/business-config/server';
 import type {
   HourlyUserMemoryExtractionMetadata,
   HourlyUserMemoryExtractionProgress,
@@ -25,9 +30,20 @@ import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
  * and its own budget is close to ASYNC_TASK_TIMEOUT, which is what made the watchdog
  * kill tasks that were still legitimately in flight. See the budget notes in
  * `packages/business/config/src/server/route.ts`.
+ *
+ * File chunking and embedding wait in a queue first: while `pending` they get the queue
+ * budget, and once a worker starts one it restarts `created_at`, so the running budget
+ * counts from there. Embedding runs longer than the generic deadline because it backs
+ * off from the provider's rate limit; the margin lets the task report its own timeout.
  */
-const timeoutForTaskType = (type?: AsyncTaskType | string | null) =>
-  type === AsyncTaskType.VideoGeneration ? VIDEO_GENERATION_TASK_TIMEOUT : ASYNC_TASK_TIMEOUT;
+const WATCHDOG_MARGIN = 60 * 1000;
+const timeoutForTask = (type?: AsyncTaskType | string | null, status?: string | null) => {
+  if (type === AsyncTaskType.VideoGeneration) return VIDEO_GENERATION_TASK_TIMEOUT;
+  const isFileTask = type === AsyncTaskType.Chunking || type === AsyncTaskType.Embedding;
+  if (isFileTask && status === AsyncTaskStatus.Pending) return FILE_TASK_QUEUE_TIMEOUT;
+  if (type === AsyncTaskType.Embedding) return FILE_EMBEDDING_TASK_TIMEOUT + WATCHDOG_MARGIN;
+  return ASYNC_TASK_TIMEOUT;
+};
 
 export class AsyncTaskModel {
   private userId: string;
@@ -329,13 +345,20 @@ export class AsyncTaskModel {
     );
 
     const candidates = await this.db
-      .select({ createdAt: asyncTasks.createdAt, id: asyncTasks.id, type: asyncTasks.type })
+      .select({
+        createdAt: asyncTasks.createdAt,
+        id: asyncTasks.id,
+        status: asyncTasks.status,
+        type: asyncTasks.type,
+      })
       .from(asyncTasks)
       .where(and(inArray(asyncTasks.id, ids), this.ownership(), activeStatuses));
 
     const now = Date.now();
     const expiredIds = candidates
-      .filter((task) => now - task.createdAt.getTime() > timeoutForTaskType(type ?? task.type))
+      .filter(
+        (task) => now - task.createdAt.getTime() > timeoutForTask(type ?? task.type, task.status),
+      )
       .map((task) => task.id);
 
     if (expiredIds.length === 0) return;

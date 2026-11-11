@@ -8,7 +8,13 @@ import {
 } from '@hatchet-dev/typescript-sdk/v1';
 
 import { getHatchetClient } from './client';
-import { AGENT_STEP_TASK, DELIVERY_TASK, HATCHET_TIMING, MEMORY_DELIVERY_TASK } from './config';
+import {
+  AGENT_STEP_TASK,
+  DELIVERY_TASK,
+  FILE_JOB_TASK,
+  HATCHET_TIMING,
+  MEMORY_DELIVERY_TASK,
+} from './config';
 import { deliver } from './deliver';
 import { trackPublish } from './pending';
 import { compileRetryDelay } from './retryDelay';
@@ -96,6 +102,7 @@ export type DeliveryTask = ReturnType<typeof declareDeliveryTask>;
 // Declared on first use: this module is imported in every mode, Hatchet or not.
 let agentStepTask: DeliveryTask | undefined;
 let deliveryTask: DeliveryTask | undefined;
+let fileJobTask: DeliveryTask | undefined;
 let memoryDeliveryTask: DeliveryTask | undefined;
 
 export const getAgentStepTask = (): DeliveryTask =>
@@ -106,6 +113,12 @@ export const getAgentStepTask = (): DeliveryTask =>
 
 export const getDeliveryTask = (): DeliveryTask =>
   (deliveryTask ??= declareDeliveryTask(DELIVERY_TASK, {
+    executionTimeoutMs: HATCHET_TIMING.deliveryExecutionTimeoutMs,
+    queueTimeoutMs: HATCHET_TIMING.deliveryQueueTimeoutMs,
+  }));
+
+export const getFileJobTask = (): DeliveryTask =>
+  (fileJobTask ??= declareDeliveryTask(FILE_JOB_TASK, {
     executionTimeoutMs: HATCHET_TIMING.deliveryExecutionTimeoutMs,
     queueTimeoutMs: HATCHET_TIMING.deliveryQueueTimeoutMs,
   }));

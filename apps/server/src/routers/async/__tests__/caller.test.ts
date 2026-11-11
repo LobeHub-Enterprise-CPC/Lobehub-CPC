@@ -9,6 +9,8 @@ import { createAsyncServerClient } from '../caller';
 
 // Callbacks are addressed to the test tenant `acme` (see __mocks__/callbackUrl).
 vi.mock('@/server/modules/Tenant/callbackUrl');
+// The async router's chunk service queues file jobs through it; not under test here.
+vi.mock('@/server/modules/Hatchet/directDelivery', () => ({ getDirectDeliveryClient: vi.fn() }));
 
 // Create mockable appEnv - use object property to allow mutation
 const mockAppEnv: { APP_URL?: string; INTERNAL_APP_URL?: string | null | undefined } = {

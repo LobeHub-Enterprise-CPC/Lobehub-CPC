@@ -4,12 +4,14 @@ import { isRecord } from '@lobechat/utils/object';
 
 import { getHatchetClient } from './client';
 import { HATCHET_TIMING } from './config';
+import { isFileJobDelivery } from './fileRoute';
 import { appOrigins, memoryWorkflowTenantSlug } from './memoryRoute';
 import { STEP_METADATA_KEYS } from './purpose';
 import {
   assertRetryPolicy,
   deliveryDedupKey,
   getDeliveryTask,
+  getFileJobTask,
   getMemoryDeliveryTask,
   RUN_ID_PREFIX,
   SCHEDULE_ID_PREFIX,
@@ -145,7 +147,8 @@ export const toDeliveryInput = (
  * Direct deliveries through the `cpc-delivery` task, in place of the QStash
  * client: the same request shape, each one signed and delivered by a Hatchet
  * worker like a QStash message would be. Memory workflow deliveries go to
- * `cpc-memory-delivery`, which only the memory worker serves.
+ * `cpc-memory-delivery`, which only the memory worker serves, and file jobs to
+ * `cpc-file-job`, whose worker bounds how many files a process works on.
  */
 export class HatchetPublisher {
   /**
@@ -167,9 +170,12 @@ export class HatchetPublisher {
 
   async publishJSON(request: DirectPublishRequest): Promise<{ messageId: string }> {
     const { delayMs, input } = toDeliveryInput(request);
-    const task = memoryWorkflowTenantSlug(new URL(input.url))
+    const target = new URL(input.url);
+    const task = memoryWorkflowTenantSlug(target)
       ? getMemoryDeliveryTask()
-      : getDeliveryTask();
+      : isFileJobDelivery(target)
+        ? getFileJobTask()
+        : getDeliveryTask();
     const messageId = await triggerDelivery(task, input, {
       additionalMetadata: {
         [STEP_METADATA_KEYS.kind]: 'delivery',
