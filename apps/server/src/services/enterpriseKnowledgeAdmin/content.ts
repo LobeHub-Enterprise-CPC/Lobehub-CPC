@@ -11,8 +11,13 @@ import { DocumentModel } from '@/database/models/document';
 import { FileModel } from '@/database/models/file';
 import { DOCUMENT_FOLDER_TYPE, documents, files, fileUploads } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
-import { restoreStamp, trashStamp } from '@/database/utils/softDelete';
+import type { trashStamp } from '@/database/utils/softDelete';
+import { restoreStamp } from '@/database/utils/softDelete';
 import { ChunkService } from '@/server/services/chunk';
+import {
+  removeEnterpriseTrashEntries,
+  trashEnterpriseItems,
+} from '@/server/services/enterpriseKnowledge/trash';
 import { FileService } from '@/server/services/file';
 import { FileUploadService } from '@/server/services/fileUpload';
 import { reserveUpload } from '@/server/services/fileUploadReservation';
@@ -28,6 +33,7 @@ import { invalidRequest } from './errors';
 import { orphanedHashlessKeys } from './libraries';
 import { type AdminActor, loadEnterpriseKb, lockEnterpriseKb, toEnterpriseActor } from './shared';
 import { isProcessingStatus } from './status';
+import { restoreEnterpriseTrashItem } from './trash';
 
 interface UploadInput {
   contentType: string;
@@ -241,9 +247,12 @@ export class EnterpriseKbContentService {
     await this.db.transaction(async (tx) => {
       const db = tx as unknown as LobeChatDatabase;
       await lockEnterpriseKb(db, kb);
-      const rows = await loadContent(db, kb);
-      const target = subtreeOf(rows, findContent(rows, itemId)).filter((row) => !row.trashed);
-      await this.stamp(kb, target, trashStamp(new Date()), db);
+      findContent(await loadContent(db, kb), itemId);
+      await trashEnterpriseItems(
+        { serverDB: db, userId: kb.userId },
+        { enterprise: true, knowledgeBaseId: id, ownerId: kb.userId, level: 'owner' },
+        [itemId],
+      );
     });
   };
 
@@ -255,13 +264,10 @@ export class EnterpriseKbContentService {
       const rows = await loadContent(db, kb);
       const root = findContent(rows, itemId, true);
       breadcrumbFor(rows, root.item.parentId);
-      const deletedAt = (root.file ?? root.document)!.deletedAt;
-      // Restore this cascade only; preserve children independently deleted earlier.
-      const target = subtreeOf(rows, root).filter(
-        (row) =>
-          row.trashed && (row.file ?? row.document)!.deletedAt?.getTime() === deletedAt?.getTime(),
-      );
-      await this.stamp(kb, target, restoreStamp(), db);
+      await restoreEnterpriseTrashItem(db, { knowledgeBaseId: id, ownerId: kb.userId }, [
+        root.item.id,
+        ...(root.file ? [root.file.id] : []),
+      ]);
     });
     return findContent(await loadContent(this.db, kb), itemId).item;
   };
@@ -275,6 +281,14 @@ export class EnterpriseKbContentService {
       const target = subtreeOf(rows, findContent(rows, itemId, true));
       const fileRows = target.flatMap((row) => (row.file ? [row.file] : []));
       const fileIds = fileRows.map((file) => file.id);
+      await removeEnterpriseTrashEntries(
+        db,
+        { knowledgeBaseId: id, ownerId: kb.userId },
+        {
+          fileIds,
+          documentIds: target.flatMap((row) => (row.document ? [row.document.id] : [])),
+        },
+      );
       // Existing model hard-delete primitives exclude trashed rows. Restore only within this transaction.
       await this.stamp(kb, target, restoreStamp(), db);
       const model = new FileModel(db, kb.userId);

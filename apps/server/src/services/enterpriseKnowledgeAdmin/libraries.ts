@@ -31,6 +31,7 @@ import {
 } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
 import { notTrashed, restoreStamp } from '@/database/utils/softDelete';
+import { removeEnterpriseTrashEntries } from '@/server/services/enterpriseKnowledge/trash';
 import { FileService } from '@/server/services/file';
 
 import { loadContent } from './contentData';
@@ -45,6 +46,7 @@ import {
 import { isProcessingStatus } from './status';
 import { countKnowledgeBaseFiles } from './tasks';
 import { copySharedFiles, findSharedFileIds } from './transfer';
+import { transferEnterpriseTrashEntries } from './trash';
 
 const ID_BATCH = 5000;
 
@@ -252,6 +254,15 @@ export class EnterpriseKbLibraryService {
             .where(inArray(files.id, exclusiveIds))
         : [];
 
+      await removeEnterpriseTrashEntries(
+        trx,
+        { knowledgeBaseId: id, ownerId: kb.userId },
+        {
+          fileIds: exclusiveIds,
+          documentIds: leftoverDocumentIds,
+        },
+      );
+
       const result = await model.deleteWithFiles(id, serverDBEnv.REMOVE_GLOBAL_FILE);
 
       const documentModel = new DocumentModel(trx, kb.userId);
@@ -334,7 +345,23 @@ export class EnterpriseKbLibraryService {
       const shared = await findSharedFileIds(trx, id, linkedIds);
       const movedFileIds = linkedIds.filter((fileId) => !shared.has(fileId));
 
-      await copySharedFiles(trx, {
+      const documentIds = (
+        await trx
+          .select({ id: documents.id })
+          .from(documents)
+          .where(
+            and(
+              eq(documents.userId, fromUserId),
+              isNull(documents.workspaceId),
+              or(
+                eq(documents.knowledgeBaseId, id),
+                movedFileIds.length ? inArray(documents.fileId, movedFileIds) : undefined,
+              ),
+            ),
+          )
+      ).map((row) => row.id);
+
+      const copiedResources = await copySharedFiles(trx, {
         fromUserId,
         knowledgeBaseId: id,
         shared,
@@ -342,6 +369,18 @@ export class EnterpriseKbLibraryService {
       });
 
       await reassignRows(trx, { fromUserId, knowledgeBaseId: id, movedFileIds, toUserId });
+      await transferEnterpriseTrashEntries(trx, {
+        copiedResources,
+        documentIds: [
+          ...documentIds,
+          ...[...copiedResources.keys()]
+            .filter((key) => key.startsWith('document:'))
+            .map((key) => key.slice('document:'.length)),
+        ],
+        fileIds: linkedIds,
+        fromUserId,
+        toUserId,
+      });
 
       await recordEnterpriseKbTransfer(trx, {
         actor: toEnterpriseActor(params.actor),

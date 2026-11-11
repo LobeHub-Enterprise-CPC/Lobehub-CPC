@@ -1,12 +1,12 @@
 import { TRASH_RETENTION_MS } from '@lobechat/const';
 import { TRPCError } from '@trpc/server';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm';
 
 import { FileModel } from '@/database/models/file';
-import { documents, files, trashItems } from '@/database/schemas';
+import { documents, files, type TrashItemRow, trashItems } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
-import { restoreStamp, trashStamp } from '@/database/utils/softDelete';
-import type { TrashHandler } from '@/server/services/trash/handlers/types';
+import { isTrashed, restoreStamp, trashStamp } from '@/database/utils/softDelete';
+import { type TrashHandler, TrashRestoreError } from '@/server/services/trash/handlers/types';
 
 import {
   type EnterpriseAccessCtx,
@@ -100,74 +100,147 @@ export const trashEnterpriseItems = async (
     return { count: new Set(ids).size };
   });
 
+/** Remove the registry in the same transaction as a governance restore or hard delete. */
+export const removeEnterpriseTrashEntries = async (
+  db: LobeChatDatabase,
+  scope: Pick<EnterpriseScope, 'knowledgeBaseId' | 'ownerId'>,
+  resources: { documentIds: string[]; fileIds: string[] },
+) => {
+  const mirrors = resources.fileIds.length
+    ? await db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(
+          and(
+            inArray(documents.fileId, resources.fileIds),
+            eq(documents.userId, scope.ownerId),
+            isNull(documents.workspaceId),
+            or(
+              eq(documents.knowledgeBaseId, scope.knowledgeBaseId),
+              eq(documents.sourceType, 'file'),
+            ),
+          ),
+        )
+    : [];
+  const documentIds = [...resources.documentIds, ...mirrors.map((row) => row.id)];
+  if (!resources.fileIds.length && !documentIds.length) return;
+  const rows = await db
+    .select({ id: trashItems.id })
+    .from(trashItems)
+    .where(
+      and(
+        eq(trashItems.userId, scope.ownerId),
+        isNull(trashItems.workspaceId),
+        or(
+          resources.fileIds.length
+            ? and(
+                eq(trashItems.resourceType, sql`${'file'}`),
+                inArray(trashItems.resourceId, resources.fileIds),
+              )
+            : undefined,
+          documentIds.length
+            ? and(
+                eq(trashItems.resourceType, sql`${'document'}`),
+                inArray(trashItems.resourceId, documentIds),
+              )
+            : undefined,
+        ),
+      ),
+    );
+  const ids = rows.map((row) => row.id);
+  if (!ids.length) return;
+  // A shared resource retained by another library must survive deletion of this root.
+  await db
+    .update(trashItems)
+    .set({ rootId: null })
+    .where(and(inArray(trashItems.rootId, ids), notInArray(trashItems.id, ids)));
+  await db.delete(trashItems).where(inArray(trashItems.id, ids));
+};
+
+/** Restore the exact registry cascade after the caller verifies its owner/library scope. */
+export const restoreEnterpriseTrashRows = async (
+  db: LobeChatDatabase,
+  ownerId: string,
+  rows: TrashItemRow[],
+) => {
+  const ids = rows.map((row) => row.resourceId);
+  for (const row of rows) {
+    const table = String(row.resourceType) === 'document' ? documents : files;
+    const [target] = await db
+      .select({ id: table.id, parentId: table.parentId })
+      .from(table)
+      .where(
+        and(eq(table.id, row.resourceId), eq(table.userId, ownerId), isNull(table.workspaceId)),
+      );
+    if (!target) throw new TrashRestoreError('notFound');
+    if (target.parentId && !ids.includes(target.parentId)) {
+      const [parent] = await db
+        .select({ deleted: documents.isDeleted })
+        .from(documents)
+        .where(eq(documents.id, target.parentId));
+      if (parent?.deleted) throw new TrashRestoreError('parentTrashed');
+    }
+    await db
+      .update(table)
+      .set(restoreStamp())
+      .where(
+        and(eq(table.id, row.resourceId), eq(table.userId, ownerId), isNull(table.workspaceId)),
+      );
+  }
+};
+
 export const enterpriseContentTrashHandler: Pick<TrashHandler, 'restore' | 'purge'> = {
   restore: async (ctx, root, children) => {
     const rows = [root, ...children];
     const ids = rows.map((row) => row.resourceId);
     await resolveItemsScope({ serverDB: ctx.db, userId: ctx.userId }, ids, 'owner', true);
-    for (const row of rows) {
-      const table = String(row.resourceType) === 'document' ? documents : files;
-      const [target] = await ctx.db
-        .select({ id: table.id, parentId: table.parentId })
-        .from(table)
-        .where(
-          and(
-            eq(table.id, row.resourceId),
-            eq(table.userId, root.userId),
-            isNull(table.workspaceId),
-          ),
-        );
-      if (!target) throw new TRPCError({ code: 'NOT_FOUND' });
-      if (target.parentId && !ids.includes(target.parentId)) {
-        const [parent] = await ctx.db
-          .select({ deleted: documents.isDeleted })
-          .from(documents)
-          .where(eq(documents.id, target.parentId));
-        if (parent?.deleted)
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'Restore the parent folder first',
-          });
-      }
-      await ctx.db
-        .update(table)
-        .set(restoreStamp())
-        .where(
-          and(
-            eq(table.id, row.resourceId),
-            eq(table.userId, root.userId),
-            isNull(table.workspaceId),
-          ),
-        );
-    }
+    await restoreEnterpriseTrashRows(ctx.db, root.userId, rows);
   },
   purge: async (ctx, root, children) => {
     const rows = [root, ...children];
-    await resolveItemsScope(
-      { serverDB: ctx.db, userId: ctx.userId },
-      rows.map((row) => row.resourceId),
-      'owner',
-      true,
-    );
     // Restore only inside this transaction so existing, scope-checked physical deletion can reuse
     // its complete reference/global-object bookkeeping. Other requests never see these rows live.
     const removed = await ctx.db.transaction(async (tx) => {
       const db = tx as unknown as LobeChatDatabase;
+      await resolveItemsScope(
+        { serverDB: db, userId: ctx.userId },
+        rows.map((row) => row.resourceId),
+        'owner',
+        true,
+      );
+      const table = String(root.resourceType) === 'document' ? documents : files;
+      const [target] = await db
+        .select({ deleted: table.isDeleted })
+        .from(table)
+        .where(
+          and(
+            eq(table.id, root.resourceId),
+            eq(table.userId, root.userId),
+            isNull(table.workspaceId),
+          ),
+        );
+      // A registry snapshot can outlive a restore. It must never authorize deleting live content.
+      if (!target?.deleted) return [];
       const fileIds = rows
         .filter((row) => String(row.resourceType) === 'file')
         .map((row) => row.resourceId);
-      if (fileIds.length)
-        await db
-          .update(files)
-          .set(restoreStamp())
-          .where(
-            and(
-              inArray(files.id, fileIds),
-              eq(files.userId, root.userId),
-              isNull(files.workspaceId),
-            ),
-          );
-      const removed = await new FileModel(db, root.userId).deleteMany(fileIds);
+      const deletedFiles = fileIds.length
+        ? await db
+            .update(files)
+            .set(restoreStamp())
+            .where(
+              and(
+                inArray(files.id, fileIds),
+                eq(files.userId, root.userId),
+                isNull(files.workspaceId),
+                isTrashed(files.isDeleted),
+              ),
+            )
+            .returning({ id: files.id })
+        : [];
+      const removed = await new FileModel(db, root.userId).deleteMany(
+        deletedFiles.map((row) => row.id),
+      );
       const docIds = rows
         .filter((row) => String(row.resourceType) === 'document')
         .map((row) => row.resourceId);
@@ -179,6 +252,7 @@ export const enterpriseContentTrashHandler: Pick<TrashHandler, 'restore' | 'purg
               inArray(documents.id, docIds),
               eq(documents.userId, root.userId),
               isNull(documents.workspaceId),
+              isTrashed(documents.isDeleted),
             ),
           );
       return removed;

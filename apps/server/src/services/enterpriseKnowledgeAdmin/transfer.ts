@@ -75,8 +75,8 @@ export const findSharedFileIds = async (
 export const copySharedFiles = async (
   db: LobeChatDatabase,
   params: { fromUserId: string; knowledgeBaseId: string; shared: Set<string>; toUserId: string },
-): Promise<string[]> => {
-  const copiedIds: string[] = [];
+): Promise<Map<string, string>> => {
+  const copiedIds = new Map<string, string>();
   const originalIds = [...params.shared];
   if (!originalIds.length) return copiedIds;
   const originals = await db
@@ -84,6 +84,14 @@ export const copySharedFiles = async (
     .from(files)
     .where(and(inArray(files.id, originalIds), eq(files.userId, params.fromUserId)));
   const uploaders = await getEnterpriseKbItemUploaders(db, originalIds);
+  const libraryDocumentIds = new Set(
+    (
+      await db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(eq(documents.knowledgeBaseId, params.knowledgeBaseId))
+    ).map((row) => row.id),
+  );
   const owner = { userId: params.toUserId, workspaceId: null, clientId: null };
   for (const original of originals) {
     const taskMap = new Map<string, string>();
@@ -110,7 +118,9 @@ export const copySharedFiles = async (
       chunkTaskId: original.chunkTaskId ? taskMap.get(original.chunkTaskId) : null,
       embeddingTaskId: original.embeddingTaskId ? taskMap.get(original.embeddingTaskId) : null,
     });
-    copiedIds.push(copy.id);
+    copiedIds.set(`file:${original.id}`, copy.id);
+    if (original.parentId && libraryDocumentIds.has(original.parentId))
+      await db.update(files).set({ parentId: null }).where(eq(files.id, original.id));
     await db
       .delete(knowledgeBaseFiles)
       .where(
@@ -149,12 +159,15 @@ export const copySharedFiles = async (
         knowledgeBaseId: params.knowledgeBaseId,
       });
       documentMap.set(mirror.id, cloned.id);
+      copiedIds.set(`document:${mirror.id}`, cloned.id);
       // Its original parsed view stays with other references of the original file.
       if (mirror.knowledgeBaseId === params.knowledgeBaseId) {
         await db
           .update(documents)
           .set({ knowledgeBaseId: null, parentId: null })
           .where(eq(documents.id, mirror.id));
+      } else if (mirror.parentId && libraryDocumentIds.has(mirror.parentId)) {
+        await db.update(documents).set({ parentId: null }).where(eq(documents.id, mirror.id));
       }
       const histories = await db
         .select()
