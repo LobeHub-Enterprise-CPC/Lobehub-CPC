@@ -1,6 +1,21 @@
 // set timeout to about 5 minutes, and give 2s padding time
 export const ASYNC_TASK_TIMEOUT = (60 * 5 - 2) * 1000;
 
+// File chunking and embedding tasks are queued before a worker takes them, and the
+// watchdog measures from `created_at`, which the worker restarts when it begins. Two
+// more budgets follow from that:
+/**
+ * How long a file task may wait in the queue (status `pending`) before the watchdog
+ * declares it lost. A batch import legitimately waits behind the files ahead of it.
+ */
+export const FILE_TASK_QUEUE_TIMEOUT = 60 * 60 * 1000;
+/**
+ * Budget of one embedding task once it started. Above ASYNC_TASK_TIMEOUT so that
+ * backing off from the provider's rate limit has room, and below the 15-minute HTTP
+ * timeout of the delivery that runs it.
+ */
+export const FILE_EMBEDDING_TASK_TIMEOUT = 14 * 60 * 1000;
+
 // Video generation is the only async task whose completion comes from a *remote
 // render* (a provider callback or a status poll) followed by a download/store step,
 // so the generic ASYNC_TASK_TIMEOUT above must not bound it. Three budgets have to

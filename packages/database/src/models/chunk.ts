@@ -118,12 +118,23 @@ export class ChunkModel {
     });
   };
 
-  getChunksTextByFileId = async (id: string): Promise<{ id: string; text: string }[]> => {
+  getChunksTextByFileId = async (
+    id: string,
+    { withoutEmbedding = false }: { withoutEmbedding?: boolean } = {},
+  ): Promise<{ id: string; text: string }[]> => {
     const data = await this.db
       .select()
       .from(chunks)
       .innerJoin(fileChunks, eq(chunks.id, fileChunks.chunkId))
-      .where(and(eq(fileChunks.fileId, id), this.ownership(), this.fileChunksOwnership()));
+      .leftJoin(embeddings, eq(embeddings.chunkId, chunks.id))
+      .where(
+        and(
+          eq(fileChunks.fileId, id),
+          this.ownership(),
+          this.fileChunksOwnership(),
+          withoutEmbedding ? isNull(embeddings.id) : undefined,
+        ),
+      );
 
     return data
       .map((item) => item.chunks)

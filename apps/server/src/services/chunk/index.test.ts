@@ -14,20 +14,16 @@ const {
   mockAsyncTaskModelCreate,
   mockAsyncTaskModelUpdate,
   mockChunkContent,
-  mockCreateAsyncCaller,
-  mockEmbeddingChunks,
   mockFileModelFindById,
   mockFileModelUpdate,
-  mockParseFileToChunks,
+  mockPublishJSON,
 } = vi.hoisted(() => ({
   mockAsyncTaskModelCreate: vi.fn(),
   mockAsyncTaskModelUpdate: vi.fn(),
   mockChunkContent: vi.fn(),
-  mockCreateAsyncCaller: vi.fn(),
-  mockEmbeddingChunks: vi.fn(),
   mockFileModelFindById: vi.fn(),
   mockFileModelUpdate: vi.fn(),
-  mockParseFileToChunks: vi.fn(),
+  mockPublishJSON: vi.fn(),
 }));
 
 vi.mock('@/database/models/asyncTask', () => ({
@@ -56,8 +52,12 @@ vi.mock('@/server/modules/ContentChunk', () => ({
   }),
 }));
 
-vi.mock('@/server/routers/async', () => ({
-  createAsyncCaller: mockCreateAsyncCaller,
+vi.mock('@/server/modules/Hatchet/directDelivery', () => ({
+  getDirectDeliveryClient: () => ({ publishJSON: mockPublishJSON }),
+}));
+
+vi.mock('@/server/modules/Tenant/callbackUrl', () => ({
+  buildTenantCallbackUrl: (path: string) => `http://internal/orgs/acme${path}`,
 }));
 
 describe('ChunkService', () => {
@@ -72,16 +72,9 @@ describe('ChunkService', () => {
     mockAsyncTaskModelCreate.mockResolvedValue('task-1');
     mockAsyncTaskModelUpdate.mockResolvedValue(undefined);
     mockChunkContent.mockResolvedValue({ chunks: [{ id: 'chunk-1', index: 0, text: 'chunk' }] });
-    mockCreateAsyncCaller.mockResolvedValue({
-      file: {
-        embeddingChunks: mockEmbeddingChunks,
-        parseFileToChunks: mockParseFileToChunks,
-      },
-    });
-    mockEmbeddingChunks.mockResolvedValue(undefined);
     mockFileModelFindById.mockResolvedValue({ id: 'file-1', name: 'file-1.pdf' });
     mockFileModelUpdate.mockResolvedValue(undefined);
-    mockParseFileToChunks.mockResolvedValue(undefined);
+    mockPublishJSON.mockResolvedValue({ messageId: 'run_1' });
 
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(function () {});
     service = new ChunkService(mockDb, userId);
@@ -114,10 +107,10 @@ describe('ChunkService', () => {
 
       expect(mockAsyncTaskModelCreate).not.toHaveBeenCalled();
       expect(mockFileModelUpdate).not.toHaveBeenCalled();
-      expect(mockCreateAsyncCaller).not.toHaveBeenCalled();
+      expect(mockPublishJSON).not.toHaveBeenCalled();
     });
 
-    it('should create task, update file, and trigger embedding successfully', async () => {
+    it('creates a pending task and queues the embedding job for a file worker', async () => {
       const taskId = await service.asyncEmbeddingFileChunks('file-1');
 
       expect(taskId).toBe('task-1');
@@ -126,24 +119,26 @@ describe('ChunkService', () => {
         type: AsyncTaskType.Embedding,
       });
       expect(mockFileModelUpdate).toHaveBeenCalledWith('file-1', { embeddingTaskId: 'task-1' });
-      expect(mockCreateAsyncCaller).toHaveBeenCalledWith({ userId });
-      expect(mockEmbeddingChunks).toHaveBeenCalledWith({ fileId: 'file-1', taskId: 'task-1' });
+      expect(mockPublishJSON).toHaveBeenCalledWith({
+        body: { fileId: 'file-1', taskId: 'task-1', userId, workspaceId: undefined },
+        deduplicationId: 'file-embed:task-1',
+        retries: 2,
+        url: 'http://internal/orgs/acme/api/workflows/file/embed',
+      });
       expect(mockAsyncTaskModelUpdate).not.toHaveBeenCalled();
     });
 
-    it('should mark task as error when embedding trigger fails', async () => {
-      const triggerError = new Error('embedding trigger failed');
-      mockEmbeddingChunks.mockRejectedValue(triggerError);
+    it('marks the task failed when the job cannot be queued', async () => {
+      mockPublishJSON.mockRejectedValue(new Error('engine unavailable'));
 
       const taskId = await service.asyncEmbeddingFileChunks('file-1');
 
       expect(taskId).toBe('task-1');
-      expect(consoleErrorSpy).toHaveBeenCalledWith('[embeddingFileChunks] error:', triggerError);
       expect(mockAsyncTaskModelUpdate).toHaveBeenCalledTimes(1);
       expect(mockAsyncTaskModelUpdate).toHaveBeenCalledWith('task-1', {
         error: new AsyncTaskError(
           AsyncTaskErrorType.TaskTriggerError,
-          'trigger chunk embedding async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
+          'Failed to queue the file task. Please try again later.',
         ),
         status: AsyncTaskStatus.Error,
       });
@@ -158,7 +153,7 @@ describe('ChunkService', () => {
 
       expect(mockAsyncTaskModelCreate).not.toHaveBeenCalled();
       expect(mockFileModelUpdate).not.toHaveBeenCalled();
-      expect(mockCreateAsyncCaller).not.toHaveBeenCalled();
+      expect(mockPublishJSON).not.toHaveBeenCalled();
     });
 
     it('should create an error task for files larger than the in-memory parser limit', async () => {
@@ -182,7 +177,7 @@ describe('ChunkService', () => {
         ),
         status: AsyncTaskStatus.Error,
       });
-      expect(mockCreateAsyncCaller).not.toHaveBeenCalled();
+      expect(mockPublishJSON).not.toHaveBeenCalled();
     });
 
     // https://github.com/lobehub/lobehub/issues/19620
@@ -197,7 +192,7 @@ describe('ChunkService', () => {
 
       expect(mockAsyncTaskModelCreate).not.toHaveBeenCalled();
       expect(mockFileModelUpdate).not.toHaveBeenCalled();
-      expect(mockCreateAsyncCaller).not.toHaveBeenCalled();
+      expect(mockPublishJSON).not.toHaveBeenCalled();
     });
 
     it('should skip creating a new task when skipExist is true and task already exists', async () => {
@@ -207,40 +202,40 @@ describe('ChunkService', () => {
 
       expect(mockAsyncTaskModelCreate).not.toHaveBeenCalled();
       expect(mockFileModelUpdate).not.toHaveBeenCalled();
-      expect(mockCreateAsyncCaller).not.toHaveBeenCalled();
+      expect(mockPublishJSON).not.toHaveBeenCalled();
     });
 
-    it('should create task, update file, and trigger chunk parsing successfully', async () => {
-      const taskId = await service.asyncParseFileToChunks('file-1');
+    it('creates a pending task and queues the parse job for a file worker', async () => {
+      const taskId = await new ChunkService(mockDb, userId, 'ws-1').asyncParseFileToChunks(
+        'file-1',
+      );
 
       expect(taskId).toBe('task-1');
+      // Queued, not processing: nothing has started working on the file yet.
       expect(mockAsyncTaskModelCreate).toHaveBeenCalledWith({
-        status: AsyncTaskStatus.Processing,
+        status: AsyncTaskStatus.Pending,
         type: AsyncTaskType.Chunking,
       });
       expect(mockFileModelUpdate).toHaveBeenCalledWith('file-1', { chunkTaskId: 'task-1' });
-      expect(mockCreateAsyncCaller).toHaveBeenCalledWith({ userId });
-      expect(mockParseFileToChunks).toHaveBeenCalledWith({ fileId: 'file-1', taskId: 'task-1' });
+      expect(mockPublishJSON).toHaveBeenCalledWith({
+        body: { fileId: 'file-1', taskId: 'task-1', userId, workspaceId: 'ws-1' },
+        deduplicationId: 'file-parse:task-1',
+        retries: 2,
+        url: 'http://internal/orgs/acme/api/workflows/file/parse',
+      });
       expect(mockAsyncTaskModelUpdate).not.toHaveBeenCalled();
     });
 
-    it('should mark task as error when parse trigger fails asynchronously', async () => {
-      const triggerError = new Error('parse trigger failed');
-      mockParseFileToChunks.mockRejectedValue(triggerError);
+    it('marks the task failed when the job cannot be queued', async () => {
+      mockPublishJSON.mockRejectedValue(new Error('engine unavailable'));
 
       const taskId = await service.asyncParseFileToChunks('file-1');
 
       expect(taskId).toBe('task-1');
-
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 0);
-      });
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith('[ParseFileToChunks] error:', triggerError);
       expect(mockAsyncTaskModelUpdate).toHaveBeenCalledWith('task-1', {
         error: new AsyncTaskError(
           AsyncTaskErrorType.TaskTriggerError,
-          'trigger chunk embedding async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
+          'Failed to queue the file task. Please try again later.',
         ),
         status: AsyncTaskStatus.Error,
       });

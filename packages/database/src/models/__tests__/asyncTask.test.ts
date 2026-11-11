@@ -1,5 +1,10 @@
 // @vitest-environment node
-import { ASYNC_TASK_TIMEOUT, VIDEO_GENERATION_TASK_TIMEOUT } from '@lobechat/business-config/server';
+import {
+  ASYNC_TASK_TIMEOUT,
+  FILE_EMBEDDING_TASK_TIMEOUT,
+  FILE_TASK_QUEUE_TIMEOUT,
+  VIDEO_GENERATION_TASK_TIMEOUT,
+} from '@lobechat/business-config/server';
 import type {
   HourlyUserMemoryExtractionMetadata,
   UserMemoryExtractionMetadata,
@@ -283,6 +288,39 @@ describe('AsyncTaskModel', () => {
     });
   });
 
+  describe('start', () => {
+    it('takes a pending task once, restarting its clock, and refuses any other', async () => {
+      const queuedAt = new Date(Date.now() - 20 * 60_000);
+      const [pending, done] = await serverDB
+        .insert(asyncTasks)
+        .values([
+          {
+            createdAt: queuedAt,
+            status: AsyncTaskStatus.Pending,
+            type: AsyncTaskType.Chunking,
+            userId,
+          },
+          { status: AsyncTaskStatus.Success, type: AsyncTaskType.Chunking, userId },
+        ])
+        .returning();
+
+      // Two deliveries of the same job race for it.
+      const taken = await Promise.all([
+        asyncTaskModel.start(pending.id),
+        asyncTaskModel.start(pending.id),
+      ]);
+      expect(taken.sort()).toEqual([false, true]);
+      expect(await asyncTaskModel.start(done.id)).toBe(false);
+      expect(await new AsyncTaskModel(serverDB, 'someone-else').start(pending.id)).toBe(false);
+
+      const task = await serverDB.query.asyncTasks.findFirst({
+        where: eq(asyncTasks.id, pending.id),
+      });
+      expect(task?.status).toBe(AsyncTaskStatus.Processing);
+      expect(task!.createdAt.getTime()).toBeGreaterThan(queuedAt.getTime() + 19 * 60_000);
+    });
+  });
+
   describe('checkTimeoutTasks', () => {
     it('should mark tasks as error if they timeout', async () => {
       // Create a task with old timestamp (beyond timeout)
@@ -306,6 +344,57 @@ describe('AsyncTaskModel', () => {
       });
       expect(updatedTask?.status).toBe(AsyncTaskStatus.Error);
       expect(updatedTask?.error).toBeDefined();
+    });
+
+    it('gives queued file tasks the queue budget, and running ones their own', async () => {
+      const aged = (ms: number) => new Date(Date.now() - ms);
+      const rows = await serverDB
+        .insert(asyncTasks)
+        .values([
+          // Waiting behind a batch import for longer than a running task may take.
+          {
+            createdAt: aged(ASYNC_TASK_TIMEOUT + 60_000),
+            status: AsyncTaskStatus.Pending,
+            type: AsyncTaskType.Chunking,
+            userId,
+          },
+          {
+            createdAt: aged(FILE_TASK_QUEUE_TIMEOUT + 1000),
+            status: AsyncTaskStatus.Pending,
+            type: AsyncTaskType.Embedding,
+            userId,
+          },
+          // Backing off from a rate limit, still inside the embedding budget.
+          {
+            createdAt: aged(ASYNC_TASK_TIMEOUT + 60_000),
+            status: AsyncTaskStatus.Processing,
+            type: AsyncTaskType.Embedding,
+            userId,
+          },
+          {
+            createdAt: aged(FILE_EMBEDDING_TASK_TIMEOUT + 2 * 60_000),
+            status: AsyncTaskStatus.Processing,
+            type: AsyncTaskType.Embedding,
+            userId,
+          },
+        ])
+        .returning();
+
+      await asyncTaskModel.checkTimeoutTasks(rows.map((row) => row.id));
+
+      const statuses = await Promise.all(
+        rows.map((row) =>
+          serverDB.query.asyncTasks
+            .findFirst({ where: eq(asyncTasks.id, row.id) })
+            .then((task) => task?.status),
+        ),
+      );
+      expect(statuses).toEqual([
+        AsyncTaskStatus.Pending,
+        AsyncTaskStatus.Error,
+        AsyncTaskStatus.Processing,
+        AsyncTaskStatus.Error,
+      ]);
     });
 
     it('should not mark tasks as error if they are not timed out', async () => {

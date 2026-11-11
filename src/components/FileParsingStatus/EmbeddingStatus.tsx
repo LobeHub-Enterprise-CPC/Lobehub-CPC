@@ -1,5 +1,5 @@
 import { createStaticStyles, cx, Flexbox, Icon, Tag, Tooltip } from '@lobehub/ui';
-import { BoltIcon, RotateCwIcon } from 'lucide-react';
+import { BoltIcon, ClockIcon, RotateCwIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -29,6 +29,26 @@ const EmbeddingStatus = memo<EmbeddingStatusProps>(
     const { t } = useTranslation(['components', 'common']);
 
     switch (embeddingStatus) {
+      case AsyncTaskStatus.Pending: {
+        return (
+          <Flexbox horizontal>
+            <Tooltip
+              styles={{ root: { pointerEvents: 'none' } }}
+              title={t('FileParsingStatus.chunks.embeddingStatus.pending')}
+            >
+              <Tag
+                className={cx('chunk-tag', className)}
+                icon={<Icon icon={ClockIcon} />}
+                style={{ cursor: 'pointer' }}
+                variant={'filled'}
+              >
+                {chunkCount}
+              </Tag>
+            </Tooltip>
+          </Flexbox>
+        );
+      }
+
       case AsyncTaskStatus.Processing: {
         return (
           <Flexbox horizontal>

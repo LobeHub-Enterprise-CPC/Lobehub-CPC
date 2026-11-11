@@ -37,6 +37,12 @@ export const DELIVERY_TASK = 'cpc-delivery';
  * queue-mode deployment runs one; the web pods never take memory work.
  */
 export const MEMORY_DELIVERY_TASK = 'cpc-memory-delivery';
+/**
+ * File parsing and embedding deliveries. They get a task of their own so that its worker's
+ * slots bound how many files one process works on at a time: parsing is synchronous CPU
+ * work, and behind the shared delivery slots a batch import would start dozens at once.
+ */
+export const FILE_JOB_TASK = 'cpc-file-job';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -100,6 +106,7 @@ const positiveInt = (name: string, fallback: number): number => {
 /** Per-worker scheduling capacity. Scale workers/resources rather than imposing tenant quotas. */
 export const getHatchetCapacity = () => ({
   deliverySlots: positiveInt('HATCHET_DELIVERY_SLOTS', 50),
+  fileSlots: positiveInt('HATCHET_FILE_SLOTS', 4),
   memorySlots: positiveInt('HATCHET_MEMORY_SLOTS', 20),
   stepSlots: positiveInt('HATCHET_STEP_SLOTS', 50),
 });

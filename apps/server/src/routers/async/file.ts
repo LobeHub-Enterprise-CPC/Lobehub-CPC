@@ -1,4 +1,4 @@
-import { ASYNC_TASK_TIMEOUT } from '@lobechat/business-config/server';
+import { ASYNC_TASK_TIMEOUT, FILE_EMBEDDING_TASK_TIMEOUT } from '@lobechat/business-config/server';
 import { RequestTrigger } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { chunk } from 'es-toolkit/compat';
@@ -26,6 +26,8 @@ import { type IAsyncTaskError } from '@/types/asyncTask';
 import { AsyncTaskError, AsyncTaskErrorType, AsyncTaskStatus } from '@/types/asyncTask';
 import { safeParseJSON } from '@/utils/safeParseJSON';
 import { sanitizeUTF8 } from '@/utils/sanitizeUTF8';
+
+import { retryTransientEmbeddingError } from './embeddingRetry';
 
 const fileProcedure = asyncAuthedProcedure.use(async (opts) => {
   const { ctx } = opts;
@@ -146,21 +148,27 @@ export const fileRouter = router({
                 'embedding task is timeout, please try again',
               ),
             );
-          }, ASYNC_TASK_TIMEOUT);
+          }, FILE_EMBEDDING_TASK_TIMEOUT);
         });
 
         const embeddingPromise = async () => {
-          // update the task status to success
+          const startAt = Date.now();
+
+          // The watchdog measures from `createdAt`, and the task may have waited in the
+          // queue: its budget starts now.
           await asyncTaskModel.update(input.taskId, {
+            createdAt: new Date(startAt),
+            error: null,
             status: AsyncTaskStatus.Processing,
           });
-
-          const startAt = Date.now();
 
           const CHUNK_SIZE = fileEnv.EMBEDDING_BATCH_SIZE;
           const CONCURRENCY = fileEnv.EMBEDDING_CONCURRENCY;
 
-          const chunks = await chunkModel.getChunksTextByFileId(input.fileId);
+          // A retried task only pays for the chunks an earlier attempt did not finish.
+          const chunks = await chunkModel.getChunksTextByFileId(input.fileId, {
+            withoutEmbedding: true,
+          });
           const requestArray = chunk(chunks, CHUNK_SIZE);
           try {
             await pMap(
@@ -174,13 +182,26 @@ export const fileRouter = router({
                   workspaceId,
                 );
 
-                const embeddings = await modelRuntime.embeddings(
+                const embeddings = await retryTransientEmbeddingError(
+                  () =>
+                    modelRuntime.embeddings(
+                      {
+                        dimensions: 1024,
+                        input: chunks.map((c) => c.text),
+                        model,
+                      },
+                      { metadata: { trigger: RequestTrigger.FileEmbedding }, user: ctx.userId },
+                    ),
                   {
-                    dimensions: 1024,
-                    input: chunks.map((c) => c.text),
-                    model,
+                    deadline: startAt + FILE_EMBEDDING_TASK_TIMEOUT,
+                    onRetry: ({ attempt, delayMs }) =>
+                      console.warn({
+                        attempt,
+                        delayMs,
+                        event: 'file.embedding.retry',
+                        fileId: input.fileId,
+                      }),
                   },
-                  { metadata: { trigger: RequestTrigger.FileEmbedding }, user: ctx.userId },
                 );
 
                 const items: NewEmbeddingsItem[] =

@@ -149,6 +149,26 @@ describe('HatchetPublisher', () => {
     }
   });
 
+  it('sends file jobs of this app to cpc-file-job, whose slots bound parsing per process', async () => {
+    const parse = 'http://cpc-internal:3210/orgs/acme/api/workflows/file/parse';
+    const embed = 'https://app.example.com/orgs/acme/api/workflows/file/embed';
+    // Same path on someone else's host, and a file route without a tenant.
+    const others = [
+      'https://hooks.example.com/orgs/acme/api/workflows/file/parse',
+      'https://app.example.com/api/workflows/file/parse',
+    ];
+
+    for (const target of [parse, embed]) {
+      await publisher.publishJSON({ body: {}, url: target });
+      expect(lastRun()[0]).toBe('cpc-file-job');
+      expect(lastRun()[1].tenantKey).toBe('acme');
+    }
+    for (const target of others) {
+      await publisher.publishJSON({ body: {}, url: target });
+      expect(lastRun()[0]).toBe('cpc-delivery');
+    }
+  });
+
   it('falls back to QStash defaults and serializes any body as JSON, as publishJSON does', async () => {
     await publisher.publishJSON({ body: 'hello', url });
     await publisher.publishJSON({ timeout: '2m', url });

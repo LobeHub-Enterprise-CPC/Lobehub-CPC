@@ -47,6 +47,7 @@ vi.mock('@/server/modules/Tenant/postgresClaims', () => ({
 vi.mock('./tasks', () => ({
   getAgentStepTask: () => ({ name: 'cpc-agent-step' }),
   getDeliveryTask: () => ({ name: 'cpc-delivery' }),
+  getFileJobTask: () => ({ name: 'cpc-file-job' }),
   getMemoryDeliveryTask: () => ({ name: 'cpc-memory-delivery' }),
 }));
 
@@ -202,7 +203,7 @@ describe('startHatchetWorkers', () => {
 
     // Two failed probes, 500ms apart, before the third one answers.
     await flush(400);
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) expect(w.start).not.toHaveBeenCalled();
     expect(mocks.ensure).not.toHaveBeenCalled();
     await flush(1100);
@@ -210,6 +211,7 @@ describe('startHatchetWorkers', () => {
     expect(mocks.workers.map((w) => w.name)).toEqual([
       expect.stringMatching(/^cpc-steps-/),
       expect.stringMatching(/^cpc-delivery-/),
+      expect.stringMatching(/^cpc-files-/),
     ]);
     for (const w of mocks.workers) expect(w.start).toHaveBeenCalledTimes(1);
   });
@@ -279,7 +281,7 @@ describe('startHatchetWorkers', () => {
     worker.startHatchetWorkers();
     await flush(10);
 
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     expect(
       process
         .listeners('SIGTERM')
@@ -319,13 +321,13 @@ describe('startHatchetWorkers', () => {
     }
   });
 
-  it('is serving only once both workers hold their action listener (executor readiness)', async () => {
+  it('is serving only once every worker holds its action listener (executor readiness)', async () => {
     const { worker } = await load();
     mocks.holdListener = true;
 
     const status = worker.startHatchetWorkers();
     await flush(10);
-    // Both started, neither has its listener from the engine yet.
+    // All started, none has its listener from the engine yet.
     expect(mocks.workers.every((w) => w.start.mock.calls.length === 1)).toBe(true);
     expect(status.isServing()).toBe(false);
 
@@ -333,6 +335,9 @@ describe('startHatchetWorkers', () => {
     expect(status.isServing()).toBe(false);
 
     mocks.workers[1]._internal.listener = { stopStream: vi.fn() };
+    expect(status.isServing()).toBe(false);
+
+    mocks.workers[2]._internal.listener = { stopStream: vi.fn() };
     expect(status.isServing()).toBe(true);
   });
 
@@ -359,9 +364,9 @@ describe('startHatchetWorkers', () => {
     expect(status.isServing()).toBe(false);
 
     await flush(5000);
-    expect(mocks.workers).toHaveLength(3);
+    expect(mocks.workers).toHaveLength(4);
     expect(status.isServing()).toBe(false);
-    mocks.workers[2]._internal.listener = { stopStream: vi.fn() };
+    mocks.workers[3]._internal.listener = { stopStream: vi.fn() };
     expect(status.isServing()).toBe(true);
     errorSpy.mockRestore();
   });
@@ -374,12 +379,12 @@ describe('startHatchetWorkers', () => {
     worker.startHatchetWorkers();
     await flush(10);
     expect(mocks.ensure).toHaveBeenCalledTimes(1);
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) expect(w.start).not.toHaveBeenCalled();
 
     await flush(5000);
     expect(mocks.ensure).toHaveBeenCalledTimes(2);
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) expect(w.start).toHaveBeenCalledTimes(1);
     errorSpy.mockRestore();
   });
@@ -394,7 +399,7 @@ describe('startHatchetWorkers', () => {
     expect(mocks.workers).toHaveLength(0);
 
     await flush(10_100);
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) expect(w.start).toHaveBeenCalledTimes(1);
     errorSpy.mockRestore();
   });
@@ -410,18 +415,18 @@ describe('startHatchetWorkers', () => {
     await drained;
 
     expect(mocks.ensure).not.toHaveBeenCalled();
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) expect(w.start).not.toHaveBeenCalled();
   });
 
-  it('stops both workers when the process drains', async () => {
+  it('stops every worker when the process drains', async () => {
     const { drain, worker } = await load();
 
     worker.startHatchetWorkers();
     await flush(10);
     await drain.drainAgentSteps();
 
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) expect(w.stop).toHaveBeenCalledTimes(1);
   });
   it('keeps the action stream and heartbeat open until accepted actions finish', async () => {
@@ -483,12 +488,12 @@ describe('startHatchetWorkers', () => {
     expect(done).toBe(true);
   });
 
-  it('pauses both workers before stopping them', async () => {
+  it('pauses every worker before stopping them', async () => {
     const { drain, worker } = await load();
     worker.startHatchetWorkers();
     await flush(10);
     await drain.drainAgentSteps();
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) {
       expect(w.pause).toHaveBeenCalledTimes(1);
       expect(w.pause.mock.invocationCallOrder[0]).toBeLessThan(w.stop.mock.invocationCallOrder[0]);
@@ -509,7 +514,7 @@ describe('startHatchetWorkers', () => {
     await drained;
     expect(target.pause).toHaveBeenCalledTimes(2);
     expect(target.stop).toHaveBeenCalledTimes(1);
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) expect(w.start).toHaveBeenCalledTimes(1);
   });
 
@@ -568,7 +573,7 @@ describe('startHatchetWorkers', () => {
     );
 
     await flush(600);
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) expect(w.start).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
@@ -578,7 +583,7 @@ describe('startHatchetWorkers', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     worker.startHatchetWorkers();
     await flush(10);
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     const [steps, deliveries] = mocks.workers;
 
     // SDK 1.45.0 after an engine outage of a few minutes: start() rejects for good.
@@ -586,10 +591,10 @@ describe('startHatchetWorkers', () => {
       new Error('Could not run worker: Could not subscribe to the worker after 20 retries'),
     );
     await flush(10);
-    expect(mocks.workers).toHaveLength(2);
-    await flush(5000);
     expect(mocks.workers).toHaveLength(3);
-    const replacement = mocks.workers[2];
+    await flush(5000);
+    expect(mocks.workers).toHaveLength(4);
+    const replacement = mocks.workers[3];
     expect(replacement.name).toBe(steps.name);
     expect(replacement.start).toHaveBeenCalledTimes(1);
     expect(deliveries.start).toHaveBeenCalledTimes(1);
@@ -628,7 +633,7 @@ describe('startHatchetWorkers', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     worker.startHatchetWorkers();
     await flush(10);
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     // The receive loop errors out as shutdown closes it.
     mocks.workers[0].stop.mockImplementation(async () =>
       mocks.failWorkers[0](new Error('Could not run worker: stream reset')),
@@ -637,7 +642,7 @@ describe('startHatchetWorkers', () => {
     await drain.drainAgentSteps();
     await flush(10_000);
 
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     for (const w of mocks.workers) expect(w.stop).toHaveBeenCalledTimes(1);
     errorSpy.mockRestore();
   });
@@ -647,7 +652,7 @@ describe('startHatchetWorkers', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     worker.startHatchetWorkers();
     await flush(10);
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
 
     mocks.failWorkers[0](
       new Error('Could not run worker: Could not subscribe to the worker after 20 retries'),
@@ -656,7 +661,7 @@ describe('startHatchetWorkers', () => {
     await drain.drainAgentSteps();
     await flush(10_000);
 
-    expect(mocks.workers).toHaveLength(2);
+    expect(mocks.workers).toHaveLength(3);
     expect(mocks.workers[1].stop).toHaveBeenCalledTimes(1);
     errorSpy.mockRestore();
   });

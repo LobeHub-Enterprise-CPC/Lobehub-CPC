@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { TRPCError } from '@trpc/server';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { ChunkModel } from '@/database/models/chunk';
 import { EmbeddingModel } from '@/database/models/embedding';
 import { FileModel } from '@/database/models/file';
+import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { ChunkService } from '@/server/services/chunk';
 import { DocumentService } from '@/server/services/document';
 import { FileService } from '@/server/services/file';
@@ -17,6 +18,8 @@ vi.mock('@/database/models/asyncTask', () => ({ AsyncTaskModel: vi.fn() }));
 vi.mock('@/database/models/chunk', () => ({ ChunkModel: vi.fn() }));
 vi.mock('@/database/models/embedding', () => ({ EmbeddingModel: vi.fn() }));
 vi.mock('@/database/models/file', () => ({ FileModel: vi.fn() }));
+vi.mock('@/server/modules/ModelRuntime', () => ({ initModelRuntimeFromDB: vi.fn() }));
+vi.mock('@/server/globalConfig', () => ({ getServerDefaultFilesConfig: async () => ({}) }));
 vi.mock('@/server/services/chunk', () => ({ ChunkService: vi.fn() }));
 vi.mock('@/server/services/document', () => ({ DocumentService: vi.fn() }));
 vi.mock('@/server/services/file', () => ({ FileService: vi.fn() }));
@@ -377,5 +380,115 @@ describe('fileRouter.parseFileToChunks — NoSuchKey + internal:// branches', ()
       embedding.resolve();
       await Promise.all(runs);
     });
+  });
+});
+
+describe('fileRouter.embeddingChunks', () => {
+  const userId = 'user_test';
+  const rateLimited = {
+    error: { code: 'ModelAccountTpmRateLimitExceeded', status: 429 },
+    errorType: 'ProviderBizError',
+  };
+  let asyncTaskModelMock: any;
+  let chunkModelMock: any;
+  let embeddingModelMock: any;
+  let embeddings: ReturnType<typeof vi.fn>;
+
+  const call = () =>
+    fileRouter
+      .createCaller({ serverDB: {}, userId } as any)
+      .embeddingChunks({ fileId: 'f1', taskId: 't1' });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+
+    asyncTaskModelMock = { findById: vi.fn().mockResolvedValue({ id: 't1' }), update: vi.fn() };
+    chunkModelMock = {
+      getChunksTextByFileId: vi.fn().mockResolvedValue([{ id: 'c1', text: 'hello' }]),
+    };
+    embeddingModelMock = { bulkCreate: vi.fn() };
+    embeddings = vi.fn().mockResolvedValue([[0.1, 0.2]]);
+
+    vi.mocked(AsyncTaskModel).mockImplementation(function () {
+      return asyncTaskModelMock;
+    });
+    vi.mocked(ChunkModel).mockImplementation(function () {
+      return chunkModelMock;
+    });
+    vi.mocked(EmbeddingModel).mockImplementation(function () {
+      return embeddingModelMock;
+    });
+    vi.mocked(FileModel).mockImplementation(function () {
+      return { findById: vi.fn().mockResolvedValue({ id: 'f1', name: 'a.md' }) } as any;
+    });
+    Reflect.set(FileModel, 'getFileById', undefined);
+    vi.mocked(initModelRuntimeFromDB).mockResolvedValue({ embeddings } as any);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('starts the task clock when it begins, and embeds only the chunks still missing', async () => {
+    vi.setSystemTime(new Date('2026-11-11T08:00:00Z'));
+
+    await expect(call()).resolves.toEqual({ success: true });
+
+    // The task may have waited in the queue: the watchdog counts from here.
+    expect(asyncTaskModelMock.update).toHaveBeenNthCalledWith(1, 't1', {
+      createdAt: new Date('2026-11-11T08:00:00Z'),
+      error: null,
+      status: AsyncTaskStatus.Processing,
+    });
+    expect(chunkModelMock.getChunksTextByFileId).toHaveBeenCalledWith('f1', {
+      withoutEmbedding: true,
+    });
+    expect(embeddingModelMock.bulkCreate).toHaveBeenCalledWith([
+      { chunkId: 'c1', embeddings: [0.1, 0.2], fileId: 'f1', model: expect.any(String) },
+    ]);
+  });
+
+  it('keeps the task running through a rate limit and succeeds once the provider recovers', async () => {
+    embeddings.mockRejectedValueOnce(rateLimited).mockRejectedValueOnce(rateLimited);
+
+    const result = call();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(result).resolves.toEqual({ success: true });
+    expect(embeddings).toHaveBeenCalledTimes(3);
+    expect(asyncTaskModelMock.update).toHaveBeenLastCalledWith(
+      't1',
+      expect.objectContaining({ status: AsyncTaskStatus.Success }),
+    );
+    expect(asyncTaskModelMock.update).not.toHaveBeenCalledWith(
+      't1',
+      expect.objectContaining({ status: AsyncTaskStatus.Error }),
+    );
+  });
+
+  it('fails the task with the provider error when the rate limit outlasts its budget', async () => {
+    embeddings.mockRejectedValue(rateLimited);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = call();
+    await vi.advanceTimersByTimeAsync(15 * 60_000);
+
+    await expect(result).resolves.toMatchObject({ success: false });
+    expect(asyncTaskModelMock.update).toHaveBeenLastCalledWith('t1', {
+      error: new AsyncTaskError(AsyncTaskErrorType.EmbeddingError, 'ProviderBizError'),
+      status: AsyncTaskStatus.Error,
+    });
+    errorSpy.mockRestore();
+  });
+
+  it('fails at once on an error a retry cannot fix', async () => {
+    embeddings.mockRejectedValue({ error: { status: 401 }, errorType: 'InvalidProviderAPIKey' });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(call()).resolves.toMatchObject({ success: false });
+
+    expect(embeddings).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
   });
 });
