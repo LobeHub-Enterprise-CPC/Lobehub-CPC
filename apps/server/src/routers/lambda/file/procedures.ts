@@ -44,12 +44,16 @@ export const getKnowledgeItemStatusMap = async (
   fileItems: Array<{
     chunkTaskId?: string | null;
     embeddingTaskId?: string | null;
+    /** The file behind a list row whose `id` is its derived document's. */
+    fileId?: string | null;
     id: string;
   }>,
 ): Promise<Map<string, KnowledgeItemStatus>> => {
   if (fileItems.length === 0) return new Map();
 
-  const fileIds = fileItems.map((item) => item.id);
+  // Chunks hang off the file, also when the row is listed under its document id.
+  const chunkFileId = (item: { fileId?: string | null; id: string }) => item.fileId ?? item.id;
+  const fileIds = [...new Set(fileItems.map(chunkFileId))];
   const chunkTaskIds = [
     ...new Set(fileItems.map((item) => item.chunkTaskId).filter(Boolean)),
   ] as string[];
@@ -87,7 +91,7 @@ export const getKnowledgeItemStatusMap = async (
       return [
         item.id,
         {
-          chunkCount: chunkCountMap.get(item.id) ?? null,
+          chunkCount: chunkCountMap.get(chunkFileId(item)) ?? null,
           chunkingError: (chunkTask?.error as IAsyncTaskError | null | undefined) ?? null,
           chunkingStatus: (chunkTask?.status as AsyncTaskStatus | null | undefined) ?? null,
           embeddingError: (embeddingTask?.error as IAsyncTaskError | null | undefined) ?? null,
