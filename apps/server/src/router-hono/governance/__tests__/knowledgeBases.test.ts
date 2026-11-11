@@ -97,6 +97,7 @@ vi.mock('@lobechat/business-knowledge', async (original) => ({
   listEnterpriseKbEvents: vi.fn(async () => []),
   searchEnterpriseKbMembers: vi.fn(async () => []),
   recordEnterpriseKbTransfer: vi.fn(),
+  remapEnterpriseKbNodePolicies: vi.fn(),
   recordEnterpriseKbItemUploaders: vi.fn(async (_db, items) => {
     for (const item of items) mocks.uploaders[item.itemId] = item.actor;
   }),
@@ -653,6 +654,7 @@ describe('enterprise knowledge governance contract', () => {
         keepPreviousOwnerEdit: true,
       }),
     );
+    expect(business.remapEnterpriseKbNodePolicies).not.toHaveBeenCalled();
     expect(mocks.publish).not.toHaveBeenCalled();
   });
 
@@ -730,6 +732,72 @@ describe('enterprise knowledge governance contract', () => {
     });
     expect(mocks.publish).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])(
+    'remaps copied node policies atomically during transfer (native document: %s)',
+    async (native) => {
+      const kb = await create();
+      const other = await create('共享库');
+      const item = await upload(kb);
+      await setTask(item.id, 'chunkTaskId', 'success');
+      await setTask(item.id, 'embeddingTaskId', 'success');
+      await db.insert(knowledgeBaseFiles).values({
+        knowledgeBaseId: other,
+        fileId: item.id,
+        userId: 'ekb-owner',
+      });
+      const [doc] = native
+        ? await db
+            .insert(documents)
+            .values({
+              userId: 'ekb-owner',
+              knowledgeBaseId: kb,
+              fileId: item.id,
+              title: '原生文稿',
+              fileType: 'custom/document',
+              sourceType: 'api',
+              source: '',
+              content: '正文',
+              totalCharCount: 2,
+              totalLineCount: 1,
+            })
+            .returning()
+        : [];
+      const tables = [knowledgeBases, knowledgeBaseFiles, files, documents, asyncTasks];
+      const before = await Promise.all(tables.map((table) => db.select().from(table)));
+      const input = { toUserId: 'ekb-next', keepPreviousOwnerEdit: true, actor };
+      vi.mocked(business.remapEnterpriseKbNodePolicies).mockRejectedValueOnce(
+        new Error('node policy remap failed'),
+      );
+      expect((await request('POST', `/${kb}/transfer`, input)).status).toBe(500);
+      for (const [index, table] of tables.entries()) {
+        const rows = await db.select().from(table);
+        expect(rows).toHaveLength(before[index].length);
+        expect(rows).toEqual(expect.arrayContaining(before[index]));
+      }
+      await json('POST', `/${kb}/transfer`, input);
+      const [link] = await db
+        .select()
+        .from(knowledgeBaseFiles)
+        .where(eq(knowledgeBaseFiles.knowledgeBaseId, kb));
+      expect(link.fileId).not.toBe(item.id);
+      const idMap: Record<string, string> = { [item.id]: link.fileId };
+      if (doc) {
+        const [copy] = await db.select().from(documents).where(eq(documents.fileId, link.fileId));
+        expect(copy.id).not.toBe(doc.id);
+        expect(copy).toMatchObject({ userId: 'ekb-next', knowledgeBaseId: kb, content: '正文' });
+        idMap[doc.id] = copy.id;
+      }
+      expect(business.remapEnterpriseKbNodePolicies).toHaveBeenLastCalledWith(expect.anything(), {
+        knowledgeBaseId: kb,
+        idMap,
+      });
+      const [tx] = vi.mocked(business.remapEnterpriseKbNodePolicies).mock.lastCall!;
+      expect(tx).not.toBe(db);
+      const [original] = await db.select().from(files).where(eq(files.id, item.id));
+      expect(original.userId).toBe('ekb-owner');
+    },
+  );
 
   it('manages existing native documents, including file-backed notes, with document identity', async () => {
     const kb = await create();
