@@ -16,10 +16,7 @@ export type EnterpriseKbPrincipalType = 'department' | 'user';
 export type EnterpriseKbEventAction = 'access_updated' | 'created' | 'deleted' | 'transferred';
 
 export type EnterpriseKbErrorCode =
-  | 'INVALID_PRINCIPAL'
-  | 'NOT_ENABLED'
-  | 'NOT_ENTERPRISE'
-  | 'STALE_VERSION';
+  'INVALID_PRINCIPAL' | 'NOT_ENABLED' | 'NOT_ENTERPRISE' | 'STALE_VERSION';
 
 export class EnterpriseKbError extends Error {
   code: EnterpriseKbErrorCode;
@@ -59,11 +56,11 @@ export interface EnterpriseKbGrantInput {
 export interface EnterpriseKbGrant extends EnterpriseKbGrantInput {
   /** The department or member no longer exists. */
   deleted: boolean;
+  /** For a member: the name of their department, when they have one. */
+  departmentName?: string | null;
   /** Members covered, sub-departments included; `null` for a member or a deleted principal. */
   memberCount: number | null;
   name: string;
-  /** For a member: the name of their department, when they have one. */
-  departmentName?: string | null;
 }
 
 export interface EnterpriseKbAccessState {

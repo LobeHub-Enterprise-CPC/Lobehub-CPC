@@ -7,7 +7,6 @@ import {
   RequestTrigger,
   type SemanticSearchSchemaType,
 } from '@lobechat/types';
-import { TRPCError } from '@trpc/server';
 import { and, inArray } from 'drizzle-orm';
 import pMap from 'p-map';
 
@@ -27,6 +26,7 @@ import {
   planRetrieval,
   resolveItemsScope,
 } from '@/server/services/enterpriseKnowledge';
+import { resolveEnterpriseContentScopes } from '@/server/services/enterpriseKnowledge/contentAccess';
 import { createFtsSearchRepo } from '@/server/services/ftsSearch';
 import { assertContentsNotInRestrictedKnowledgeBase } from '@/server/services/knowledgeBaseAccess';
 
@@ -316,34 +316,63 @@ export class KnowledgeBaseSearchService {
   }
 
   async getFileContents(ids: string[]): Promise<FileContentResult[]> {
-    const ctx = {
-      serverDB: this.serverDB,
-      userId: this.askerId ?? this.userId,
-      workspaceId: this.workspaceId,
-    };
-    await assertContentsNotInRestrictedKnowledgeBase(ctx, ids);
-    if (!this.workspaceId && isEnterpriseKnowledgeEnabled()) {
-      // Validate the complete batch before reading anything. Each id gets its own exact scope.
-      const scopes = await Promise.all(ids.map((id) => resolveItemsScope(ctx, [id], 'view')));
-      if (!this.askerId && scopes.some((scope) => scope.enterprise))
-        throw new TRPCError({ code: 'NOT_FOUND' });
+    await assertContentsNotInRestrictedKnowledgeBase(
+      {
+        serverDB: this.serverDB,
+        userId: this.askerId ?? this.userId,
+        workspaceId: this.workspaceId,
+      },
+      ids,
+    );
+    const scopes = await resolveEnterpriseContentScopes(
+      { serverDB: this.serverDB, userId: this.askerId, workspaceId: this.workspaceId },
+      ids,
+    );
+    // Keep CPC's strict personal-content boundary for ordinary siblings too.
+    await Promise.all(
+      ids
+        .filter((id) => !scopes.has(id))
+        .map((id) =>
+          resolveItemsScope(
+            {
+              serverDB: this.serverDB,
+              userId: this.askerId ?? this.userId,
+              workspaceId: this.workspaceId,
+            },
+            [id],
+            'view',
+          ),
+        ),
+    );
+    // Validate the complete batch before reading or parsing any content.
+    if (scopes.size > 0) {
       return (
-        await Promise.all(
-          ids.map((id, index) => {
-            const scope = scopes[index];
-            return scope.enterprise
-              ? new KnowledgeBaseSearchService(
-                  this.serverDB,
-                  scope.ownerId,
-                  undefined,
-                  this.callerAgentVisibility,
-                  this.askerId,
-                ).readScopedContents([id])
-              : this.readScopedContents([id]);
-          }),
+        await pMap(
+          ids,
+          (id) => {
+            // An enterprise owner's scope applies only to that exact item.
+            // Ordinary siblings in a mixed batch stay in the caller's scope.
+            const ownerId = scopes.get(id) ?? this.askerId ?? this.userId;
+            return new KnowledgeBaseSearchService(
+              this.serverDB,
+              ownerId,
+              undefined,
+              this.callerAgentVisibility,
+              this.askerId,
+            ).readScopedContents([id]);
+          },
+          { concurrency: 3 },
         )
       ).flat();
     }
+    if (this.askerId && this.askerId !== this.userId)
+      return new KnowledgeBaseSearchService(
+        this.serverDB,
+        this.askerId,
+        this.workspaceId,
+        this.callerAgentVisibility,
+        this.askerId,
+      ).readScopedContents(ids);
     return this.readScopedContents(ids);
   }
 

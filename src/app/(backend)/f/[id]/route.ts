@@ -5,7 +5,7 @@ import { FileModel } from '@/database/models/file';
 import { getServerDB } from '@/database/server';
 import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
-import { resolveItemsScope } from '@/server/services/enterpriseKnowledge';
+import { resolveEnterpriseContentScopes } from '@/server/services/enterpriseKnowledge/contentAccess';
 import { FileService } from '@/server/services/file';
 
 const log = debug('lobe-file:proxy');
@@ -21,8 +21,11 @@ type Params = Promise<{ id: string }>;
  * - Generate a temporary S3 presigned preview URL
  * - Return 302 redirect
  *
- * Non-enterprise links remain public by id. Enterprise files require the
- * request's authenticated identity and current library access before signing.
+ * Non-enterprise links remain public by id. The proxy URL is
+ * embedded in bare `<img>` tags, download links, and links shared to AI — none
+ * of which can attach auth headers/cookies. Adding `checkAuth` here would break
+ * every previously-shared `/f/:id` link. Distribution-managed enterprise
+ * content requires the current authenticated caller's library access.
  */
 const handleGet = async (req: Request, segmentData: { params: Params }) => {
   try {
@@ -44,15 +47,16 @@ const handleGet = async (req: Request, segmentData: { params: Params }) => {
       });
     }
 
-    // Public-by-id links remain unchanged outside enterprise libraries. Do not
-    // create any storage URL before the enterprise access check has passed.
+    // Classify with the owner's scope, then authorize the actual request. No
+    // storage URL may be created before the enterprise policy has passed.
     try {
-      const probe = await resolveItemsScope({ serverDB: db, userId: file.userId }, [id], 'view');
-      if (probe.enterprise) {
-        if (file.isDeleted) return new Response('File not found', { status: 404 });
+      const scopes = await resolveEnterpriseContentScopes({ serverDB: db, userId: file.userId }, [
+        id,
+      ]);
+      if (scopes.has(id)) {
         const identity = await createLambdaContext(new NextRequest(req));
         if (!identity.userId) return new Response('File not found', { status: 404 });
-        await resolveItemsScope({ serverDB: db, userId: identity.userId }, [id], 'view');
+        await resolveEnterpriseContentScopes({ serverDB: db, userId: identity.userId }, [id]);
       }
     } catch {
       return new Response('File not found', { status: 404 });
