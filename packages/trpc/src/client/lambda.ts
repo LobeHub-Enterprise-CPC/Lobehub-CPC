@@ -254,6 +254,9 @@ const DEVICE_RPC_PREFIX = 'device.';
 // handler enables `allowMethodOverride`).
 const LARGE_INPUT_QUERY_PROCEDURES = new Set([
   'agent.getTransferJobStatus',
+  // The file status poll sends every queued or running file of the open list;
+  // a folder upload puts a hundred ids in it.
+  'file.getKnowledgeItemStatusesByIds',
   'group.getTransferJobStatus',
   // Takes every projected tool row of a topic at once; ~60 ids already exceed
   // the batched GET's 2083-char budget, and a tool-heavy topic is exactly when
