@@ -34,10 +34,19 @@ export const restoreEnterpriseTrashItem = async (
       ),
     );
   if (!entries.length) throw notFound('Item');
-  const root = entries.find((row) => !row.rootId);
-  const children = root ? await new TrashModel(db, scope.ownerId).findChildren(root.id) : [];
-  const rows = root ? [root, ...children] : entries;
+  const registry = new TrashModel(db, scope.ownerId);
+  // A parsed document can be the root while governance addresses its physical file child.
+  // Follow the recorded deletion graph, never infer mirror membership from timestamps/fileId.
+  const root = entries.find((row) => !row.rootId) ?? (await registry.findById(entries[0].rootId!));
+  if (!root || root.rootId) throw notFound('Item');
+  const rows = [root, ...(await registry.findChildren(root.id))];
   if (
+    rows.some(
+      (row) =>
+        row.userId !== scope.ownerId ||
+        row.workspaceId !== null ||
+        !['file', 'document'].includes(row.resourceType),
+    ) ||
     !(await itemsBelongToKnowledgeBase(
       db,
       rows.map((row) => row.resourceId),
@@ -46,7 +55,7 @@ export const restoreEnterpriseTrashItem = async (
   )
     throw notFound('Item');
   await restoreEnterpriseTrashRows(db, scope.ownerId, rows);
-  await new TrashModel(db, scope.ownerId).removeByIds(rows.map((row) => row.id));
+  await registry.removeByIds(rows.map((row) => row.id));
 };
 
 /** Transfer the existing registry graph alongside content, remapping shared copies in this transaction. */
