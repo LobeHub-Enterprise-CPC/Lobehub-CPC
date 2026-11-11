@@ -48,3 +48,32 @@ describe('enterprise knowledge base capabilities', () => {
     expect(access.canManageAccess).toBe(false);
   });
 });
+
+describe('node capabilities', () => {
+  const library = { enterprise: { accessLevel: 'edit' as const, ownerName: 'Owner' } };
+  it('fails closed before a directory level resolves', () => {
+    expect(getKnowledgeBaseCapabilities(library, true, null).canEditContent).toBe(false);
+  });
+  it('uses the node level rather than the library level', () => {
+    expect(getKnowledgeBaseCapabilities(library, true, 'path').canEditContent).toBe(false);
+    expect(getKnowledgeBaseCapabilities(library, true, 'view').canEditContent).toBe(false);
+    expect(
+      getKnowledgeBaseCapabilities(
+        { enterprise: { accessLevel: 'path', ownerName: 'Owner' } },
+        false,
+        'edit',
+      ).canEditContent,
+    ).toBe(true);
+  });
+  it('node grants do not grant library ownership', () => {
+    const access = getKnowledgeBaseCapabilities(library, true, 'edit');
+    expect(access.canManageAccess).toBe(false);
+    expect(access.canManageInfo).toBe(false);
+  });
+  it('revocation overrides a previously resolved node grant', () => {
+    expect(
+      getKnowledgeBaseCapabilities({ ...library, accessRevoked: true }, true, 'edit')
+        .canEditContent,
+    ).toBe(false);
+  });
+});

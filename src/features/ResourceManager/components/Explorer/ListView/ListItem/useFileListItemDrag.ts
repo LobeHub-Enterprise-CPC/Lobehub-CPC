@@ -26,7 +26,7 @@ export const useFileListItemDrag = ({
   name,
   sourceType,
 }: UseFileListItemDragOptions) => {
-  const { allowed: canEdit } = useLibraryPermission('edit_own_content', libraryId);
+  const { allowed: canEdit } = useLibraryPermission('edit_own_content', libraryId, id);
   const isDragActive = useDragActive();
   const setCurrentDrag = useSetCurrentDrag();
 

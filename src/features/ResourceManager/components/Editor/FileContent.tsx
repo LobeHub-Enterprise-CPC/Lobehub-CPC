@@ -16,7 +16,7 @@ interface FilePreviewerProps {
 }
 
 const FilePreviewer = memo<FilePreviewerProps>(({ fileId, onClose }) => {
-  const { allowed } = useLibraryPermission('edit_own_content');
+  const { allowed } = useLibraryPermission('edit_own_content', undefined, fileId ?? null);
   const useFetchKnowledgeItem = useFileStore((s) => s.useFetchKnowledgeItem);
   const { data: displayFile, error, isLoading, mutate } = useFetchKnowledgeItem(fileId);
   if (error) return <AsyncError error={error} variant="page" onRetry={() => mutate()} />;

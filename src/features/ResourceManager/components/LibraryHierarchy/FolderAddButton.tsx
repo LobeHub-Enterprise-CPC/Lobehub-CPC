@@ -42,7 +42,7 @@ const FolderAddButton = memo<FolderAddButtonProps>(({ folderId }) => {
   // Several rows mount at once; a fixed id would point every folder-upload
   // label at the first row's input.
   const folderUploadInputId = useId();
-  const { allowed: canCreate } = useLibraryPermission('create_content');
+  const { allowed: canCreate } = useLibraryPermission('create_content', undefined, folderId);
   const createResourceAndSync = useFileStore((s) => s.createResourceAndSync);
   const pushDockFileList = useFileStore((s) => s.pushDockFileList);
   const uploadFolderWithStructure = useFileStore((s) => s.uploadFolderWithStructure);

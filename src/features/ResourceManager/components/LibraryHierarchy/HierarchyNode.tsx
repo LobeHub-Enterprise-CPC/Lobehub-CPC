@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import FileIcon from '@/components/FileIcon';
+import { EnterpriseCustomAccessBadge } from '@/features/EnterpriseKnowledge/CustomAccessBadge';
 import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { PAGE_FILE_TYPE } from '@/features/ResourceManager/constants';
 import {
@@ -61,10 +62,15 @@ interface HierarchyNodeProps {
 
 export const HierarchyNode = memo<HierarchyNodeProps>(
   ({ item, level = 0, flat, isExpanded, isLoading, onToggle, selectedKey, parentKey }) => {
-    const { allowed: canEdit } = useLibraryPermission('edit_own_content');
     const navigate = useWorkspaceAwareNavigate();
 
     const [setMode, libraryId] = useResourceManagerStore((s) => [s.setMode, s.libraryId]);
+    const { allowed: canEdit } = useLibraryPermission(
+      'edit_own_content',
+      libraryId,
+      item.fileId ?? item.id,
+      item.enterpriseAccess,
+    );
     const [pendingTreeRenameItemId, setPendingTreeRenameItemId] = useResourceManagerStore((s) => [
       s.pendingTreeRenameItemId,
       s.setPendingTreeRenameItemId,
@@ -200,7 +206,8 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
       if (redirect) navigate(redirect);
     }, [item, parentKey, navigate]);
 
-    const { menuItems } = useFileItemDropdown({
+    const { menuItems, accessPanel } = useFileItemDropdown({
+      enterpriseAccess: item.enterpriseAccess,
       fileId: item.fileId,
       fileType: item.fileType,
       filename: item.name,
@@ -306,6 +313,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
 
       return (
         <Flexbox gap={2}>
+          {accessPanel}
           <Block
             clickable
             horizontal
@@ -388,7 +396,10 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
                   }}
                 />
               ) : (
-                <HierarchyNodeName name={item.name} />
+                <>
+                  <HierarchyNodeName name={item.name} />
+                  <EnterpriseCustomAccessBadge custom={item.enterpriseAccess?.custom} />
+                </>
               )}
             </Flexbox>
             <Flexbox horizontal align={'center'}>
@@ -404,6 +415,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
     const isActive = isHierarchyNodeActive(item, selectedKey);
     return (
       <Flexbox gap={2}>
+        {accessPanel}
         <Block
           clickable
           horizontal
@@ -448,7 +460,10 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
             ) : (
               <FileIcon fileName={item.name} fileType={item.fileType} size={18} />
             )}
-            <HierarchyNodeName name={item.name} />
+            <>
+              <HierarchyNodeName name={item.name} />
+              <EnterpriseCustomAccessBadge custom={item.enterpriseAccess?.custom} />
+            </>
           </Flexbox>
           <HierarchyNodeMenuButton menuItems={menuItems} />
         </Block>

@@ -12,7 +12,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import RepoIcon from '@/components/LibIcon';
-import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
+import { useLibrarySelectionPermission } from '@/features/EnterpriseKnowledge/useLibrarySelectionPermission';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { openWorkspaceDeleteAllModal } from '@/features/WorkspaceDeleteAllModal';
@@ -43,11 +43,7 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
   const addFilesToKnowledgeBase = useKnowledgeBaseStore((s) => s.addFilesToKnowledgeBase);
   const knowledgeBases = useKnowledgeBaseListContext();
   const activeWorkspaceId = useActiveWorkspaceId();
-  const {
-    allowed: canEditResources,
-    reason,
-    enterprise,
-  } = useLibraryPermission('edit_own_content');
+  const { allowed: canEditResources, reason, enterprise } = useLibrarySelectionPermission();
   const isWorkspaceDeleteAll = !!activeWorkspaceId && selectAllState === 'all';
 
   const menuItems = useMemo<DropdownItem[]>(() => {

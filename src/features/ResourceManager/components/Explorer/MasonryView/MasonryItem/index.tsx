@@ -17,6 +17,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
+import { EnterpriseCustomAccessBadge } from '@/features/EnterpriseKnowledge/CustomAccessBadge';
 import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import {
   getTransparentDragImage,
@@ -203,6 +204,7 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
   ({
     chunkingError,
     embeddingError,
+    enterpriseAccess,
     embeddingStatus,
     finishEmbedding,
     chunkCount,
@@ -226,7 +228,12 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
     visibility,
   }) => {
     const { t } = useTranslation(['components', 'chat']);
-    const { allowed: canEdit } = useLibraryPermission('edit_own_content', knowledgeBaseId);
+    const { allowed: canEdit } = useLibraryPermission(
+      'edit_own_content',
+      knowledgeBaseId,
+      fileId ?? id,
+      enterpriseAccess,
+    );
     const chunkTargetId = getChunkTargetId({ fileId, id });
     const isDragActive = useDragActive();
     const setCurrentDrag = useSetCurrentDrag();
@@ -347,7 +354,8 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
       };
     }, [isInView]);
 
-    const { menuItems } = useFileItemDropdown({
+    const { menuItems, accessPanel } = useFileItemDropdown({
+      enterpriseAccess,
       fileId,
       fileType,
       filename: name,
@@ -366,154 +374,158 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
     const isPrivate = Boolean(activeWorkspaceId) && visibility === 'private';
 
     return (
-      <div
-        data-drop-target-id={id}
-        data-is-folder={isFolder}
-        draggable={!!knowledgeBaseId && canEdit}
-        ref={cardRef}
-        className={cx(
-          styles.card,
-          selected && styles.selected,
-          isDragging && styles.dragging,
-          isOver && styles.dragOver,
-        )}
-        onDragEnd={handleDragEnd}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDragStart={handleDragStart}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          showContextMenu(menuItems());
-        }}
-      >
+      <>
+        {accessPanel}
         <div
-          className={cx('checkbox', styles.checkbox)}
-          style={{ cursor: selectable ? 'pointer' : 'not-allowed' }}
-          title={selectable ? undefined : t('FileManager.selection.onlyOwn')}
-          onPointerDown={stopPropagation}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!selectable) return;
-            onSelectedChange(id, !selected);
+          data-drop-target-id={id}
+          data-is-folder={isFolder}
+          draggable={!!knowledgeBaseId && canEdit}
+          ref={cardRef}
+          className={cx(
+            styles.card,
+            selected && styles.selected,
+            isDragging && styles.dragging,
+            isOver && styles.dragOver,
+          )}
+          onDragEnd={handleDragEnd}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDragStart={handleDragStart}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            showContextMenu(menuItems());
           }}
         >
-          <Checkbox checked={selected} disabled={!selectable} />
-        </div>
+          <div
+            className={cx('checkbox', styles.checkbox)}
+            style={{ cursor: selectable ? 'pointer' : 'not-allowed' }}
+            title={selectable ? undefined : t('FileManager.selection.onlyOwn')}
+            onPointerDown={stopPropagation}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!selectable) return;
+              onSelectedChange(id, !selected);
+            }}
+          >
+            <EnterpriseCustomAccessBadge custom={enterpriseAccess?.custom} />
+            <Checkbox checked={selected} disabled={!selectable} />
+          </div>
 
-        <div
-          className={cx('dropdown', styles.dropdown)}
-          onClick={stopPropagation}
-          onPointerDown={stopPropagation}
-        >
-          <DropdownMenu items={menuItems} />
-        </div>
+          <div
+            className={cx('dropdown', styles.dropdown)}
+            onClick={stopPropagation}
+            onPointerDown={stopPropagation}
+          >
+            <DropdownMenu items={menuItems} />
+          </div>
 
-        {isPrivate && (
-          <Tooltip title={t('resources.visibility.privateTooltip', { ns: 'chat' })}>
-            <div className={styles.privateBadge}>
-              <Icon icon={LockIcon} size={14} />
-            </div>
-          </Tooltip>
-        )}
-
-        <div
-          className={cx(
-            styles.content,
-            !isImage &&
-              !isMarkdown &&
-              !isPage &&
-              !isVideo &&
-              !isAudio &&
-              !isWebpage &&
-              styles.contentWithPadding,
+          {isPrivate && (
+            <Tooltip title={t('resources.visibility.privateTooltip', { ns: 'chat' })}>
+              <div className={styles.privateBadge}>
+                <Icon icon={LockIcon} size={14} />
+              </div>
+            </Tooltip>
           )}
-          onClick={handleItemClick}
-          onDoubleClick={handleItemDoubleClick}
-        >
-          {(() => {
-            switch (true) {
-              case isWebpage: {
-                return <WebpageFileItem contentPreview={contentPreview} name={name} url={url} />;
+
+          <div
+            className={cx(
+              styles.content,
+              !isImage &&
+                !isMarkdown &&
+                !isPage &&
+                !isVideo &&
+                !isAudio &&
+                !isWebpage &&
+                styles.contentWithPadding,
+            )}
+            onClick={handleItemClick}
+            onDoubleClick={handleItemDoubleClick}
+          >
+            {(() => {
+              switch (true) {
+                case isWebpage: {
+                  return <WebpageFileItem contentPreview={contentPreview} name={name} url={url} />;
+                }
+                case isVideo && !!url: {
+                  return <VideoFileItem isInView={isInView} name={name} size={size} url={url} />;
+                }
+                case isAudio && !!url: {
+                  return <AudioFileItem isInView={isInView} name={name} size={size} url={url} />;
+                }
+                case isImage && !!url: {
+                  return (
+                    <ImageFileItem
+                      chunkCount={chunkCount ?? undefined}
+                      chunkingError={chunkingError}
+                      chunkingStatus={chunkingStatus ?? undefined}
+                      embeddingError={embeddingError}
+                      embeddingStatus={embeddingStatus ?? undefined}
+                      fileType={fileType}
+                      finishEmbedding={finishEmbedding}
+                      id={chunkTargetId}
+                      isInView={isInView}
+                      metadata={metadata}
+                      name={name}
+                      size={size}
+                      url={url}
+                    />
+                  );
+                }
+                case isPage: {
+                  return (
+                    <NoteFileItem
+                      chunkCount={chunkCount ?? undefined}
+                      chunkingError={chunkingError}
+                      chunkingStatus={chunkingStatus ?? undefined}
+                      contentPreview={contentPreview}
+                      embeddingError={embeddingError}
+                      embeddingStatus={embeddingStatus ?? undefined}
+                      fileType={fileType}
+                      finishEmbedding={finishEmbedding}
+                      id={chunkTargetId}
+                      metadata={metadata}
+                      name={name}
+                    />
+                  );
+                }
+                case isMarkdown: {
+                  return (
+                    <MarkdownFileItem
+                      chunkCount={chunkCount ?? undefined}
+                      chunkingError={chunkingError}
+                      chunkingStatus={chunkingStatus ?? undefined}
+                      contentPreview={contentPreview}
+                      embeddingError={embeddingError}
+                      embeddingStatus={embeddingStatus ?? undefined}
+                      fileType={fileType}
+                      finishEmbedding={finishEmbedding}
+                      id={chunkTargetId}
+                      name={name}
+                      size={size}
+                    />
+                  );
+                }
+                default: {
+                  return (
+                    <DefaultFileItem
+                      chunkCount={chunkCount ?? undefined}
+                      chunkingError={chunkingError}
+                      chunkingStatus={chunkingStatus ?? undefined}
+                      embeddingError={embeddingError}
+                      embeddingStatus={embeddingStatus ?? undefined}
+                      fileType={fileType}
+                      finishEmbedding={finishEmbedding}
+                      id={chunkTargetId}
+                      name={name}
+                      size={size}
+                    />
+                  );
+                }
               }
-              case isVideo && !!url: {
-                return <VideoFileItem isInView={isInView} name={name} size={size} url={url} />;
-              }
-              case isAudio && !!url: {
-                return <AudioFileItem isInView={isInView} name={name} size={size} url={url} />;
-              }
-              case isImage && !!url: {
-                return (
-                  <ImageFileItem
-                    chunkCount={chunkCount ?? undefined}
-                    chunkingError={chunkingError}
-                    chunkingStatus={chunkingStatus ?? undefined}
-                    embeddingError={embeddingError}
-                    embeddingStatus={embeddingStatus ?? undefined}
-                    fileType={fileType}
-                    finishEmbedding={finishEmbedding}
-                    id={chunkTargetId}
-                    isInView={isInView}
-                    metadata={metadata}
-                    name={name}
-                    size={size}
-                    url={url}
-                  />
-                );
-              }
-              case isPage: {
-                return (
-                  <NoteFileItem
-                    chunkCount={chunkCount ?? undefined}
-                    chunkingError={chunkingError}
-                    chunkingStatus={chunkingStatus ?? undefined}
-                    contentPreview={contentPreview}
-                    embeddingError={embeddingError}
-                    embeddingStatus={embeddingStatus ?? undefined}
-                    fileType={fileType}
-                    finishEmbedding={finishEmbedding}
-                    id={chunkTargetId}
-                    metadata={metadata}
-                    name={name}
-                  />
-                );
-              }
-              case isMarkdown: {
-                return (
-                  <MarkdownFileItem
-                    chunkCount={chunkCount ?? undefined}
-                    chunkingError={chunkingError}
-                    chunkingStatus={chunkingStatus ?? undefined}
-                    contentPreview={contentPreview}
-                    embeddingError={embeddingError}
-                    embeddingStatus={embeddingStatus ?? undefined}
-                    fileType={fileType}
-                    finishEmbedding={finishEmbedding}
-                    id={chunkTargetId}
-                    name={name}
-                    size={size}
-                  />
-                );
-              }
-              default: {
-                return (
-                  <DefaultFileItem
-                    chunkCount={chunkCount ?? undefined}
-                    chunkingError={chunkingError}
-                    chunkingStatus={chunkingStatus ?? undefined}
-                    embeddingError={embeddingError}
-                    embeddingStatus={embeddingStatus ?? undefined}
-                    fileType={fileType}
-                    finishEmbedding={finishEmbedding}
-                    id={chunkTargetId}
-                    name={name}
-                    size={size}
-                  />
-                );
-              }
-            }
-          })()}
+            })()}
+          </div>
         </div>
-      </div>
+      </>
     );
   },
 );

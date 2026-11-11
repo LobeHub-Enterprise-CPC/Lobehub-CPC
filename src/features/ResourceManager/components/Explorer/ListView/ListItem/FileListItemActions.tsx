@@ -75,7 +75,11 @@ const FileListItemActions = ({
   parseFiles,
   t,
 }: FileListItemActionsProps) => {
-  const { allowed: canEditResources, enterprise } = useLibraryPermission('edit_own_content');
+  const { allowed: canEditResources, enterprise } = useLibraryPermission(
+    'edit_own_content',
+    undefined,
+    fileId ?? id,
+  );
   const chunkTargetId = getChunkTargetId({ fileId, id });
   const transferMenuItems = useFileTransferMenuItem(
     id,

@@ -5,6 +5,12 @@ import type {
   EnterpriseKbEstimate,
   EnterpriseKbEvent,
   EnterpriseKbGrantInput,
+  EnterpriseNodeLevel,
+  NodeAccessEstimate,
+  NodeAccessParams,
+  NodeAccessView,
+  NodeEstimateParams,
+  NodeLevelParams,
 } from '@/services/enterpriseKnowledge';
 
 export interface EstimateParams {
@@ -41,6 +47,28 @@ export const estimateResource = defineReplica<EstimateParams, EnterpriseKbEstima
 export const fileLibrariesResource = defineReplica<string, string[]>({
   key: (id) => id,
   name: 'enterpriseKbFileLibraries',
+  storage: 'memory',
+  version: 1,
+});
+
+export const nodeKey = ({ knowledgeBaseId, nodeId }: NodeLevelParams) =>
+  JSON.stringify([knowledgeBaseId, nodeId || null]);
+export const nodeEstimateKey = (params: NodeEstimateParams) => JSON.stringify(params);
+export const nodeAccessResource = defineReplica<NodeAccessParams, NodeAccessView>({
+  key: nodeKey,
+  name: 'enterpriseKbNodeAccess',
+  storage: 'memory',
+  version: 1,
+});
+export const nodeLevelResource = defineReplica<NodeLevelParams, { level: EnterpriseNodeLevel }>({
+  key: nodeKey,
+  name: 'enterpriseKbNodeLevel',
+  storage: 'memory',
+  version: 1,
+});
+export const nodeEstimateResource = defineReplica<NodeEstimateParams, NodeAccessEstimate>({
+  key: nodeEstimateKey,
+  name: 'enterpriseKbNodeEstimate',
   storage: 'memory',
   version: 1,
 });

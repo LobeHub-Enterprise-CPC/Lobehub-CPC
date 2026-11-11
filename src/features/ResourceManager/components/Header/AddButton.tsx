@@ -70,7 +70,11 @@ const AddButton = ({ iconOnly, rootLevel }: AddButtonProps = {}) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const urlFolderId = useCurrentFolderId();
   const currentFolderId = rootLevel ? null : urlFolderId;
-  const { allowed: canCreate, reason, enterprise } = useLibraryPermission('create_content');
+  const {
+    allowed: canCreate,
+    reason,
+    enterprise,
+  } = useLibraryPermission('create_content', undefined, rootLevel ? null : undefined);
   const uploadTopLevel = useTopLevelFileUpload({ rootLevel });
 
   // TODO: Migrate Notion import to use createResource

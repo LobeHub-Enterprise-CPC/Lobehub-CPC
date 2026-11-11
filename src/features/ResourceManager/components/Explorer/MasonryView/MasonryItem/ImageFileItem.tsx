@@ -199,7 +199,7 @@ const ImageFileItem = memo<ImageFileItemProps>(
     const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
     // Falls back to a reserved box until the bitmap reports its own ratio.
     const [aspectRatio, setAspectRatio] = useState(knownAspectRatio ?? FALLBACK_ASPECT_RATIO);
-    const { allowed: canEdit } = useLibraryPermission('edit_own_content');
+    const { allowed: canEdit } = useLibraryPermission('edit_own_content', undefined, id);
     const [isCreatingFileParseTask, parseFiles] = useFileStore((s) => [
       fileManagerSelectors.isCreatingFileParseTask(id)(s),
       s.parseFilesToChunks,

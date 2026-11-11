@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useFileBatchTransferActions } from '@/business/client/hooks/useFileBatchTransferActions';
-import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
+import { useLibrarySelectionPermission } from '@/features/EnterpriseKnowledge/useLibrarySelectionPermission';
 import NavHeader from '@/features/NavHeader';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { getExplorerSelectedCount } from '@/features/ResourceManager/store/selectors';
@@ -50,11 +50,7 @@ const Header = memo(() => {
     s.selectionTotal,
     s.viewMode,
   ]);
-  const {
-    allowed: canEditResources,
-    reason,
-    enterprise,
-  } = useLibraryPermission('edit_own_content');
+  const { allowed: canEditResources, reason, enterprise } = useLibrarySelectionPermission();
   const isMobile = useIsMobile();
   const total = useFileStore((s) => s.total);
   const selectCount = getExplorerSelectedCount({

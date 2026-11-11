@@ -9,7 +9,7 @@ export enum KnowledgeBaseTabs {
 /** Enterprise knowledge base metadata, present only on knowledge bases shared by a distribution. */
 export interface EnterpriseKnowledgeBaseInfo {
   /** What the caller may do with this knowledge base. */
-  accessLevel: 'edit' | 'owner' | 'view';
+  accessLevel: 'edit' | 'owner' | 'path' | 'view';
   /** Display name of the knowledge base's owner (负责人). */
   ownerName: string;
 }
