@@ -17,7 +17,7 @@ const Header = memo(() => {
   const id = useActiveLibraryId();
   const navigate = useWorkspaceAwareNavigate();
   const { enterprise, canManageAccess } = useLibraryPermission('edit_own_content', id);
-  const { t } = useTranslation('common');
+  const { t } = useTranslation(['common', 'knowledgeBase']);
   return (
     <>
       <SideBarHeaderLayout

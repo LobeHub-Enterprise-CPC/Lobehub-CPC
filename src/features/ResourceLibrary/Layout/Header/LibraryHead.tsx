@@ -48,7 +48,7 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
  * Quickly switch between libraries
  */
 const Head = memo<{ id: string }>(({ id }) => {
-  const { t } = useTranslation('common');
+  const { t } = useTranslation(['common', 'knowledgeBase']);
   const { allowed: canEdit } = useLibraryPermission('edit_own_content', id);
   const navigate = useWorkspaceAwareNavigate();
   const activeWorkspaceId = useActiveWorkspaceId();
