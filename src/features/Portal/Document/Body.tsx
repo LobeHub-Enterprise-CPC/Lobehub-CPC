@@ -227,6 +227,24 @@ const HighlightEditor = memo<HighlightEditorProps>(
 
 HighlightEditor.displayName = 'HighlightEditor';
 
+interface HighlightDocumentProps extends Omit<HighlightEditorProps, 'canSave'> {
+  canEdit: boolean;
+}
+
+// Keyed by documentId: a new document's permission must not replace the old
+// document's permission while its editor flushes on unmount.
+const HighlightDocument = memo<HighlightDocumentProps>(({ canEdit, ...props }) => {
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
+  const canSave = useCallback(() => canEditRef.current, []);
+
+  return canEdit ? (
+    <HighlightEditor {...props} canSave={canSave} />
+  ) : (
+    <Markdown>{props.content}</Markdown>
+  );
+});
+
 const DocumentBody = memo(() => {
   const { t } = useTranslation('knowledgeBase');
   const documentId = useResolvedDocumentId();
@@ -261,10 +279,6 @@ const DocumentBody = memo(() => {
   }, [documentId, beginDocumentDetailPatch]);
 
   const { allowed: canEditLibrary } = useDocumentLibraryPermission(documentId);
-  const canEditLibraryRef = useRef(canEditLibrary);
-  canEditLibraryRef.current = canEditLibrary;
-  // The highlight editor flushes on unmount; permission loss must also stop that write.
-  const canSaveHighlight = useCallback(() => canEditLibraryRef.current, []);
   const editorContent = (
     <>
       {renderMode.mode !== 'file' &&
@@ -282,11 +296,9 @@ const DocumentBody = memo(() => {
           content={documentMeta?.content ?? ''}
           title={documentMeta?.title ?? undefined}
         />
-      ) : !canEditLibrary ? (
-        <Markdown>{documentMeta?.content ?? ''}</Markdown>
       ) : renderMode.mode === 'highlight' && documentId ? (
-        <HighlightEditor
-          canSave={canSaveHighlight}
+        <HighlightDocument
+          canEdit={canEditLibrary}
           content={documentMeta?.content ?? ''}
           documentId={documentId}
           filename={documentMeta?.filename ?? ''}
@@ -294,6 +306,8 @@ const DocumentBody = memo(() => {
           updatedAt={documentMeta?.updatedAt}
           onSaveStart={handleHighlightSaveStart}
         />
+      ) : !canEditLibrary ? (
+        <Markdown>{documentMeta?.content ?? ''}</Markdown>
       ) : (
         <EditorCanvas />
       )}

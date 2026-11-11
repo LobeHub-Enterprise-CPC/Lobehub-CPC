@@ -342,40 +342,102 @@ describe('DocumentBody', () => {
     });
   });
 
-  it('does not flush a pending edit when a library grant becomes view-only', async () => {
-    mockDocumentMeta.current = { content: 'before', filename: 'config.json' };
-    mockDocumentState.current.documentDetailMap = {
-      'document-1': { document: { knowledgeBaseId: 'library-1' } },
-    };
-    mockLibraryState.current.knowledgeBaseDetailMap['library-1'] = {
-      id: 'library-1',
-      enterprise: { accessLevel: 'edit' },
-    };
-    const { rerender } = render(
-      <DocumentViewProvider value={{ documentId: 'document-1' }}>
-        <DocumentBody />
-      </DocumentViewProvider>,
-    );
-    fireEvent.change(screen.getByTestId('highlight-editor'), { target: { value: 'pending edit' } });
-    mockLibraryState.current.knowledgeBaseDetailMap['library-1'] = {
-      id: 'library-1',
-      enterprise: { accessLevel: 'view' },
-    };
-    await act(async () => {
-      rerender(
+  it.each(['view', 'denied'] as const)(
+    'does not flush a pending edit when its library becomes %s',
+    async (access) => {
+      mockDocumentMeta.current = { content: 'before', filename: 'config.json' };
+      mockDocumentState.current.documentDetailMap = {
+        'document-1': { document: { knowledgeBaseId: 'library-1' } },
+      };
+      mockLibraryState.current.knowledgeBaseDetailMap['library-1'] = {
+        id: 'library-1',
+        enterprise: { accessLevel: 'edit' },
+      };
+      const { rerender } = render(
         <DocumentViewProvider value={{ documentId: 'document-1' }}>
           <DocumentBody />
         </DocumentViewProvider>,
       );
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
+      fireEvent.change(screen.getByTestId('highlight-editor'), {
+        target: { value: 'pending edit' },
+      });
+      if (access === 'view') {
+        mockLibraryState.current.knowledgeBaseDetailMap['library-1'] = {
+          id: 'library-1',
+          enterprise: { accessLevel: 'view' },
+        };
+      } else {
+        mockLibraryState.current.knowledgeBaseSessionAccess['test-scope|library-1'] = 'denied';
+      }
+      await act(async () => {
+        rerender(
+          <DocumentViewProvider value={{ documentId: 'document-1' }}>
+            <DocumentBody />
+          </DocumentViewProvider>,
+        );
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
 
-    expect(screen.queryByTestId('highlight-editor')).toBeNull();
-    expect(screen.getByText('before')).toBeVisible();
-    expect(mockUpdateDocument).not.toHaveBeenCalled();
-  });
+      expect(screen.queryByTestId('highlight-editor')).toBeNull();
+      expect(screen.getByText('before')).toBeVisible();
+      expect(mockUpdateDocument).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['view', 'unresolved'] as const)(
+    'flushes authorized edits for the old document when navigating to a different %s document',
+    async (nextAccess) => {
+      mockDocumentMeta.current = { content: 'old content', filename: 'config.json' };
+      mockDocumentState.current.documentDetailMap = {
+        'document-1': { document: { knowledgeBaseId: 'old-library' } },
+        'document-2': { document: { knowledgeBaseId: 'next-library' } },
+      };
+      mockLibraryState.current.knowledgeBaseDetailMap['old-library'] = {
+        id: 'old-library',
+        enterprise: { accessLevel: 'edit' },
+      };
+      if (nextAccess === 'view') {
+        mockLibraryState.current.knowledgeBaseDetailMap['next-library'] = {
+          id: 'next-library',
+          enterprise: { accessLevel: 'view' },
+        };
+      }
+      const { rerender, unmount } = render(
+        <DocumentViewProvider value={{ documentId: 'document-1' }}>
+          <DocumentBody />
+        </DocumentViewProvider>,
+      );
+      fireEvent.change(screen.getByTestId('highlight-editor'), {
+        target: { value: 'pending authorized edit' },
+      });
+      mockDocumentMeta.current = { content: 'next read-only content', filename: 'config.json' };
+      await act(async () => {
+        rerender(
+          <DocumentViewProvider value={{ documentId: 'document-2' }}>
+            <DocumentBody />
+          </DocumentViewProvider>,
+        );
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+
+      expect(screen.getByText('next read-only content')).toBeVisible();
+      expect(screen.queryByTestId('highlight-editor')).toBeNull();
+      expect(screen.queryByTestId('editor-canvas')).toBeNull();
+      expect(mockUpdateDocument).toHaveBeenCalledExactlyOnceWith({
+        content: 'pending authorized edit',
+        id: 'document-1',
+        saveSource: 'autosave',
+      });
+      await act(async () => {
+        unmount();
+      });
+      expect(mockUpdateDocument).toHaveBeenCalledOnce();
+    },
+  );
 
   it('flushes pending highlight edits when the editor unmounts', async () => {
     mockDocumentMeta.current = { content: 'before', filename: 'config.json' };
