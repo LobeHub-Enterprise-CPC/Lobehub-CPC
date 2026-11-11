@@ -32,6 +32,7 @@ vi.mock('@/features/ResourceManager/store', () => ({
 }));
 
 vi.mock('@/store/file', () => ({
+  fileManagerSelectors: { getFileByChunkTargetId: () => () => undefined },
   useFileStore: (selector: (state: { pushDockFileList: typeof mockPushDockFileList }) => unknown) =>
     selector({ pushDockFileList: mockPushDockFileList }),
 }));
