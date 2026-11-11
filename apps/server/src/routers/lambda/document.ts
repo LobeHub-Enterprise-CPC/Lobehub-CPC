@@ -425,7 +425,12 @@ export const documentRouter = router({
       // KB-scoped documents inherit the KB's public visibility, so direct
       // reads must honor the restricted-KB (member No-access) policy too.
       await assertContentsNotInRestrictedKnowledgeBase(ctx, [input.id]);
-      const doc = await getDocumentForViewer(ctx, input.id);
+      const stored = await getDocumentForViewer(ctx, input.id);
+      // Parsed documents may inherit their library only through the backing file.
+      const doc =
+        stored && ctx.enterpriseScope.enterprise
+          ? { ...stored, knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+          : stored;
       // `source` is a storage key for file-backed documents; sign it so PDF viewers
       // and downloads receive a usable URL. Absolute URLs (web sources) pass through.
       if (

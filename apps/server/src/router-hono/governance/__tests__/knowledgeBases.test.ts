@@ -2,6 +2,7 @@ import * as business from '@lobechat/business-knowledge';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as nextRoute from '@/app/(backend)/api/governance/[[...route]]/route';
 import { getTestDB } from '@/database/core/getTestDB';
 import {
   asyncTasks,
@@ -224,6 +225,19 @@ afterEach(async () => {
 });
 
 describe('enterprise knowledge governance contract', () => {
+  it('exports every registered governance HTTP method through the Next route', async () => {
+    const methods = new Set(
+      app.routes.map((route) => route.method).filter((method) => method !== 'ALL'),
+    );
+    for (const method of methods)
+      expect(Reflect.get(nextRoute, method), method).toBeTypeOf('function');
+    const patch = Reflect.get(nextRoute, 'PATCH') as (request: Request) => Promise<Response>;
+    const response = await patch(
+      new Request(`https://governance.test${prefix}/missing`, { method: 'PATCH' }),
+    );
+    expect(response.status).toBe(401);
+  });
+
   it('guards every endpoint with service-token auth and disabled capability', async () => {
     for (const [method, path] of allRoutes) {
       for (const token of [null, 'wrong'])

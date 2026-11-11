@@ -99,6 +99,38 @@ describe('enterprise knowledge content boundaries', () => {
     );
   });
 
+  it('returns the verified library for a parsed citation whose stored library is null', async () => {
+    const id = await createDoc(testDB, {
+      content: 'parsed citation',
+      title: 'derived',
+      userId: w.owner,
+    });
+    expect(await caller(w.owner).doc.getDocumentById({ id })).toMatchObject({
+      id,
+      knowledgeBaseId: null,
+      content: 'parsed citation',
+    });
+    await testDB
+      .update(documents)
+      .set({ fileId: w.entAFile, knowledgeBaseId: null, sourceType: 'file' })
+      .where(eq(documents.id, id));
+    expect(await caller(w.viewer).doc.getDocumentById({ id })).toMatchObject({
+      id,
+      knowledgeBaseId: w.entA,
+      content: 'parsed citation',
+      source: `/f/${id}`,
+    });
+    expect(
+      (await testDB.select().from(documents).where(eq(documents.id, id)))[0].knowledgeBaseId,
+    ).toBeNull();
+    await expect(
+      caller(w.viewer).doc.updateDocument({ id, content: 'not allowed' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller(w.stranger).doc.getDocumentById({ id })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
   it('view cannot register uploads, create, rename, move, delete or retry', async () => {
     const c = caller(w.viewer);
     const requests = [
