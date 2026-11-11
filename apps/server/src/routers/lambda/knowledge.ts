@@ -11,23 +11,30 @@ import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import { type FileListItem } from '@/types/files';
 import { QueryFileListSchema } from '@/types/files';
 
+import { enterpriseContentContext } from './_helpers/enterpriseContent';
 import {
   assertKnowledgeBaseBrowsable,
   getRestrictedKnowledgeBaseIds,
 } from './_helpers/knowledgeBaseAccess';
 
 const knowledgeProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
-  const { ctx } = opts;
+  const original = opts.ctx;
+  const enterprise = await enterpriseContentContext(original, await opts.getRawInput(), false, {
+    domain: 'knowledge',
+    procedure: opts.path.split('.').at(-1)!,
+  });
+  const ctx = { ...original, ...enterprise };
   const wsId = ctx.workspaceId ?? undefined;
 
   return opts.next({
     ctx: {
-      asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.userId, wsId),
-      chunkModel: new ChunkModel(ctx.serverDB, ctx.userId, wsId),
-      documentModel: new DocumentModel(ctx.serverDB, ctx.userId, wsId),
-      fileModel: new FileModel(ctx.serverDB, ctx.userId, wsId),
-      fileService: new FileService(ctx.serverDB, ctx.userId, wsId),
-      knowledgeRepo: new KnowledgeRepo(ctx.serverDB, ctx.userId, wsId),
+      ...enterprise,
+      asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      chunkModel: new ChunkModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      documentModel: new DocumentModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      fileModel: new FileModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      fileService: new FileService(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      knowledgeRepo: new KnowledgeRepo(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
     },
   });
 });
@@ -39,7 +46,13 @@ export const knowledgeRouter = router({
       : await getRestrictedKnowledgeBaseIds(ctx);
     if (input.knowledgeBaseId) await assertKnowledgeBaseBrowsable(ctx, input.knowledgeBaseId);
 
-    const knowledgeItems = await ctx.knowledgeRepo.query({ ...input, excludeKnowledgeBaseIds });
+    const knowledgeItems = await ctx.knowledgeRepo.query({
+      ...input,
+      ...(ctx.enterpriseScope.enterprise
+        ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+        : {}),
+      excludeKnowledgeBaseIds,
+    });
 
     // Process files (add chunk info and async task status)
     const fileItems = knowledgeItems.filter((item) => item.sourceType === 'file');

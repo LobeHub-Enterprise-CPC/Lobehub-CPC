@@ -93,6 +93,7 @@ interface RagService {
      * An empty array means there was nothing to search.
      */
     searchedKnowledgeBaseIds?: string[];
+    skippedKnowledgeBaseCount?: number;
   }>;
 }
 
@@ -316,6 +317,9 @@ export class KnowledgeBaseExecutionRuntime {
       const fileResults = result.fileResults ?? [];
       const documents = result.documents ?? [];
       const errors = result.errors;
+      const skipped = result.skippedKnowledgeBaseCount
+        ? { skippedKnowledgeBaseCount: result.skippedKnowledgeBaseCount }
+        : {};
       const totalResults = chunks.length + documents.length;
 
       if (totalResults === 0) {
@@ -323,6 +327,7 @@ export class KnowledgeBaseExecutionRuntime {
           chunks: [],
           documents: [],
           errors,
+          ...skipped,
           fileResults: [],
           totalResults: 0,
         };
@@ -340,6 +345,7 @@ export class KnowledgeBaseExecutionRuntime {
         chunks,
         documents,
         errors,
+        ...skipped,
         fileResults,
         totalResults,
       };

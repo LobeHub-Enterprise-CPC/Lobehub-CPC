@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { serverDBEnv } from '@/config/db';
 import { router } from '@/libs/trpc/lambda';
+import { trashEnterpriseItems } from '@/server/services/enterpriseKnowledge/trash';
 import { createResourceContentPreview } from '@/server/utils/resourceContentPreview';
 import type { FileListItem, KnowledgeItemStatus } from '@/types/files';
 import { QueryFileListSchema } from '@/types/files';
@@ -85,6 +86,9 @@ export const knowledgeItemsRouter = router({
     const includeContentPreview = input.includeContentPreview === true;
     const knowledgeItems = await ctx.knowledgeRepo.query({
       ...input,
+      ...(ctx.enterpriseScope.enterprise
+        ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+        : {}),
       excludeKnowledgeBaseIds,
       includeContent,
       includeContentPreview,
@@ -215,6 +219,9 @@ export const knowledgeItemsRouter = router({
       while (hasMore) {
         const knowledgeItems = await ctx.knowledgeRepo.query({
           ...input,
+          ...(ctx.enterpriseScope.enterprise
+            ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+            : {}),
           excludeKnowledgeBaseIds,
           includeContent: false,
           includeContentPreview: false,
@@ -254,6 +261,9 @@ export const knowledgeItemsRouter = router({
       while (hasMore) {
         const knowledgeItems = await ctx.knowledgeRepo.query({
           ...query,
+          ...(ctx.enterpriseScope.enterprise
+            ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+            : {}),
           excludeKnowledgeBaseIds,
           includeContent: false,
           includeContentPreview: false,
@@ -287,6 +297,12 @@ export const knowledgeItemsRouter = router({
 
       await assertContentsNotInRestrictedKnowledgeBase(ctx, [...documentIds, ...fileIds]);
 
+      if (ctx.enterpriseScope.enterprise)
+        return trashEnterpriseItems(
+          { ...ctx, userId: ctx.enterpriseCallerId },
+          ctx.enterpriseScope,
+          [...documentIds, ...fileIds],
+        );
       if (documentIds.length > 0) {
         await ctx.documentService.deleteDocuments(documentIds);
       }

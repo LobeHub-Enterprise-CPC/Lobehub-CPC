@@ -1,3 +1,4 @@
+import { isEnterpriseKnowledgeEnabled } from '@lobechat/business-knowledge';
 import { DEFAULT_FILE_EMBEDDING_MODEL_ITEM } from '@lobechat/const';
 import { RequestTrigger, SemanticSearchSchema } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
@@ -19,23 +20,47 @@ import { ChunkService } from '@/server/services/chunk';
 import { DocumentService } from '@/server/services/document';
 import { KnowledgeBaseSearchService } from '@/server/services/knowledgeBase';
 
-import { assertFileNotInRestrictedKnowledgeBase } from './_helpers/knowledgeBaseAccess';
+import { enterpriseContentContext } from './_helpers/enterpriseContent';
+import {
+  assertFileNotInRestrictedKnowledgeBase,
+  getRestrictedKnowledgeBaseIds,
+} from './_helpers/knowledgeBaseAccess';
 
 const chunkProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
-  const { ctx } = opts;
+  const original = opts.ctx;
+  const raw = ['getFileContents', 'semanticSearchForChat'].includes(opts.path.split('.').at(-1)!)
+    ? {}
+    : await opts.getRawInput();
+  const enterprise = await enterpriseContentContext(
+    original,
+    raw,
+    opts.type === 'mutation' &&
+      !['getFileContents', 'semanticSearchForChat', 'semanticSearch'].includes(
+        opts.path.split('.').at(-1)!,
+      ),
+    { domain: 'chunk', procedure: opts.path.split('.').at(-1)! },
+  );
+  const ctx = { ...original, ...enterprise };
   const wsId = ctx.workspaceId ?? undefined;
 
   return opts.next({
     ctx: {
-      asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.userId, wsId),
-      chunkModel: new ChunkModel(ctx.serverDB, ctx.userId, wsId),
-      chunkService: new ChunkService(ctx.serverDB, ctx.userId, wsId),
-      documentModel: new DocumentModel(ctx.serverDB, ctx.userId, wsId),
-      documentService: new DocumentService(ctx.serverDB, ctx.userId, wsId),
-      embeddingModel: new EmbeddingModel(ctx.serverDB, ctx.userId, wsId),
-      fileModel: new FileModel(ctx.serverDB, ctx.userId, wsId),
-      knowledgeBaseSearchService: new KnowledgeBaseSearchService(ctx.serverDB, ctx.userId, wsId),
-      messageModel: new MessageModel(ctx.serverDB, ctx.userId, wsId),
+      ...enterprise,
+      asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      chunkModel: new ChunkModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      chunkService: new ChunkService(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      documentModel: new DocumentModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      documentService: new DocumentService(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      embeddingModel: new EmbeddingModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      fileModel: new FileModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      knowledgeBaseSearchService: new KnowledgeBaseSearchService(
+        ctx.serverDB,
+        ctx.userId,
+        wsId,
+        undefined,
+        enterprise.enterpriseCallerId,
+      ),
+      messageModel: new MessageModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
     },
   });
 });
@@ -146,9 +171,18 @@ export const chunkRouter = router({
         { metadata: { trigger: RequestTrigger.SemanticSearch }, user: ctx.userId },
       );
 
+      const fileIds =
+        !input.fileIds && !ctx.workspaceId && isEnterpriseKnowledgeEnabled()
+          ? (
+              await ctx.fileModel.query({
+                showFilesInKnowledgeBase: true,
+                excludeKnowledgeBaseIds: await getRestrictedKnowledgeBaseIds(ctx),
+              })
+            ).map((file) => file.id)
+          : input.fileIds;
       return ctx.chunkModel.semanticSearch({
         embedding: embeddings![0],
-        fileIds: input.fileIds,
+        fileIds,
         query: input.query,
       });
     }),
@@ -190,6 +224,9 @@ export const chunkRouter = router({
         errors: result.errors,
         fileResults: result.fileResults,
         totalResults: result.totalResults,
+        ...(result.skippedKnowledgeBaseCount
+          ? { skippedKnowledgeBaseCount: result.skippedKnowledgeBaseCount }
+          : {}),
       };
     }),
 });

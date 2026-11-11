@@ -1,3 +1,4 @@
+import { isEnterpriseKnowledgeEnabled } from '@lobechat/business-knowledge';
 import { DEFAULT_FILE_EMBEDDING_MODEL_ITEM } from '@lobechat/const';
 import { type LobeChatDatabase } from '@lobechat/database';
 import {
@@ -6,6 +7,7 @@ import {
   RequestTrigger,
   type SemanticSearchSchemaType,
 } from '@lobechat/types';
+import { TRPCError } from '@trpc/server';
 import { and, inArray } from 'drizzle-orm';
 import pMap from 'p-map';
 
@@ -20,7 +22,13 @@ import { buildWorkspaceWhere } from '@/database/utils/workspace';
 import { getServerDefaultFilesConfig } from '@/server/globalConfig';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { DocumentService } from '@/server/services/document';
+import {
+  loadItemMemberships,
+  planRetrieval,
+  resolveItemsScope,
+} from '@/server/services/enterpriseKnowledge';
 import { createFtsSearchRepo } from '@/server/services/ftsSearch';
+import { assertContentsNotInRestrictedKnowledgeBase } from '@/server/services/knowledgeBaseAccess';
 
 export interface FileContentResult {
   content: string;
@@ -46,6 +54,7 @@ export interface SemanticSearchForChatResult {
    * a search path failed.
    */
   rejections?: { bm25?: unknown; vector?: unknown };
+  skippedKnowledgeBaseCount?: number;
   totalResults: number;
 }
 
@@ -102,6 +111,7 @@ export class KnowledgeBaseSearchService {
     userId: string,
     workspaceId?: string,
     callerAgentVisibility?: 'private' | 'public' | null,
+    private readonly askerId: string | null = null,
   ) {
     this.serverDB = serverDB;
     this.userId = userId;
@@ -128,6 +138,14 @@ export class KnowledgeBaseSearchService {
   }
 
   async semanticSearchForChat(
+    input: SemanticSearchSchemaType,
+  ): Promise<SemanticSearchForChatResult> {
+    if (!this.workspaceId && isEnterpriseKnowledgeEnabled())
+      return this.searchEnterpriseAware(input);
+    return this.searchScoped(input);
+  }
+
+  private async searchScoped(
     input: SemanticSearchSchemaType,
   ): Promise<SemanticSearchForChatResult> {
     const topK = input.topK ?? 20;
@@ -166,6 +184,10 @@ export class KnowledgeBaseSearchService {
           ),
         });
         finalFileIds = knowledgeFiles.map((f) => f.fileId).concat(finalFileIds);
+      }
+
+      if (!this.workspaceId && isEnterpriseKnowledgeEnabled() && finalFileIds.length) {
+        finalFileIds = (await this.fileModel.findByIds(finalFileIds)).map((file) => file.id);
       }
 
       return this.chunkModel.semanticSearchForChat({
@@ -229,7 +251,103 @@ export class KnowledgeBaseSearchService {
     };
   }
 
+  private async searchEnterpriseAware(
+    input: SemanticSearchSchemaType,
+  ): Promise<SemanticSearchForChatResult> {
+    const ctx = { serverDB: this.serverDB, workspaceId: this.workspaceId };
+    const memberships = await loadItemMemberships(this.serverDB, input.fileIds ?? []);
+    const requestedIds = [
+      ...new Set([
+        ...(input.knowledgeIds ?? []),
+        ...[...memberships.values()].flatMap((item) => [...item.knowledgeBaseIds]),
+      ]),
+    ];
+    const plan = await planRetrieval(ctx, requestedIds, this.askerId);
+    const enterpriseFiles = new Set<string>();
+    for (const [id, membership] of memberships) {
+      if ([...membership.knowledgeBaseIds].some((kbId) => !plan.plainIds.includes(kbId)))
+        enterpriseFiles.add(id);
+    }
+    const plainFiles = (input.fileIds ?? []).filter((id) => !enterpriseFiles.has(id));
+    const groups = [
+      ...(plan.plainIds.length || plainFiles.length || requestedIds.length === 0
+        ? [{ fileIds: plainFiles, knowledgeIds: plan.plainIds, userId: this.userId }]
+        : []),
+      ...plan.enterpriseGroups.map((group) => ({
+        fileIds: (input.fileIds ?? []).filter((id) =>
+          [...(memberships.get(id)?.knowledgeBaseIds ?? [])].some((kbId) =>
+            group.knowledgeBaseIds.includes(kbId),
+          ),
+        ),
+        knowledgeIds: group.knowledgeBaseIds.filter((id) => input.knowledgeIds?.includes(id)),
+        userId: group.ownerId,
+      })),
+    ];
+    const results = await Promise.all(
+      groups.map((group) =>
+        new KnowledgeBaseSearchService(
+          this.serverDB,
+          group.userId,
+          undefined,
+          this.callerAgentVisibility,
+          this.askerId,
+        ).searchScoped({ ...input, fileIds: group.fileIds, knowledgeIds: group.knowledgeIds }),
+      ),
+    );
+    const topK = input.topK ?? 20;
+    const chunks = results
+      .flatMap((result) => result.chunks)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topK);
+    const documents = results
+      .flatMap((result) => result.documents)
+      .sort((a, b) => a.relevance - b.relevance)
+      .slice(0, topK);
+    const errors = Object.assign({}, ...results.map((result) => result.errors));
+    const rejections = Object.assign({}, ...results.map((result) => result.rejections));
+    return {
+      chunks,
+      documents,
+      fileResults: groupAndRankFiles(chunks, topK),
+      totalResults: chunks.length + documents.length,
+      ...(Object.keys(errors).length ? { errors, rejections } : {}),
+      ...(plan.skippedCount ? { skippedKnowledgeBaseCount: plan.skippedCount } : {}),
+    };
+  }
+
   async getFileContents(ids: string[]): Promise<FileContentResult[]> {
+    const ctx = {
+      serverDB: this.serverDB,
+      userId: this.askerId ?? this.userId,
+      workspaceId: this.workspaceId,
+    };
+    await assertContentsNotInRestrictedKnowledgeBase(ctx, ids);
+    if (!this.workspaceId && isEnterpriseKnowledgeEnabled()) {
+      // Validate the complete batch before reading anything. Each id gets its own exact scope.
+      const scopes = await Promise.all(ids.map((id) => resolveItemsScope(ctx, [id], 'view')));
+      if (!this.askerId && scopes.some((scope) => scope.enterprise))
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      return (
+        await Promise.all(
+          ids.map((id, index) => {
+            const scope = scopes[index];
+            return scope.enterprise
+              ? new KnowledgeBaseSearchService(
+                  this.serverDB,
+                  scope.ownerId,
+                  undefined,
+                  this.callerAgentVisibility,
+                  this.askerId,
+                ).readScopedContents([id])
+              : this.readScopedContents([id]);
+          }),
+        )
+      ).flat();
+    }
+    return this.readScopedContents(ids);
+  }
+
+  private async readScopedContents(ids: string[]): Promise<FileContentResult[]> {
     return pMap(
       ids,
       async (id) => {

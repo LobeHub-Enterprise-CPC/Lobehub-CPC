@@ -58,12 +58,12 @@ export const updateRouter = router({
           // Documents are written before the file, matching updateDocument's
           // lock order so concurrent moves cannot deadlock.
           if (updates.parentId !== undefined || updates.name !== undefined) {
-            await new DocumentModel(trx, ctx.userId, wsId).syncFromFile(id, {
+            await new DocumentModel(trx, ctx.enterpriseDataUserId, wsId).syncFromFile(id, {
               name: updates.name,
               parentId: updates.parentId,
             });
           }
-          await new FileModel(trx, ctx.userId, wsId).update(id, updates);
+          await new FileModel(trx, ctx.enterpriseDataUserId, wsId).update(id, updates);
         });
       }
 

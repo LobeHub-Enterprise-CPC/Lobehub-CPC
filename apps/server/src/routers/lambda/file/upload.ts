@@ -8,7 +8,9 @@ import { z } from 'zod';
 import { businessFileUploadCheck } from '@/business/server/lambda-routers/file';
 import { checkFileStorageUsage } from '@/business/server/trpc-middlewares/lambda';
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
+import type { LobeChatDatabase } from '@/database/type';
 import { router } from '@/libs/trpc/lambda';
+import { recordMemberUploads } from '@/server/services/enterpriseKnowledge';
 import type { FileService } from '@/server/services/file';
 import { downloadRemoteImage } from '@/server/services/file/downloadRemoteImage';
 import {
@@ -242,12 +244,14 @@ export const uploadRouter = router({
           );
         }
 
-        const createFile = () =>
-          ctx.fileModel.create(
+        const createFile = async () => {
+          const file = await ctx.fileModel.create(
             {
               fileHash: input.hash,
               fileType: input.fileType,
-              knowledgeBaseId: input.knowledgeBaseId,
+              knowledgeBaseId: ctx.enterpriseScope.enterprise
+                ? ctx.enterpriseScope.knowledgeBaseId
+                : input.knowledgeBaseId,
               metadata,
               name: input.name,
               parentId: resolvedParentId,
@@ -264,6 +268,18 @@ export const uploadRouter = router({
             !currentFile.isExist,
             trx,
           );
+          if (ctx.enterpriseScope.enterprise)
+            await recordMemberUploads(
+              {
+                ...ctx,
+                serverDB: trx as unknown as LobeChatDatabase,
+                userId: ctx.enterpriseCallerId,
+              },
+              ctx.enterpriseScope.knowledgeBaseId,
+              [file.id],
+            );
+          return file;
+        };
 
         if (activeUpload) {
           const lockedUpload = await ctx.fileUploadService.model.findLatestByPathnameForUpdate(

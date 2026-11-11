@@ -109,7 +109,13 @@ export const queriesRouter = router({
         ? await getRestrictedKnowledgeBaseIds(ctx)
         : undefined;
 
-    const fileList = await ctx.fileModel.query({ ...input, excludeKnowledgeBaseIds });
+    const fileList = await ctx.fileModel.query({
+      ...input,
+      ...(ctx.enterpriseScope.enterprise
+        ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+        : {}),
+      excludeKnowledgeBaseIds,
+    });
     const statusMap = await getKnowledgeItemStatusMap(ctx, fileList);
 
     const resultFiles = [] as any[];

@@ -6,6 +6,7 @@ import { businessFileExternalReferenceGuard } from '@/business/server/lambda-rou
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { serverDBEnv } from '@/config/db';
 import { router } from '@/libs/trpc/lambda';
+import { trashEnterpriseItems } from '@/server/services/enterpriseKnowledge/trash';
 
 import { assertFileNotInRestrictedKnowledgeBase } from '../_helpers/knowledgeBaseAccess';
 import { fileProcedure } from './procedures';
@@ -41,6 +42,15 @@ export const removeRouter = router({
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'File not found' });
       await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
 
+      if (ctx.enterpriseScope.enterprise) {
+        await trashEnterpriseItems(
+          { ...ctx, userId: ctx.enterpriseCallerId },
+          ctx.enterpriseScope,
+          [input.id],
+        );
+        return;
+      }
+
       const file = await ctx.fileModel.delete(input.id, {
         removeGlobalFile: serverDBEnv.REMOVE_GLOBAL_FILE,
       });
@@ -58,6 +68,15 @@ export const removeRouter = router({
       // Import failure cleanup can run on both server and client; retries are harmless.
       if (!existing) return;
       await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
+
+      if (ctx.enterpriseScope.enterprise) {
+        await trashEnterpriseItems(
+          { ...ctx, userId: ctx.enterpriseCallerId },
+          ctx.enterpriseScope,
+          [input.id],
+        );
+        return;
+      }
 
       const file = await ctx.fileModel.deleteUnreferenced(
         input.id,
@@ -96,6 +115,15 @@ export const removeRouter = router({
       const targets = await ctx.fileModel.findByIds(ids);
       assertAllFilesAccessible(ids, targets);
       await assertFilesNotInRestrictedKnowledgeBase(ctx, targets);
+
+      if (ctx.enterpriseScope.enterprise) {
+        await trashEnterpriseItems(
+          { ...ctx, userId: ctx.enterpriseCallerId },
+          ctx.enterpriseScope,
+          ids,
+        );
+        return;
+      }
 
       const needToRemoveFileList = await ctx.fileModel.deleteMany(
         ids,

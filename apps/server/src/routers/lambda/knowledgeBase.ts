@@ -12,6 +12,14 @@ import { ResourcePermissionModel } from '@/database/models/resourcePermission';
 import { DEFAULT_RESOURCE_ACCESS_LEVELS } from '@/database/schemas';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import {
+  assertNotEnterpriseKnowledgeBase,
+  filterEnterpriseKnowledgeBaseIds,
+  getUserDisplayNames,
+  itemsBelongToKnowledgeBase,
+  mergeEnterpriseKnowledgeBases,
+  resolveKnowledgeBaseScope,
+} from '@/server/services/enterpriseKnowledge';
 import { FileService } from '@/server/services/file';
 import {
   getWorkspaceScopedPermissionMatches,
@@ -93,6 +101,16 @@ export const knowledgeBaseRouter = router({
     .use(withScopedPermission('knowledge_base:update'))
     .input(z.object({ ids: z.array(z.string()), knowledgeBaseId: z.string() }))
     .mutation(async ({ input, ctx }) => {
+      // Rows inside an enterprise library all belong to its owner, so only the
+      // owner may file existing rows into it; members upload instead.
+      const scope = await resolveKnowledgeBaseScope(ctx, input.knowledgeBaseId, 'edit');
+      if (scope.enterprise && scope.ownerId !== ctx.userId) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Only the knowledge base owner can add existing files; upload them instead',
+        });
+      }
+
       const kb = await ctx.knowledgeBaseModel.findById(input.knowledgeBaseId);
       if (!kb) throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge base not found' });
       await assertKnowledgeBaseBrowsable(ctx, input.knowledgeBaseId, {
@@ -158,6 +176,12 @@ export const knowledgeBaseRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      await assertNotEnterpriseKnowledgeBase(
+        ctx,
+        input.id,
+        'An enterprise knowledge base cannot be copied',
+      );
+
       const knowledgeBase = await ctx.knowledgeBaseModel.findById(input.id);
       if (!knowledgeBase) {
         throw new TRPCError({
@@ -202,6 +226,20 @@ export const knowledgeBaseRouter = router({
   getKnowledgeBaseById: knowledgeBaseProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }): Promise<KnowledgeBaseItem | undefined> => {
+      // An enterprise library is read through its owner once the caller's tier is known.
+      const scope = await resolveKnowledgeBaseScope(ctx, input.id, 'view');
+      if (scope.enterprise) {
+        const owned = await new KnowledgeBaseModel(ctx.serverDB, scope.ownerId).findById(input.id);
+        if (!owned) throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge base not found' });
+        const ownerName = (await getUserDisplayNames(ctx.serverDB, [scope.ownerId])).get(
+          scope.ownerId,
+        );
+        return {
+          ...owned,
+          enterprise: { accessLevel: scope.level, ownerName: ownerName ?? scope.ownerId },
+        } as KnowledgeBaseItem;
+      }
+
       const kb = await ctx.knowledgeBaseModel.findById(input.id);
       if (!kb) return kb;
 
@@ -240,7 +278,9 @@ export const knowledgeBaseRouter = router({
         // Managers keep seeing restricted KBs — flag them (and who may manage
         // permissions) so the client renders the lock badge and the
         // permission-page entry without a per-row permission request.
-        if (!ctx.workspaceId) return visible;
+        if (!ctx.workspaceId) {
+          return mergeEnterpriseKnowledgeBases(ctx, visible, { visibility: input?.visibility });
+        }
         const [useLevelIds, { hasAllScope }] = await Promise.all([
           getUseLevelKnowledgeBaseIds(ctx.serverDB, ctx.workspaceId),
           getWorkspaceScopedPermissionMatches({
@@ -321,9 +361,19 @@ export const knowledgeBaseRouter = router({
   removeAllKnowledgeBases: knowledgeBaseProcedure
     .use(withScopedPermission('knowledge_base:delete'))
     .mutation(async ({ ctx }) => {
-      const knowledgeBases = await filterRestrictedKnowledgeBases(
+      const allKnowledgeBases = await filterRestrictedKnowledgeBases(
         ctx,
         await ctx.knowledgeBaseModel.query(),
+      );
+      // An enterprise library is never deleted as a whole, not even by its owner.
+      const enterpriseIds = ctx.workspaceId
+        ? []
+        : await filterEnterpriseKnowledgeBaseIds(
+            ctx.serverDB,
+            allKnowledgeBases.map((knowledgeBase) => knowledgeBase.id),
+          );
+      const knowledgeBases = allKnowledgeBases.filter(
+        (knowledgeBase) => !enterpriseIds.includes(knowledgeBase.id),
       );
       // Delete sequentially so a file shared by multiple target libraries is
       // re-evaluated after each membership disappears. Parallel preflights can
@@ -351,6 +401,21 @@ export const knowledgeBaseRouter = router({
     .use(withScopedPermission('knowledge_base:update'))
     .input(z.object({ ids: z.array(z.string()), knowledgeBaseId: z.string() }))
     .mutation(async ({ input, ctx }) => {
+      const scope = await resolveKnowledgeBaseScope(ctx, input.knowledgeBaseId, 'edit');
+      if (scope.enterprise) {
+        // The rows are the owner's: act through the owner, on this library's own rows only.
+        if (!(await itemsBelongToKnowledgeBase(ctx.serverDB, input.ids, input.knowledgeBaseId))) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'One or more resources were not found or are not accessible',
+          });
+        }
+        return new KnowledgeBaseModel(ctx.serverDB, scope.ownerId).removeFilesFromKnowledgeBase(
+          input.knowledgeBaseId,
+          input.ids,
+        );
+      }
+
       const kb = await ctx.knowledgeBaseModel.findById(input.knowledgeBaseId);
       if (!kb) throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge base not found' });
       await assertKnowledgeBaseBrowsable(ctx, input.knowledgeBaseId, {
@@ -367,6 +432,12 @@ export const knowledgeBaseRouter = router({
     .use(withScopedPermission('knowledge_base:delete'))
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
+      await assertNotEnterpriseKnowledgeBase(
+        ctx,
+        input.id,
+        'An enterprise knowledge base can only be deleted from the back office',
+      );
+
       const existing = await ctx.knowledgeBaseModel.findById(input.id);
       if (!existing)
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge base not found' });
@@ -400,6 +471,12 @@ export const knowledgeBaseRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      await assertNotEnterpriseKnowledgeBase(
+        ctx,
+        input.id,
+        'An enterprise knowledge base cannot be moved',
+      );
+
       if (input.targetWorkspaceId === (ctx.workspaceId ?? null)) {
         throw new TRPCError({
           cause: { data: { code: TransferErrorCode.SameWorkspace } },
@@ -488,6 +565,9 @@ export const knowledgeBaseRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      // Name and description of an enterprise library belong to its owner alone.
+      await resolveKnowledgeBaseScope(ctx, input.id, 'owner');
+
       const existing = await ctx.knowledgeBaseModel.findById(input.id);
       if (!existing) return;
       await assertKnowledgeBaseBrowsable(ctx, input.id, {

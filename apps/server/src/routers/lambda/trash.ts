@@ -1,3 +1,4 @@
+import { isEnterpriseKnowledgeEnabled } from '@lobechat/business-knowledge';
 import type { TrashProjectFilter } from '@lobechat/types';
 import { TRASH_RESOURCE_TYPES } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
@@ -7,6 +8,7 @@ import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceA
 import { ProjectModel } from '@/database/models/project';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { resolveEnterpriseTrashScope } from '@/server/services/enterpriseKnowledge/trash';
 import { TrashService } from '@/server/services/trash';
 
 import {
@@ -15,10 +17,22 @@ import {
 } from './_helpers/assertWorkspaceRowManageable';
 
 const trashProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
-  const { ctx } = opts;
+  const original = opts.ctx;
+  let dataUserId = original.userId;
+  if (
+    !original.workspaceId &&
+    isEnterpriseKnowledgeEnabled() &&
+    ['purge', 'restore'].includes(opts.path.split('.').at(-1)!)
+  ) {
+    const input = z.object({ ids: z.array(z.string().uuid()) }).parse(await opts.getRawInput());
+    const scope = await resolveEnterpriseTrashScope(original, input.ids);
+    if (scope.enterprise) dataUserId = scope.ownerId;
+  }
+  const ctx = { ...original, userId: dataUserId };
   const wsId = ctx.workspaceId ?? undefined;
   return opts.next({
     ctx: {
+      userId: dataUserId,
       projectModel: new ProjectModel(ctx.serverDB, ctx.userId, wsId),
       trashService: new TrashService(ctx.serverDB, ctx.userId, wsId),
     },

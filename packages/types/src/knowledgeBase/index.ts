@@ -6,12 +6,24 @@ export enum KnowledgeBaseTabs {
   Testing = 'testing',
 }
 
+/** Enterprise knowledge base metadata, present only on knowledge bases shared by a distribution. */
+export interface EnterpriseKnowledgeBaseInfo {
+  /** What the caller may do with this knowledge base. */
+  accessLevel: 'edit' | 'owner' | 'view';
+  /** Display name of the knowledge base's owner (负责人). */
+  ownerName: string;
+}
+
 export interface KnowledgeBaseItem {
+  /** Mounted enterprise knowledge base the caller can no longer access (id and name only). */
+  accessRevoked?: boolean;
   avatar: string | null;
 
   createdAt: Date;
   description?: string | null;
   enabled?: boolean;
+  /** Set only for enterprise knowledge bases the caller can access. */
+  enterprise?: EnterpriseKnowledgeBaseInfo;
 
   id: string;
 
@@ -43,10 +55,17 @@ export enum KnowledgeType {
 }
 
 export interface KnowledgeItem {
+  /**
+   * KB only: an enterprise knowledge base mounted on the agent that the caller
+   * can no longer access. Only the id and name are kept; it takes no part in retrieval.
+   */
+  accessRevoked?: boolean;
   avatar?: string | null;
   content?: string;
   description?: string | null;
   enabled?: boolean;
+  /** KB only: set for enterprise knowledge bases the caller can access. */
+  enterprise?: EnterpriseKnowledgeBaseInfo;
   fileType?: string;
   id: string;
   /**

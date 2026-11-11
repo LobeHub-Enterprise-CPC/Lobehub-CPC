@@ -20,6 +20,9 @@ import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { DocumentService } from '@/server/services/document';
 import { resolveDocumentEditorData } from '@/server/services/document/editorData';
 import { canViewDocumentContent, getDocumentForViewer } from '@/server/services/documentAccess';
+import { itemsBelongToKnowledgeBase } from '@/server/services/enterpriseKnowledge';
+import { createEnterpriseDocuments } from '@/server/services/enterpriseKnowledge/createDocuments';
+import { trashEnterpriseItems } from '@/server/services/enterpriseKnowledge/trash';
 import { FileService } from '@/server/services/file';
 import {
   assertCanPerformResourceAction,
@@ -31,6 +34,7 @@ import { after } from '@/server/utils/scheduleAfterResponse';
 import { TransferErrorCode } from '@/types/transferError';
 
 import { isWorkspaceNonOwner } from './_helpers/assertWorkspaceRowManageable';
+import { enterpriseContentContext } from './_helpers/enterpriseContent';
 import {
   assertContentsNotInRestrictedKnowledgeBase,
   getRestrictedKnowledgeBaseIds,
@@ -177,16 +181,31 @@ const registerRunDocumentWork = async (
 };
 
 const documentProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
-  const { ctx } = opts;
+  const original = opts.ctx;
+  const enterprise = await enterpriseContentContext(
+    original,
+    await opts.getRawInput(),
+    opts.type === 'mutation',
+    {
+      batchCreate: opts.path.endsWith('createDocuments'),
+      domain: 'document',
+      procedure: opts.path.split('.').at(-1)!,
+      forbidExport: ['transferDocument', 'copyDocumentToWorkspace'].includes(
+        opts.path.split('.').at(-1)!,
+      ),
+    },
+  );
+  const ctx = { ...original, ...enterprise };
   const wsId = ctx.workspaceId ?? undefined;
 
   return opts.next({
     ctx: {
-      chunkModel: new ChunkModel(ctx.serverDB, ctx.userId, wsId),
-      documentModel: new DocumentModel(ctx.serverDB, ctx.userId, wsId),
-      documentService: new DocumentService(ctx.serverDB, ctx.userId, wsId),
-      fileModel: new FileModel(ctx.serverDB, ctx.userId, wsId),
-      messageModel: new MessageModel(ctx.serverDB, ctx.userId, wsId),
+      ...enterprise,
+      chunkModel: new ChunkModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      documentModel: new DocumentModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      documentService: new DocumentService(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      fileModel: new FileModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      messageModel: new MessageModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
       operationModel: new AgentOperationModel(ctx.serverDB, ctx.userId, wsId),
       workModel: new WorkModel(ctx.serverDB, ctx.userId, wsId),
     },
@@ -231,11 +250,23 @@ export const documentRouter = router({
         editorData: documentInput.editorData ? JSON.parse(documentInput.editorData) : undefined,
         fileType: documentInput.fileType,
       });
-      const document = await ctx.documentService.createDocument({
+      const documentParams = {
         ...documentInput,
+        ...(ctx.enterpriseScope.enterprise
+          ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+          : {}),
         editorData,
         parentId: resolvedParentId,
-      });
+      };
+      const document = ctx.enterpriseScope.enterprise
+        ? (
+            await createEnterpriseDocuments(
+              { ...ctx, userId: ctx.enterpriseCallerId },
+              ctx.enterpriseScope,
+              [documentParams],
+            )
+          )[0]
+        : await ctx.documentService.createDocument(documentParams);
       if (ctx.workspaceId && document.visibility !== 'private') {
         await new ResourcePermissionModel(ctx.serverDB, ctx.workspaceId).setAccessLevel(
           'document',
@@ -293,6 +324,9 @@ export const documentRouter = router({
 
           return {
             ...doc,
+            ...(ctx.enterpriseScope.enterprise
+              ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+              : {}),
             editorData,
             parentId: resolvedParentId,
           };
@@ -307,7 +341,13 @@ export const documentRouter = router({
         await assertCanCreateUnderParent(ctx, parentId);
       }
 
-      const createdDocuments = await ctx.documentService.createDocuments(processedDocuments);
+      const createdDocuments = ctx.enterpriseScope.enterprise
+        ? await createEnterpriseDocuments(
+            { ...ctx, userId: ctx.enterpriseCallerId },
+            ctx.enterpriseScope,
+            processedDocuments,
+          )
+        : await ctx.documentService.createDocuments(processedDocuments);
       if (ctx.workspaceId) {
         const permissionModel = new ResourcePermissionModel(ctx.serverDB, ctx.workspaceId);
         await Promise.all(
@@ -334,6 +374,12 @@ export const documentRouter = router({
       if (!document) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
       await assertContentsNotInRestrictedKnowledgeBase(ctx, [input.id]);
 
+      if (ctx.enterpriseScope.enterprise)
+        return trashEnterpriseItems(
+          { ...ctx, userId: ctx.enterpriseCallerId },
+          ctx.enterpriseScope,
+          [input.id],
+        );
       const result = await ctx.documentService.deleteDocument(input.id);
       if (ctx.workspaceId) {
         await new ResourcePermissionModel(ctx.serverDB, ctx.workspaceId).removeAll(
@@ -359,6 +405,12 @@ export const documentRouter = router({
       }
       await assertContentsNotInRestrictedKnowledgeBase(ctx, ids);
 
+      if (ctx.enterpriseScope.enterprise)
+        return trashEnterpriseItems(
+          { ...ctx, userId: ctx.enterpriseCallerId },
+          ctx.enterpriseScope,
+          ids,
+        );
       const result = await ctx.documentService.deleteDocuments(ids);
       if (ctx.workspaceId) {
         const permissionModel = new ResourcePermissionModel(ctx.serverDB, ctx.workspaceId);
@@ -382,7 +434,11 @@ export const documentRouter = router({
         /^https?:\/\//i.test(doc.source)
       )
         return doc;
-      const fileService = new FileService(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined);
+      const fileService = new FileService(
+        ctx.serverDB,
+        ctx.enterpriseDataUserId,
+        ctx.workspaceId ?? undefined,
+      );
       return {
         ...doc,
         source: await fileService.getFileAccessUrl({
@@ -449,6 +505,15 @@ export const documentRouter = router({
 
       // Build chain from current folder to root
       while (currentFolder) {
+        if (
+          ctx.enterpriseScope.enterprise &&
+          !(await itemsBelongToKnowledgeBase(
+            ctx.serverDB,
+            [currentFolder.id],
+            ctx.enterpriseScope.knowledgeBaseId,
+          ))
+        )
+          break;
         chain.unshift({
           id: currentFolder.id,
           name: currentFolder.title || currentFolder.filename || 'Untitled',
@@ -510,9 +575,7 @@ export const documentRouter = router({
       // KB pages are ordinary workspace-public documents, so listings must
       // drop rows from restricted (member No-access) libraries. The exclusion
       // runs inside the query so pagination and totals stay correct.
-      const excludeKnowledgeBaseIds = ctx.workspaceId
-        ? await getRestrictedKnowledgeBaseIds(ctx)
-        : [];
+      const excludeKnowledgeBaseIds = await getRestrictedKnowledgeBaseIds(ctx);
       return ctx.documentService.queryDocuments({ ...input, excludeKnowledgeBaseIds });
     }),
 

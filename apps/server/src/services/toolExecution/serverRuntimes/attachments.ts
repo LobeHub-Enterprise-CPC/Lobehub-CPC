@@ -21,6 +21,7 @@ export const attachmentsRuntime: ServerRuntimeRegistration = {
       userId,
       workspaceId,
       agentVisibility,
+      context.agentShareVisitor ? null : userId,
     );
 
     return new AttachmentsExecutionRuntime({

@@ -5,6 +5,11 @@ import { z } from 'zod';
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { router } from '@/libs/trpc/lambda';
 import {
+  mergeEnterpriseKnowledgeBases,
+  resolveItemsScope,
+  resolveKnowledgeBaseScope,
+} from '@/server/services/enterpriseKnowledge';
+import {
   assertCanEditResource,
   assertCanPerformResourceAction,
 } from '@/server/services/resourcePermission';
@@ -26,6 +31,7 @@ export const knowledgeRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      await resolveItemsScope(ctx, input.fileIds, 'view');
       if (ctx.workspaceId) {
         await assertCanPerformResourceAction({
           action: 'edit',
@@ -48,6 +54,7 @@ export const knowledgeRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      await resolveKnowledgeBaseScope(ctx, input.knowledgeBaseId, 'view');
       if (ctx.workspaceId) {
         await assertCanPerformResourceAction({
           action: 'edit',
@@ -139,11 +146,14 @@ export const knowledgeRouter = router({
           : input.visibility
         : undefined;
 
-      const knowledgeBases = await ctx.knowledgeBaseModel.query({
+      const ownKnowledgeBases = await ctx.knowledgeBaseModel.query({
         callerAgentVisibility: agentVisibility,
         visibility: effectiveVisibility,
       });
 
+      const knowledgeBases = await mergeEnterpriseKnowledgeBases(ctx, ownKnowledgeBases, {
+        visibility: effectiveVisibility,
+      });
       const files = await ctx.fileModel.query({
         callerAgentVisibility: agentVisibility,
         showFilesInKnowledgeBase: false,
@@ -169,7 +179,15 @@ export const knowledgeRouter = router({
           !restrictedSet.has(kb.id) || knowledge.knowledgeBases.some((item) => item.id === kb.id),
       );
 
+      const revoked = knowledge.knowledgeBases.filter((item) => item.accessRevoked && item.id);
       return [
+        ...revoked.map((item) => ({
+          id: item.id!,
+          name: item.name!,
+          accessRevoked: true,
+          enabled: item.enabled ?? true,
+          type: KnowledgeType.KnowledgeBase,
+        })),
         ...files
           // Filter out all images
           .filter((file) => !file.fileType.startsWith('image'))
@@ -183,6 +201,7 @@ export const knowledgeRouter = router({
             visibility: file.visibility as 'private' | 'public',
           })),
         ...visibleKnowledgeBases.map((knowledgeBase) => ({
+          ...(knowledgeBase.enterprise ? { enterprise: knowledgeBase.enterprise } : {}),
           avatar: knowledgeBase.avatar,
           description: knowledgeBase.description,
           enabled: knowledge.knowledgeBases.some((item) => item.id === knowledgeBase.id),
@@ -205,6 +224,7 @@ export const knowledgeRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      await resolveItemsScope(ctx, [input.fileId], 'view');
       if (ctx.workspaceId) {
         await assertCanPerformResourceAction({
           action: 'edit',
@@ -227,6 +247,7 @@ export const knowledgeRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      await resolveKnowledgeBaseScope(ctx, input.knowledgeBaseId, 'view');
       if (ctx.workspaceId) {
         await assertCanPerformResourceAction({
           action: 'edit',

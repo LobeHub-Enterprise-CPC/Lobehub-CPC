@@ -281,6 +281,7 @@
     "@lobechat/business-auth": "workspace:*",
     "@lobechat/business-config": "workspace:*",
     "@lobechat/business-const": "workspace:*",
+    "@lobechat/business-knowledge": "workspace:*",
     "@lobechat/business-model-bank": "workspace:*",
     "@lobechat/business-model-runtime": "workspace:*",
     "@lobechat/business-tenant": "workspace:*",
