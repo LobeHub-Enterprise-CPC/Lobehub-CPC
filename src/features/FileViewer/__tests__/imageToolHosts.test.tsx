@@ -42,6 +42,11 @@ vi.mock('@/store/file', () => ({
     selector({ useFetchKnowledgeItem: () => ({ data: file }) }),
 }));
 
+const permission = vi.hoisted(() => ({ allowed: true }));
+vi.mock('@/features/EnterpriseKnowledge/useFileLibraryPermission', () => ({
+  useFileLibraryPermission: () => permission,
+}));
+
 vi.mock('@/store/chat', () => ({
   useChatStore: (selector: (s: unknown) => unknown) =>
     selector({ activeTopicId: 'tpc_1', chunkText: undefined, previewFileId: 'file_img' }),
@@ -83,5 +88,17 @@ describe('image tool hosts', () => {
 
     expect(screen.getByTestId('image-edit-tools')).toBeInTheDocument();
     expect(viewerProps.at(-1)).toMatchObject({ id: 'docs_img', name: 'sunset.png' });
+  });
+
+  it('conversation portal file preview hides the tools without library edit access', async () => {
+    const { default: PortalFilePreview } = await import('@/features/Portal/FilePreview/Body');
+    permission.allowed = false;
+    try {
+      render(<PortalFilePreview />);
+      expect(screen.getByTestId('file-viewer')).toBeInTheDocument();
+      expect(screen.queryByTestId('image-edit-tools')).not.toBeInTheDocument();
+    } finally {
+      permission.allowed = true;
+    }
   });
 });
