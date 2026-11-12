@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ViewMode } from '@/features/ResourceManager/store/initialState';
 import { FilesTabs, ResourceSourceFilter, SortType } from '@/types/files';
@@ -8,11 +8,13 @@ import { FilesTabs, ResourceSourceFilter, SortType } from '@/types/files';
 import ResourceExplorer from './index';
 
 const mocks = vi.hoisted(() => ({
+  confirmModal: vi.fn(),
   resourceManagerState: {
     category: 'all' as FilesTabs,
     libraryId: undefined as string | undefined,
     listVisibility: 'private' as const,
     searchQuery: null as string | null,
+    selectAllState: 'loaded' as 'loaded' | 'all',
     sorter: 'createdAt' as const,
     sortType: 'desc' as SortType,
     sourceFilter: undefined as ResourceSourceFilter | undefined,
@@ -20,6 +22,11 @@ const mocks = vi.hoisted(() => ({
     resolveSelectedResourceIds: async () => ['file_a', 'file_b'],
   },
   useFetchResources: vi.fn(),
+}));
+
+vi.mock('@lobehub/ui', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  confirmModal: mocks.confirmModal,
 }));
 
 vi.mock('@/features/ResourceManager/hooks/useFolderPath', () => ({
@@ -102,24 +109,50 @@ describe('ResourceExplorer', () => {
     mocks.resourceManagerState.libraryId = undefined;
     mocks.resourceManagerState.listVisibility = 'private';
     mocks.resourceManagerState.searchQuery = null;
+    mocks.resourceManagerState.selectAllState = 'loaded';
     mocks.resourceManagerState.sorter = 'createdAt';
     mocks.resourceManagerState.sortType = SortType.Desc;
     mocks.resourceManagerState.sourceFilter = undefined;
     mocks.resourceManagerState.viewMode = 'list';
     mocks.useFetchResources.mockReturnValue({ isLoading: false, isValidating: false });
   });
+  afterEach(() => vi.restoreAllMocks());
 
   it.each([undefined, 'kb-enterprise'])(
     'opens the real batch menu after selecting two items in %s',
     async (libraryId) => {
       mocks.resourceManagerState.libraryId = libraryId;
       const { default: BatchActionsDropdown } = await import('./ToolBar/BatchActionsDropdown');
+      const error = vi.spyOn(console, 'error');
       render(<BatchActionsDropdown selectCount={2} onActionClick={vi.fn()} />);
       const button = screen.getByRole('button');
       expect(button).toHaveAttribute('aria-haspopup', 'menu');
       fireEvent.click(button);
       expect(await screen.findByRole('menu')).toBeVisible();
       expect(button).toHaveAttribute('aria-expanded', 'true');
+      expect(error.mock.calls.flat().some((value) => String(value).includes('nativeButton'))).toBe(
+        false,
+      );
+    },
+  );
+
+  it.each([
+    [undefined, 'loaded', 'FileManager.actions.confirmDeleteMultiFiles'],
+    [undefined, 'all', 'FileManager.actions.confirmDeleteAllFiles'],
+    ['kb-enterprise', 'loaded', 'enterprise.trash.confirmSelected'],
+    ['kb-enterprise', 'all', 'enterprise.trash.confirmAll'],
+  ] as const)(
+    'uses the appropriate batch delete confirmation for %s / %s',
+    async (libraryId, selection, expected) => {
+      mocks.resourceManagerState.libraryId = libraryId;
+      mocks.resourceManagerState.selectAllState = selection;
+      const { default: BatchActionsDropdown } = await import('./ToolBar/BatchActionsDropdown');
+      render(<BatchActionsDropdown selectCount={2} onActionClick={vi.fn()} />);
+      fireEvent.click(screen.getByRole('button'));
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'delete' }));
+      expect(mocks.confirmModal).toHaveBeenCalledWith(
+        expect.objectContaining({ content: expected }),
+      );
     },
   );
 

@@ -49,6 +49,17 @@ describe('enterprise locale lookup with production keySeparator=false', () => {
         i18n.t('builtins.lobe-knowledge-base.render.skippedKnowledgeBases', { ns: 'plugin' }),
       ).toBe(skipped);
       expect(i18n.t('trash.type.file', { ns: 'setting' })).toBe(file);
+      for (const key of ['confirmItem', 'confirmFolder', 'confirmSelected', 'confirmAll']) {
+        const text = i18n.t(`enterprise.trash.${key}`, {
+          ns: 'knowledgeBase',
+          name: 'notes.md',
+          count: 2,
+        });
+        expect(text).toContain(lng === 'zh-CN' ? '回收站' : 'recycle bin');
+        expect(text).toContain(lng === 'zh-CN' ? '负责人' : 'owner');
+        expect(text).not.toContain('cannot be recovered');
+        if (key === 'confirmItem' || key === 'confirmFolder') expect(text).toContain('notes.md');
+      }
     },
   );
 });

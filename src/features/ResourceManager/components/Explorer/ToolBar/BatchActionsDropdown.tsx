@@ -232,12 +232,19 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
 
           confirmModal({
             cancelText: t('cancel', { ns: 'common' }),
-            content: t(
-              selectAllState === 'all'
-                ? 'FileManager.actions.confirmDeleteAllFiles'
-                : 'FileManager.actions.confirmDeleteMultiFiles',
-              { count: selectCount },
-            ),
+            content: enterprise
+              ? t(
+                  selectAllState === 'all'
+                    ? 'enterprise.trash.confirmAll'
+                    : 'enterprise.trash.confirmSelected',
+                  { ns: 'knowledgeBase', count: selectCount },
+                )
+              : t(
+                  selectAllState === 'all'
+                    ? 'FileManager.actions.confirmDeleteAllFiles'
+                    : 'FileManager.actions.confirmDeleteMultiFiles',
+                  { count: selectCount },
+                ),
             okButtonProps: {
               danger: true,
             },
@@ -269,7 +276,7 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
 
   return (
     <Tooltip title={canEditResources ? undefined : reason}>
-      <DropdownMenu items={menuItems} placement="bottomLeft">
+      <DropdownMenu nativeButton items={menuItems} placement="bottomLeft">
         <ActionIconWithChevron
           disabled={!canEditResources}
           icon={CircleEllipsisIcon}

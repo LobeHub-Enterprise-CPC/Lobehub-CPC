@@ -74,6 +74,14 @@ export default {
   'enterprise.fileUnavailable':
     'You cannot access this file. It may have been deleted or your access may have changed.',
   'enterprise.trash': 'Recycle bin',
+  'enterprise.trash.confirmItem':
+    'Move "{{name}}" to the knowledge base recycle bin? The knowledge base owner can restore it.',
+  'enterprise.trash.confirmFolder':
+    'Move "{{name}}" and all its contents to the knowledge base recycle bin? The knowledge base owner can restore them.',
+  'enterprise.trash.confirmSelected':
+    'Move the selected content to the knowledge base recycle bin? The knowledge base owner can restore it.',
+  'enterprise.trash.confirmAll':
+    'Move all content matching the current filters, except deselected items, to the knowledge base recycle bin? The knowledge base owner can restore it.',
   'enterprise.processing': 'Processing',
   'enterprise.failed': 'Processing failed',
   'enterprise.chunks': '{{count}} chunks',

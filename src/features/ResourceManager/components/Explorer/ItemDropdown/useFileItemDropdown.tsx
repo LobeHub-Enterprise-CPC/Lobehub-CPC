@@ -557,9 +557,14 @@ export const useFileItemDropdown = ({
             domEvent.stopPropagation();
             confirmModal({
               cancelText: t('cancel', { ns: 'common' }),
-              content: isFolder
-                ? t('FileManager.actions.confirmDeleteFolder')
-                : t('FileManager.actions.confirmDeleteNamedFile', { name: filename }),
+              content: enterprise
+                ? t(isFolder ? 'enterprise.trash.confirmFolder' : 'enterprise.trash.confirmItem', {
+                    ns: 'knowledgeBase',
+                    name: filename,
+                  })
+                : isFolder
+                  ? t('FileManager.actions.confirmDeleteFolder')
+                  : t('FileManager.actions.confirmDeleteNamedFile', { name: filename }),
               okButtonProps: { danger: true },
               okText: isFolder
                 ? t('delete', { ns: 'common' })

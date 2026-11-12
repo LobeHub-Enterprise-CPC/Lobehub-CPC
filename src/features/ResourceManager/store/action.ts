@@ -376,8 +376,20 @@ export class ResourceManagerStoreActionImpl {
       if (library?.enterprise) {
         const { enterpriseKnowledgeService } = await import('@/services/enterpriseKnowledge');
         const ids = await resolveSelectedResourceIds();
+        // Resource queries accept URL slugs, but node permissions require database IDs.
+        const parentKey = fileStore.queryParams?.parentId ?? null;
+        let parentNodeId = parentKey;
+        if (parentKey && !parentKey.startsWith('docs_')) {
+          const { fileService } = await import('@/services/file');
+          const breadcrumb =
+            fileStore.folderBreadcrumbMap[parentKey] ??
+            (await fileService.getFolderBreadcrumb(parentKey));
+          parentNodeId = breadcrumb.at(-1)?.id ?? null;
+          // An unresolved directory must never inherit the library root's permission.
+          if (!parentNodeId) throw new Error('Folder not found');
+        }
         const allowed = await enterpriseKnowledgeService.canEditNodes(libraryId, [
-          fileStore.queryParams?.parentId ?? null,
+          parentNodeId,
           ...ids,
         ]);
         if (!allowed) {
