@@ -114,14 +114,17 @@ export default {
   'enterprise.moveIn.success': 'Moved to library',
   'enterprise.moveIn.title': 'Move into "{{name}}"?',
   'enterprise.moveOut.action': 'Move to my resources',
-  'enterprise.moveOut.confirm':
-    'These {{count}} items belong to the shared knowledge base "{{name}}" and are currently owned by its owner. After moving, you get a personal copy that you own; the originals go to the knowledge base trash and other members can no longer see them in the library.',
   'enterprise.moveOut.success': 'Moved to my resources',
   'enterprise.moveOut.title': 'Move to my resources?',
   'enterprise.move.loadFailed': 'Could not load folders. Try again.',
   'enterprise.move.destinationReadOnly': 'This location is read-only. Choose an editable folder.',
   'enterprise.moveIn.confirmAction': 'Move in',
   'enterprise.moveOut.confirmAction': 'Move out',
-  'enterprise.moveOut.destinationTitle': 'Choose a location in My resources',
   'enterprise.moveIn.destinationTitle': 'Choose a location in "{{name}}"',
+  'enterprise.moveOut.confirmDestination':
+    'These {{count}} items belong to the shared knowledge base "{{name}}" and are currently owned by its owner. After moving, you get a personal copy that you own; the originals go to the knowledge base trash and other members can no longer see them in the library. The copy will be placed in "{{target}}".',
+  'enterprise.moveOut.libraryDestinationTitle': 'Choose a location in "{{name}}"',
+  'enterprise.moveOut.resourceRoot': 'Resource root',
+  'enterprise.move.unavailable':
+    'Cannot move: the content does not exist or you do not have edit access.',
 };

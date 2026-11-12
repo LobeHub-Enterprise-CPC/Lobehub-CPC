@@ -12,12 +12,17 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import RepoIcon from '@/components/LibIcon';
-import { selectContentMoveTarget } from '@/features/EnterpriseKnowledge/confirmContentMove';
+import {
+  getMoveOutMenuItems,
+  selectContentMoveTarget,
+} from '@/features/EnterpriseKnowledge/confirmContentMove';
 import { useLibrarySelectionPermission } from '@/features/EnterpriseKnowledge/useLibrarySelectionPermission';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { openWorkspaceDeleteAllModal } from '@/features/WorkspaceDeleteAllModal';
 import { useKnowledgeBaseStore } from '@/store/library';
+import { useUserStore } from '@/store/user';
+import { userProfileSelectors } from '@/store/user/selectors';
 
 import ActionIconWithChevron from './ActionIconWithChevron';
 
@@ -44,6 +49,7 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
   const addFilesToKnowledgeBase = useKnowledgeBaseStore((s) => s.addFilesToKnowledgeBase);
   const knowledgeBases = useKnowledgeBaseListContext();
   const activeWorkspaceId = useActiveWorkspaceId();
+  const currentUserId = useUserStore(userProfileSelectors.userId);
   const { allowed: canEditResources, reason, enterprise } = useLibrarySelectionPermission();
   const isWorkspaceDeleteAll = !!activeWorkspaceId && selectAllState === 'all';
 
@@ -131,14 +137,15 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
         icon: <Icon icon={BookMinusIcon} />,
         key: 'moveToMyResources',
         label: t('enterprise.moveOut.action', { ns: 'knowledgeBase' }),
-        onClick: () =>
-          void selectContentMoveTarget({
-            count: selectCount,
-            direction: 'out',
-            knowledgeBaseId: libraryId,
-            libraryName: knowledgeBases.find((kb) => kb.id === libraryId)?.name ?? '',
-            getIds: resolveSelectedResourceIds,
-          }),
+        children: getMoveOutMenuItems({
+          count: selectCount,
+          knowledgeBaseId: libraryId,
+          libraryName: knowledgeBases.find((kb) => kb.id === libraryId)?.name ?? '',
+          getIds: resolveSelectedResourceIds,
+          libraries: knowledgeBases,
+          userId: currentUserId,
+          workspaceId: activeWorkspaceId,
+        }),
       });
     } else if (libraryId) {
       items.push({
@@ -256,19 +263,20 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
     enterprise,
     listVisibility,
     activeWorkspaceId,
+    currentUserId,
     isWorkspaceDeleteAll,
   ]);
 
   return (
-    <DropdownMenu items={menuItems} placement="bottomLeft">
-      <Tooltip title={canEditResources ? undefined : reason}>
+    <Tooltip title={canEditResources ? undefined : reason}>
+      <DropdownMenu items={menuItems} placement="bottomLeft">
         <ActionIconWithChevron
           disabled={!canEditResources}
           icon={CircleEllipsisIcon}
           title={t('FileManager.actions.batchActions', 'Batch actions')}
         />
-      </Tooltip>
-    </DropdownMenu>
+      </DropdownMenu>
+    </Tooltip>
   );
 });
 

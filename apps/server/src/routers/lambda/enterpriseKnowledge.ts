@@ -111,7 +111,9 @@ export const enterpriseKnowledgeRouter = router({
     .mutation(({ ctx, input }) => moveEnterpriseContent(ctx, input, 'in')),
   moveOut: wsCompatProcedure
     .use(serverDatabase)
-    .input(contentMoveInput)
+    .input(
+      contentMoveInput.extend({ targetKnowledgeBaseId: z.string().min(1).nullable().optional() }),
+    )
     .mutation(({ ctx, input }) => moveEnterpriseContent(ctx, input, 'out')),
   resolveLevel: wsCompatProcedure
     .use(serverDatabase)

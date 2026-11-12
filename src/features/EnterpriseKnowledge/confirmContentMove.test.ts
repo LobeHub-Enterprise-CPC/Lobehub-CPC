@@ -1,9 +1,14 @@
+import type { KnowledgeBaseItem } from '@lobechat/types';
 import i18next from 'i18next';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import en from '../../../locales/en-US/knowledgeBase.json';
 import zh from '../../../locales/zh-CN/knowledgeBase.json';
-import { confirmContentMove, selectContentMoveTarget } from './confirmContentMove';
+import {
+  confirmContentMove,
+  getMoveOutMenuItems,
+  selectContentMoveTarget,
+} from './confirmContentMove';
 
 interface ConfirmOptions {
   cancelText: string;
@@ -18,10 +23,11 @@ const mocks = vi.hoisted(() => ({
   moveIn: vi.fn(),
   moveOut: vi.fn(),
   refresh: vi.fn(),
+  error: vi.fn(),
 }));
 vi.mock('@lobehub/ui', () => ({
   confirmModal: mocks.confirm,
-  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  toast: { success: vi.fn(), error: mocks.error, warning: vi.fn() },
 }));
 vi.mock('@/features/ResourceManager/components/Explorer/MoveToFolderModal', () => ({
   openMoveToFolderModal: mocks.picker,
@@ -127,26 +133,107 @@ describe('enterprise ownership-change confirmation', () => {
     expect(mocks.confirm).toHaveBeenCalledOnce();
     expect(mocks.moveIn).not.toHaveBeenCalled();
   });
-  it('lets the member pick a folder in their own resources before confirming a move out', async () => {
+  it('lets the member pick a folder in their chosen personal library before confirming a move out', async () => {
     await selectContentMoveTarget({
       direction: 'out',
       count: 2,
       knowledgeBaseId: 'kb_1',
       libraryName: '研发规范',
+      targetKnowledgeBaseId: 'kb_personal',
+      targetLabel: '个人资料库',
       getIds: async () => ['file_1', 'docs_2'],
     });
     const picker = mocks.picker.mock.calls[0][0];
-    // null = personal resources, not the enterprise library the menu was opened from.
-    expect(picker.knowledgeBaseId).toBeNull();
-    expect(picker.title).toBe('选择「我的资源」中的位置');
+    expect(picker.knowledgeBaseId).toBe('kb_personal');
+    expect(picker.title).toBe('选择「个人资料库」中的位置');
     expect(mocks.confirm).not.toHaveBeenCalled();
-    picker.onMove('docs_personal');
+    picker.onMove('docs_personal', '项目说明');
+    expect(mocks.confirm.mock.calls[0][0].content).toContain('个人资料库 / 项目说明');
     await mocks.confirm.mock.calls[0][0].onOk();
     expect(mocks.moveOut).toHaveBeenCalledWith({
       ids: ['file_1', 'docs_2'],
       knowledgeBaseId: 'kb_1',
       parentId: 'docs_personal',
+      targetKnowledgeBaseId: 'kb_personal',
     });
+  });
+  it('confirms resource-root moves directly without opening the removed personal-folder picker', async () => {
+    await selectContentMoveTarget({
+      direction: 'out',
+      count: 1,
+      knowledgeBaseId: 'kb_1',
+      libraryName: '研发规范',
+      getIds: async () => ['file_1'],
+    });
+    expect(mocks.picker).not.toHaveBeenCalled();
+    expect(mocks.confirm.mock.calls[0][0].content).toContain('副本将放在「资源根目录」');
+    expect(mocks.moveOut).not.toHaveBeenCalled();
+    await mocks.confirm.mock.calls[0][0].onOk();
+    expect(mocks.moveOut).toHaveBeenCalledWith({
+      ids: ['file_1'],
+      knowledgeBaseId: 'kb_1',
+      parentId: null,
+    });
+  });
+  it('offers resource root first and only the caller’s ordinary libraries, with no request on cancellation', async () => {
+    const getIds = vi.fn(async () => ['file_1', 'file_2']);
+    const libraries = [
+      { id: 'mine', name: '个人资料库', userId: 'me' },
+      { id: 'foreign', name: '他人的库', userId: 'other' },
+      {
+        id: 'enterprise',
+        name: '我的企业库',
+        userId: 'me',
+        enterprise: { accessLevel: 'owner', ownerName: 'Me' },
+      },
+      { id: 'revoked', name: '已撤权', userId: 'me', accessRevoked: true },
+    ] as KnowledgeBaseItem[];
+    const params = {
+      count: 2,
+      getIds,
+      knowledgeBaseId: 'kb_1',
+      libraryName: '研发规范',
+      libraries,
+      userId: 'me',
+    };
+    const menu = getMoveOutMenuItems(params);
+    expect(menu.map((item) => item.key)).toEqual([
+      'move-out-resource-root',
+      'move-out-library-mine',
+    ]);
+    const root = menu[0] as { onClick: () => void };
+    root.onClick();
+    expect(mocks.confirm.mock.calls[0][0].content).toContain('副本将放在「资源根目录」');
+    expect(getIds).not.toHaveBeenCalled();
+    expect(mocks.moveOut).not.toHaveBeenCalled();
+    await mocks.confirm.mock.calls[0][0].onOk();
+    expect(mocks.moveOut).toHaveBeenCalledWith({
+      ids: ['file_1', 'file_2'],
+      knowledgeBaseId: 'kb_1',
+      parentId: null,
+      targetKnowledgeBaseId: null,
+    });
+    vi.clearAllMocks();
+    await (menu[1] as { onClick: () => Promise<void> }).onClick();
+    expect(mocks.picker.mock.calls[0][0].knowledgeBaseId).toBe('mine');
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    expect(mocks.moveOut).not.toHaveBeenCalled();
+    expect(getMoveOutMenuItems({ ...params, workspaceId: 'ws_1' })).toEqual([]);
+  });
+  it.each([
+    ['NOT_FOUND', '无法移动：内容不存在或你没有编辑权限。'],
+    ['FORBIDDEN', '所选条目中有只读内容，请选择可编辑的条目后操作。'],
+  ])('distinguishes %s from an ordinary read-only refusal', async (code, message) => {
+    mocks.moveOut.mockRejectedValueOnce({ data: { code } });
+    confirmContentMove({
+      direction: 'out',
+      count: 1,
+      knowledgeBaseId: 'kb_1',
+      libraryName: '研发规范',
+      getIds: async () => ['file_1'],
+    });
+    await expect(mocks.confirm.mock.calls[0][0].onOk()).rejects.toMatchObject({ data: { code } });
+    expect(mocks.error).toHaveBeenCalledWith(message);
   });
   it('shows the English ownership change and original destination before confirming', async () => {
     await i18next.changeLanguage('en-US');

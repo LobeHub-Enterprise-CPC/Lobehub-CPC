@@ -8,13 +8,14 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { businessFileTransferStorageCheck } from '@/business/server/lambda-routers/file';
 import { DocumentModel } from '@/database/models/document';
 import { FileModel } from '@/database/models/file';
-import { documents } from '@/database/schemas';
+import { documents, knowledgeBases } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
 import { lockEnterpriseKb } from '@/server/services/enterpriseKnowledgeAdmin/shared';
 
 import { classifyEnterpriseContentIds } from './contentClassification';
 import {
   type EnterpriseAccessCtx,
+  filterEnterpriseKnowledgeBaseIds,
   getUserDisplayNames,
   itemsBelongToKnowledgeBase,
   resolveKnowledgeBaseScope,
@@ -27,6 +28,7 @@ export interface ContentMoveInput {
   ids: string[];
   knowledgeBaseId: string;
   parentId?: string | null;
+  targetKnowledgeBaseId?: string | null;
 }
 
 /** Explicit personal/enterprise move: authorization, copy, original removal and event commit together. */
@@ -56,9 +58,28 @@ export const moveEnterpriseContent = async (
       );
       if (metadata.node.kind !== 'folder') throw new TRPCError({ code: 'BAD_REQUEST' });
     }
-    if (direction === 'out' && input.parentId) {
-      // A personal destination must stay personal through every ancestor, even for the KB owner.
-      let id: string | null = input.parentId;
+    if (direction === 'out' && !input.targetKnowledgeBaseId && input.parentId)
+      throw new TRPCError({ code: 'NOT_FOUND' });
+    if (direction === 'out' && input.targetKnowledgeBaseId) {
+      const [target] = await db
+        .select()
+        .from(knowledgeBases)
+        .where(
+          and(
+            eq(knowledgeBases.id, input.targetKnowledgeBaseId),
+            eq(knowledgeBases.userId, ctx.userId),
+            isNull(knowledgeBases.workspaceId),
+          ),
+        )
+        .for('update');
+      if (
+        !target ||
+        target.isDeleted ||
+        (await filterEnterpriseKnowledgeBaseIds(db, [target.id])).length
+      )
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      // Every ancestor must remain in the selected ordinary personal library.
+      let id: string | null = input.parentId ?? null;
       const ancestors: string[] = [];
       while (id) {
         if (ancestors.includes(id)) throw new TRPCError({ code: 'NOT_FOUND' });
@@ -77,7 +98,7 @@ export const moveEnterpriseContent = async (
           !folder ||
           folder.isDeleted ||
           folder.fileType !== 'custom/folder' ||
-          folder.knowledgeBaseId
+          folder.knowledgeBaseId !== input.targetKnowledgeBaseId
         )
           throw new TRPCError({ code: 'NOT_FOUND' });
         ancestors.push(id);
@@ -112,7 +133,8 @@ export const moveEnterpriseContent = async (
       targetWorkspaceId: null,
     });
     const copied = await copyMoveGraph(db, graph, {
-      knowledgeBaseId: direction === 'in' ? input.knowledgeBaseId : null,
+      knowledgeBaseId:
+        direction === 'in' ? input.knowledgeBaseId : (input.targetKnowledgeBaseId ?? null),
       parentId: input.parentId ?? null,
       userId: targetUserId,
     });

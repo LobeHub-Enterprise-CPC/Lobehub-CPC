@@ -67,6 +67,8 @@
 
 ### 反馈、错误与弹窗
 
+`DropdownMenu` 的直接子节点应是能接收事件、aria 属性与 ref 的真实按钮；需要说明时用 `Tooltip` 包在 `DropdownMenu` 外面。已安装的 UI 6.15.2 中，`Tooltip` 在没有 title/hotkey 时直接返回 children，会丢弃外层菜单传来的触发属性，表现为按钮无 `aria-haspopup` 且点击无菜单。此约束覆盖批量操作；回归位于 `ResourceManager/components/Explorer/index.test.tsx`，用真实 Dropdown 点击并断言菜单出现。
+
 | 组件                                                            | 什么时候用                     | 注意点                                                   |
 | --------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------- |
 | `AsyncBoundary`、`AsyncError`                                   | 异步区块的加载与失败           | 失败态要给重试，不留空白（K-05）                         |

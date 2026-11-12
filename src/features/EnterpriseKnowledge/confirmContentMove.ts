@@ -1,3 +1,5 @@
+import type { KnowledgeBaseItem } from '@lobechat/types';
+import type { ItemType } from '@lobehub/ui';
 import { confirmModal, toast } from '@lobehub/ui';
 import { t } from 'i18next';
 
@@ -17,16 +19,24 @@ export const confirmContentMove = (params: {
   libraryName: string;
   onMoved?: () => void;
   parentId?: string | null;
+  targetKnowledgeBaseId?: string | null;
+  targetLabel?: string;
 }) => {
   const key = params.direction === 'in' ? 'moveIn' : 'moveOut';
   confirmModal({
     cancelText: t('cancel', { ns: 'common' }),
     title: t(`enterprise.${key}.title`, { ns: 'knowledgeBase', name: params.libraryName }),
-    content: t(`enterprise.${key}.confirm`, {
-      ns: 'knowledgeBase',
-      name: params.libraryName,
-      count: params.count,
-    }),
+    content: t(
+      params.direction === 'in'
+        ? 'enterprise.moveIn.confirm'
+        : 'enterprise.moveOut.confirmDestination',
+      {
+        ns: 'knowledgeBase',
+        name: params.libraryName,
+        count: params.count,
+        target: params.targetLabel ?? t('enterprise.moveOut.resourceRoot', { ns: 'knowledgeBase' }),
+      },
+    ),
     okText: t(`enterprise.${key}.confirmAction`, { ns: 'knowledgeBase' }),
     okButtonProps: { danger: true },
     onOk: async () => {
@@ -35,16 +45,24 @@ export const confirmContentMove = (params: {
         ids = await params.getIds();
         const input = { ids, knowledgeBaseId: params.knowledgeBaseId, parentId: params.parentId };
         if (params.direction === 'in') await enterpriseKnowledgeService.moveIn(input);
-        else await enterpriseKnowledgeService.moveOut(input);
+        else
+          await enterpriseKnowledgeService.moveOut({
+            ...input,
+            ...(params.targetKnowledgeBaseId !== undefined
+              ? { targetKnowledgeBaseId: params.targetKnowledgeBaseId }
+              : {}),
+          });
       } catch (error) {
         console.error('[enterpriseKnowledge] content move failed', error);
         toast.error(
           t(
-            isTrpcErrorCode(error, 'FORBIDDEN') || isTrpcErrorCode(error, 'NOT_FOUND')
+            isTrpcErrorCode(error, 'FORBIDDEN')
               ? 'enterprise.node.readOnly'
-              : isTrpcErrorCode(error, 'CONFLICT')
-                ? 'enterprise.move.processing'
-                : 'enterprise.move.failed',
+              : isTrpcErrorCode(error, 'NOT_FOUND')
+                ? 'enterprise.move.unavailable'
+                : isTrpcErrorCode(error, 'CONFLICT')
+                  ? 'enterprise.move.processing'
+                  : 'enterprise.move.failed',
             { ns: 'knowledgeBase' },
           ),
         );
@@ -60,6 +78,8 @@ export const confirmContentMove = (params: {
         // A moved folder disappears from the source tree and every persisted child cache.
         await useTreeStore.getState().dropNodes(ids, parentId);
         useTreeStore.getState().forgetLibrary(params.knowledgeBaseId);
+        if (params.direction === 'out' && params.targetKnowledgeBaseId)
+          useTreeStore.getState().forgetLibrary(params.targetKnowledgeBaseId);
         await Promise.all([
           useFileStore.getState().refreshFileList(),
           useKnowledgeBaseStore.getState().refreshKnowledgeBaseList(),
@@ -73,18 +93,69 @@ export const confirmContentMove = (params: {
 };
 
 /**
- * Choose the destination before confirming: a folder in the library for a move in (root grants
- * do not describe child grants), a folder in the member's own resources for a move out.
+ * Choose a location inside the selected library before confirming; resource-root moves skip the picker.
  */
 export const selectContentMoveTarget = async (params: Parameters<typeof confirmContentMove>[0]) => {
+  if (params.direction === 'out' && !params.targetKnowledgeBaseId)
+    return confirmContentMove({ ...params, parentId: null });
   const { openMoveToFolderModal } =
     await import('@/features/ResourceManager/components/Explorer/MoveToFolderModal');
   return openMoveToFolderModal({
-    knowledgeBaseId: params.direction === 'in' ? params.knowledgeBaseId : null,
+    knowledgeBaseId:
+      params.direction === 'in'
+        ? params.knowledgeBaseId
+        : (params.targetKnowledgeBaseId ?? undefined),
     title:
       params.direction === 'in'
         ? t('enterprise.moveIn.destinationTitle', { ns: 'knowledgeBase', name: params.libraryName })
-        : t('enterprise.moveOut.destinationTitle', { ns: 'knowledgeBase' }),
-    onMove: (parentId) => confirmContentMove({ ...params, parentId }),
+        : t('enterprise.moveOut.libraryDestinationTitle', {
+            ns: 'knowledgeBase',
+            name: params.targetLabel,
+          }),
+    onMove: (parentId, folderName) =>
+      confirmContentMove({
+        ...params,
+        parentId,
+        targetLabel: folderName ? `${params.targetLabel} / ${folderName}` : params.targetLabel,
+      }),
   });
+};
+
+/** The shared move-out submenu has one resource root and only the caller's ordinary libraries. */
+export const getMoveOutMenuItems = (
+  params: Omit<Parameters<typeof confirmContentMove>[0], 'direction'> & {
+    libraries: KnowledgeBaseItem[];
+    userId?: string | null;
+    workspaceId?: string | null;
+  },
+): ItemType[] => {
+  if (!params.userId || params.workspaceId) return [];
+  const root = t('enterprise.moveOut.resourceRoot', { ns: 'knowledgeBase' });
+  return [
+    {
+      key: 'move-out-resource-root',
+      label: root,
+      onClick: () =>
+        confirmContentMove({
+          ...params,
+          direction: 'out',
+          parentId: null,
+          targetKnowledgeBaseId: null,
+          targetLabel: root,
+        }),
+    },
+    ...params.libraries
+      .filter((kb) => !kb.enterprise && !kb.accessRevoked && kb.userId === params.userId)
+      .map((kb) => ({
+        key: `move-out-library-${kb.id}`,
+        label: kb.name,
+        onClick: () =>
+          selectContentMoveTarget({
+            ...params,
+            direction: 'out',
+            targetKnowledgeBaseId: kb.id,
+            targetLabel: kb.name,
+          }),
+      })),
+  ];
 };

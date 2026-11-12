@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
     sortType: 'desc' as SortType,
     sourceFilter: undefined as ResourceSourceFilter | undefined,
     viewMode: 'list' as ViewMode,
+    resolveSelectedResourceIds: async () => ['file_a', 'file_b'],
   },
   useFetchResources: vi.fn(),
 }));
@@ -49,6 +50,21 @@ vi.mock('@/store/file/slices/resource/hooks', () => ({
 
 vi.mock('../KnowledgeBaseListProvider', () => ({
   KnowledgeBaseListProvider: ({ children }: { children: ReactNode }) => children,
+  useKnowledgeBaseListContext: () => [],
+}));
+vi.mock('@/features/EnterpriseKnowledge/useLibrarySelectionPermission', () => ({
+  useLibrarySelectionPermission: () => ({
+    allowed: true,
+    enterprise: !!mocks.resourceManagerState.libraryId,
+  }),
+}));
+vi.mock('@/business/client/hooks/useActiveWorkspaceId', () => ({
+  useActiveWorkspaceId: () => null,
+  getActiveWorkspaceId: () => null,
+}));
+vi.mock('@/store/library', () => ({
+  useKnowledgeBaseStore: (selector: (s: unknown) => unknown) =>
+    selector({ addFilesToKnowledgeBase: vi.fn() }),
 }));
 
 vi.mock('./EmptyPlaceholder', () => ({
@@ -92,6 +108,20 @@ describe('ResourceExplorer', () => {
     mocks.resourceManagerState.viewMode = 'list';
     mocks.useFetchResources.mockReturnValue({ isLoading: false, isValidating: false });
   });
+
+  it.each([undefined, 'kb-enterprise'])(
+    'opens the real batch menu after selecting two items in %s',
+    async (libraryId) => {
+      mocks.resourceManagerState.libraryId = libraryId;
+      const { default: BatchActionsDropdown } = await import('./ToolBar/BatchActionsDropdown');
+      render(<BatchActionsDropdown selectCount={2} onActionClick={vi.fn()} />);
+      const button = screen.getByRole('button');
+      expect(button).toHaveAttribute('aria-haspopup', 'menu');
+      fireEvent.click(button);
+      expect(await screen.findByRole('menu')).toBeVisible();
+      expect(button).toHaveAttribute('aria-expanded', 'true');
+    },
+  );
 
   it('keeps library contents excluded from the All resource query', () => {
     render(<ResourceExplorer />);

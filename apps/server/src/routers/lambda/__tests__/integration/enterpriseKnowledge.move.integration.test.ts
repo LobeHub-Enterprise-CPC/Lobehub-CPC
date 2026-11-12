@@ -11,7 +11,9 @@ import {
   files,
   globalFiles,
   knowledgeBaseFiles,
+  knowledgeBases,
   trashItems,
+  workspaces,
 } from '@lobechat/database/schemas';
 import { getTestDB } from '@lobechat/database/test-utils';
 import { eq, inArray } from 'drizzle-orm';
@@ -205,7 +207,12 @@ describe('controlled enterprise content move with real relational transactions',
   });
 
   it('moves out to an ordinary personal folder, trashes the enterprise cascade, and allows owner restoration', async () => {
+    const [targetKb] = await db
+      .insert(knowledgeBases)
+      .values({ userId: w.editor, name: 'My target library' })
+      .returning();
     const personalFolder = await createDoc(db, {
+      knowledgeBaseId: targetKb.id,
       userId: w.editor,
       title: 'personal',
       fileType: 'custom/folder',
@@ -220,23 +227,26 @@ describe('controlled enterprise content move with real relational transactions',
       .update(documents)
       .set({ metadata: { knowledgeBaseId: w.entA, label: 'keep me' } })
       .where(eq(documents.id, w.entAFolder));
-    const result = await caller().moveOut(input([w.entAFolder], personalFolder));
+    const result = await caller().moveOut({
+      ...input([w.entAFolder], personalFolder),
+      targetKnowledgeBaseId: targetKb.id,
+    });
     const target = result.items[0].targetId;
     const [folder] = await db.select().from(documents).where(eq(documents.id, target));
     expect(folder).toMatchObject({
       userId: w.editor,
-      knowledgeBaseId: null,
+      knowledgeBaseId: targetKb.id,
       parentId: personalFolder,
     });
     expect(folder.metadata).toMatchObject({ label: 'keep me' });
-    expect(folder.metadata).not.toHaveProperty('knowledgeBaseId');
+    expect(folder.metadata).toHaveProperty('knowledgeBaseId', targetKb.id);
     const [page] = await db.select().from(documents).where(eq(documents.parentId, target));
-    expect(page).toMatchObject({ userId: w.editor, knowledgeBaseId: null });
+    expect(page).toMatchObject({ userId: w.editor, knowledgeBaseId: targetKb.id });
     const [copy] = await db.select().from(files).where(eq(files.parentId, target));
     expect(copy).toMatchObject({ userId: w.editor, workspaceId: null });
     expect(
       await db.select().from(knowledgeBaseFiles).where(eq(knowledgeBaseFiles.fileId, copy.id)),
-    ).toHaveLength(0);
+    ).toMatchObject([{ knowledgeBaseId: targetKb.id, userId: w.editor }]);
     expect(await row(fileId)).toMatchObject({ isDeleted: true });
     const rows = await db.select().from(trashItems).where(eq(trashItems.userId, w.owner));
     expect(new Set(rows.map((r) => r.resourceId))).toEqual(
@@ -253,6 +263,62 @@ describe('controlled enterprise content move with real relational transactions',
       expect.anything(),
       expect.objectContaining({ direction: 'out', items: result.items }),
     );
+  });
+
+  it('moves a file to the root of the caller’s own ordinary personal library', async () => {
+    const [target] = await db
+      .insert(knowledgeBases)
+      .values({ userId: w.editor, name: 'Personal destination' })
+      .returning();
+    const result = await caller().moveOut({
+      ...input([w.entAFile]),
+      targetKnowledgeBaseId: target.id,
+    });
+    const copy = await row(result.items[0].targetId);
+    expect(copy).toMatchObject({ userId: w.editor, workspaceId: null, parentId: null });
+    expect(
+      await db.select().from(knowledgeBaseFiles).where(eq(knowledgeBaseFiles.fileId, copy.id)),
+    ).toMatchObject([{ knowledgeBaseId: target.id, userId: w.editor }]);
+    expect(await row(w.entAFile)).toMatchObject({ isDeleted: true });
+  });
+
+  it('rejects foreign, enterprise, workspace and mismatched-folder move-out targets atomically', async () => {
+    const [target] = await db
+      .insert(knowledgeBases)
+      .values({ userId: w.editor, name: 'Personal destination' })
+      .returning();
+    const ownEnterprise = await db
+      .insert(knowledgeBases)
+      .values({ userId: w.editor, name: 'My enterprise' })
+      .returning();
+    enterpriseKbState.kbs.set(ownEnterprise[0].id, { ownerId: w.editor, grants: {} });
+    const [workspace] = await db
+      .insert(workspaces)
+      .values({ primaryOwnerId: w.editor, name: 'Workspace', slug: `ws-${w.editor}` })
+      .returning();
+    const [workspaceKb] = await db
+      .insert(knowledgeBases)
+      .values({ userId: w.editor, name: 'Workspace KB', workspaceId: workspace.id })
+      .returning();
+    const folder = await createDoc(db, {
+      userId: w.editor,
+      title: 'Orphan personal folder',
+      fileType: 'custom/folder',
+    });
+    for (const destination of [
+      { targetKnowledgeBaseId: w.personalKb },
+      { targetKnowledgeBaseId: w.entA },
+      { targetKnowledgeBaseId: ownEnterprise[0].id },
+      { targetKnowledgeBaseId: workspaceKb.id },
+      { targetKnowledgeBaseId: target.id, parentId: w.entAFolder },
+      { targetKnowledgeBaseId: target.id, parentId: folder },
+      { parentId: folder },
+    ]) {
+      await expect(
+        caller().moveOut({ ...input([w.entAFile]), ...destination }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      expect(await row(w.entAFile)).toMatchObject({ isDeleted: null });
+    }
   });
 
   it('moves a standalone authored page in and out while preserving its content and editor data', async () => {
