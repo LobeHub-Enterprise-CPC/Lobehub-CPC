@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type * as ContentAccess from '@/server/services/enterpriseKnowledge/contentAccess';
+
 import { GET } from './route';
 
 const mocks = vi.hoisted(() => ({
@@ -24,7 +26,8 @@ vi.mock('@/server/modules/Tenant/gate', () => ({
 vi.mock('@/database/server', () => ({ getServerDB: async () => ({}) }));
 vi.mock('@/database/models/file', () => ({ FileModel: { getFileById: async () => mocks.file } }));
 vi.mock('@/libs/trpc/lambda/context', () => ({ createLambdaContext: mocks.identity }));
-vi.mock('@/server/services/enterpriseKnowledge/contentAccess', () => ({
+vi.mock('@/server/services/enterpriseKnowledge/contentAccess', async (original) => ({
+  ...(await original<typeof ContentAccess>()),
   resolveEnterpriseContentScopes: mocks.scopes,
 }));
 vi.mock('@/server/services/file', () => ({

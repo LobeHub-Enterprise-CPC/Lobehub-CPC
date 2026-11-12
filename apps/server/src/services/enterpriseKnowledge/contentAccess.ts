@@ -2,6 +2,7 @@ import {
   isEnterpriseKnowledgeEnabled,
   resolveEnterpriseKbAccess,
 } from '@lobechat/business-knowledge';
+import { hasApiKeyScope, isFullAccessApiKey } from '@lobechat/const/apiKeyScope';
 import { TRPCError } from '@trpc/server';
 import { and, inArray, isNull } from 'drizzle-orm';
 import pMap from 'p-map';
@@ -11,6 +12,27 @@ import type { LobeChatDatabase } from '@/database/type';
 
 import { loadEnterpriseContentMemberships } from './contentClassification';
 import { resolveKnowledgeBaseScope } from './index';
+
+/**
+ * Caller eligible to read managed content on surfaces that bypass the tRPC credential
+ * middleware, such as the file proxy. Managed content is personal-scope: sessions,
+ * ordinary OIDC and full-access or `file:read` API keys qualify; sandbox operation
+ * tokens and any workspace-bound identity never do.
+ */
+export const resolveManagedContentReader = (identity: {
+  apiKeyScopes?: string[] | null;
+  oidcAuth?: object | null;
+  userId?: string | null;
+  workspaceId?: string | null;
+}): string | undefined => {
+  if (!identity.userId || identity.workspaceId) return undefined;
+  const purpose = (identity.oidcAuth as { purpose?: unknown } | null | undefined)?.purpose;
+  if (purpose === 'hetero-operation') return undefined;
+  const scopes = identity.apiKeyScopes;
+  if (scopes && !isFullAccessApiKey(scopes) && !hasApiKeyScope(scopes, 'file:read'))
+    return undefined;
+  return identity.userId;
+};
 
 interface ContentAccessContext {
   serverDB: LobeChatDatabase;
