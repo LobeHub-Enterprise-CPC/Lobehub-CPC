@@ -12,11 +12,17 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import RepoIcon from '@/components/LibIcon';
+import {
+  getMoveOutMenuItems,
+  selectContentMoveTarget,
+} from '@/features/EnterpriseKnowledge/confirmContentMove';
 import { useLibrarySelectionPermission } from '@/features/EnterpriseKnowledge/useLibrarySelectionPermission';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { openWorkspaceDeleteAllModal } from '@/features/WorkspaceDeleteAllModal';
 import { useKnowledgeBaseStore } from '@/store/library';
+import { useUserStore } from '@/store/user';
+import { userProfileSelectors } from '@/store/user/selectors';
 
 import ActionIconWithChevron from './ActionIconWithChevron';
 
@@ -43,6 +49,7 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
   const addFilesToKnowledgeBase = useKnowledgeBaseStore((s) => s.addFilesToKnowledgeBase);
   const knowledgeBases = useKnowledgeBaseListContext();
   const activeWorkspaceId = useActiveWorkspaceId();
+  const currentUserId = useUserStore(userProfileSelectors.userId);
   const { allowed: canEditResources, reason, enterprise } = useLibrarySelectionPermission();
   const isWorkspaceDeleteAll = !!activeWorkspaceId && selectAllState === 'all';
 
@@ -86,7 +93,8 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
         : 'public'
       : null;
     const availableKnowledgeBases = knowledgeBases.filter((kb) => {
-      if (kb.id === libraryId || kb.enterprise || enterprise) return false;
+      if (kb.id === libraryId || enterprise) return false;
+      if (kb.enterprise) return !activeWorkspaceId;
       if (targetKbVisibility) return kb.visibility === targetKbVisibility;
       return true;
     });
@@ -97,6 +105,16 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
       key: `add-to-kb-${kb.id}`,
       label: <span style={{ marginLeft: 8 }}>{kb.name}</span>,
       onClick: async () => {
+        if (kb.enterprise) {
+          await selectContentMoveTarget({
+            count: selectCount,
+            direction: 'in',
+            knowledgeBaseId: kb.id,
+            libraryName: kb.name,
+            getIds: resolveSelectedResourceIds,
+          });
+          return;
+        }
         try {
           const effectiveSelectedIds = await resolveSelectedResourceIds();
           await addFilesToKnowledgeBase(kb.id, effectiveSelectedIds);
@@ -113,7 +131,23 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
       },
     }));
 
-    if (libraryId && !enterprise) {
+    if (libraryId && enterprise) {
+      items.push({
+        disabled: selectCount === 0,
+        icon: <Icon icon={BookMinusIcon} />,
+        key: 'moveToMyResources',
+        label: t('enterprise.moveOut.action', { ns: 'knowledgeBase' }),
+        children: getMoveOutMenuItems({
+          count: selectCount,
+          knowledgeBaseId: libraryId,
+          libraryName: knowledgeBases.find((kb) => kb.id === libraryId)?.name ?? '',
+          getIds: resolveSelectedResourceIds,
+          libraries: knowledgeBases,
+          userId: currentUserId,
+          workspaceId: activeWorkspaceId,
+        }),
+      });
+    } else if (libraryId) {
       items.push({
         disabled: selectCount === 0,
         icon: <Icon icon={BookMinusIcon} />,
@@ -198,12 +232,19 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
 
           confirmModal({
             cancelText: t('cancel', { ns: 'common' }),
-            content: t(
-              selectAllState === 'all'
-                ? 'FileManager.actions.confirmDeleteAllFiles'
-                : 'FileManager.actions.confirmDeleteMultiFiles',
-              { count: selectCount },
-            ),
+            content: enterprise
+              ? t(
+                  selectAllState === 'all'
+                    ? 'enterprise.trash.confirmAll'
+                    : 'enterprise.trash.confirmSelected',
+                  { ns: 'knowledgeBase', count: selectCount },
+                )
+              : t(
+                  selectAllState === 'all'
+                    ? 'FileManager.actions.confirmDeleteAllFiles'
+                    : 'FileManager.actions.confirmDeleteMultiFiles',
+                  { count: selectCount },
+                ),
             okButtonProps: {
               danger: true,
             },
@@ -229,19 +270,20 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
     enterprise,
     listVisibility,
     activeWorkspaceId,
+    currentUserId,
     isWorkspaceDeleteAll,
   ]);
 
   return (
-    <DropdownMenu items={menuItems} placement="bottomLeft">
-      <Tooltip title={canEditResources ? undefined : reason}>
+    <Tooltip title={canEditResources ? undefined : reason}>
+      <DropdownMenu nativeButton items={menuItems} placement="bottomLeft">
         <ActionIconWithChevron
           disabled={!canEditResources}
           icon={CircleEllipsisIcon}
           title={t('FileManager.actions.batchActions', 'Batch actions')}
         />
-      </Tooltip>
-    </DropdownMenu>
+      </DropdownMenu>
+    </Tooltip>
   );
 });
 

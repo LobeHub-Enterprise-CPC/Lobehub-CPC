@@ -10,19 +10,14 @@ import { FileModel } from '@/database/models/file';
 import {
   agentsFiles,
   asyncTasks,
-  chunks,
-  documentChunks,
-  documentHistories,
   documents,
-  embeddings,
-  fileChunks,
   files,
   filesToSessions,
   knowledgeBaseFiles,
   messagesFiles,
-  unstructuredChunks,
 } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
+import { copyContentIndexes } from '@/server/services/enterpriseKnowledge/copyIndexes';
 
 /** References outside this library keep their original file and parsed content. */
 export const findSharedFileIds = async (
@@ -169,75 +164,12 @@ export const copySharedFiles = async (
       } else if (mirror.parentId && libraryDocumentIds.has(mirror.parentId)) {
         await db.update(documents).set({ parentId: null }).where(eq(documents.id, mirror.id));
       }
-      const histories = await db
-        .select()
-        .from(documentHistories)
-        .where(eq(documentHistories.documentId, mirror.id));
-      for (const history of histories)
-        await db
-          .insert(documentHistories)
-          .values({ ...history, id: undefined, ...owner, documentId: cloned.id });
     }
-    const fileLinks = await db.select().from(fileChunks).where(eq(fileChunks.fileId, original.id));
-    const docLinks = documentMap.size
-      ? await db
-          .select()
-          .from(documentChunks)
-          .where(inArray(documentChunks.documentId, [...documentMap.keys()]))
-      : [];
-    const chunkIds = [
-      ...new Set(
-        [...fileLinks.map((link) => link.chunkId), ...docLinks.map((link) => link.chunkId)].filter(
-          (id): id is string => !!id,
-        ),
-      ),
-    ];
-    const chunkMap = new Map<string, string>();
-    if (chunkIds.length) {
-      const oldChunks = await db.select().from(chunks).where(inArray(chunks.id, chunkIds));
-      for (const old of oldChunks) {
-        const [copied] = await db
-          .insert(chunks)
-          .values({ ...old, id: undefined, ...owner })
-          .returning();
-        chunkMap.set(old.id, copied.id);
-      }
-      const oldEmbeddings = await db
-        .select()
-        .from(embeddings)
-        .where(inArray(embeddings.chunkId, chunkIds));
-      for (const embedding of oldEmbeddings)
-        await db.insert(embeddings).values({
-          ...embedding,
-          id: undefined,
-          ...owner,
-          chunkId: chunkMap.get(embedding.chunkId!)!,
-        });
-    }
-    for (const link of fileLinks)
-      if (link.chunkId && chunkMap.has(link.chunkId))
-        await db
-          .insert(fileChunks)
-          .values({ ...link, ...owner, fileId: copy.id, chunkId: chunkMap.get(link.chunkId)! });
-    for (const link of docLinks)
-      await db.insert(documentChunks).values({
-        ...link,
-        ...owner,
-        documentId: documentMap.get(link.documentId)!,
-        chunkId: chunkMap.get(link.chunkId)!,
-      });
-    const unstructured = await db
-      .select()
-      .from(unstructuredChunks)
-      .where(eq(unstructuredChunks.fileId, original.id));
-    for (const row of unstructured)
-      await db.insert(unstructuredChunks).values({
-        ...row,
-        id: undefined,
-        ...owner,
-        fileId: copy.id,
-        compositeId: row.compositeId ? chunkMap.get(row.compositeId) : null,
-      });
+    await copyContentIndexes(db, {
+      documentMap,
+      fileMap: new Map([[original.id, copy.id]]),
+      toUserId: params.toUserId,
+    });
   }
   return copiedIds;
 };

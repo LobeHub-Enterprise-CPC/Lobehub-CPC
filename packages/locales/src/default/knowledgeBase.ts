@@ -74,6 +74,14 @@ export default {
   'enterprise.fileUnavailable':
     'You cannot access this file. It may have been deleted or your access may have changed.',
   'enterprise.trash': 'Recycle bin',
+  'enterprise.trash.confirmItem':
+    'Move "{{name}}" to the knowledge base recycle bin? The knowledge base owner can restore it.',
+  'enterprise.trash.confirmFolder':
+    'Move "{{name}}" and all its contents to the knowledge base recycle bin? The knowledge base owner can restore them.',
+  'enterprise.trash.confirmSelected':
+    'Move the selected content to the knowledge base recycle bin? The knowledge base owner can restore it.',
+  'enterprise.trash.confirmAll':
+    'Move all content matching the current filters, except deselected items, to the knowledge base recycle bin? The knowledge base owner can restore it.',
   'enterprise.processing': 'Processing',
   'enterprise.failed': 'Processing failed',
   'enterprise.chunks': '{{count}} chunks',
@@ -101,4 +109,30 @@ export default {
   'tab.files': 'Files',
   'tab.settings': 'Settings',
   'tab.testing': 'Recall Testing',
+  'enterprise.event.moved_in': 'Content moved in',
+  'enterprise.event.moved_out': 'Content moved out',
+  'enterprise.move.eventDetail': 'Items ({{count}}): {{names}}',
+  'enterprise.move.failed': 'Content was not moved. Check your connection and try again.',
+  'enterprise.move.processing':
+    'Some files are still being processed. Wait for processing to finish and try again.',
+  'enterprise.move.refreshFailed': 'Content was moved. Refresh the list to see the result.',
+  'enterprise.moveIn.action': 'Move to library',
+  'enterprise.moveIn.confirm':
+    '"{{name}}" is a shared knowledge base. After moving, these {{count}} items will be owned by the knowledge base owner and visible to other members according to the permissions of that location. The originals in your resources will be deleted.',
+  'enterprise.moveIn.success': 'Moved to library',
+  'enterprise.moveIn.title': 'Move into "{{name}}"?',
+  'enterprise.moveOut.action': 'Move to my resources',
+  'enterprise.moveOut.success': 'Moved to my resources',
+  'enterprise.moveOut.title': 'Move to my resources?',
+  'enterprise.move.loadFailed': 'Could not load folders. Try again.',
+  'enterprise.move.destinationReadOnly': 'This location is read-only. Choose an editable folder.',
+  'enterprise.moveIn.confirmAction': 'Move in',
+  'enterprise.moveOut.confirmAction': 'Move out',
+  'enterprise.moveIn.destinationTitle': 'Choose a location in "{{name}}"',
+  'enterprise.moveOut.confirmDestination':
+    'These {{count}} items belong to the shared knowledge base "{{name}}" and are currently owned by its owner. After moving, you get a personal copy that you own; the originals go to the knowledge base trash and other members can no longer see them in the library. The copy will be placed in "{{target}}".',
+  'enterprise.moveOut.libraryDestinationTitle': 'Choose a location in "{{name}}"',
+  'enterprise.moveOut.resourceRoot': 'Resource root',
+  'enterprise.move.unavailable':
+    'Cannot move: the content does not exist or you do not have edit access.',
 };

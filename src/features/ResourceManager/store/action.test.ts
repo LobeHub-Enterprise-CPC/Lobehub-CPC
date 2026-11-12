@@ -1,7 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { enterpriseKnowledgeService } from '@/services/enterpriseKnowledge';
+import { fileService } from '@/services/file';
 import { initialState as fileInitialState } from '@/store/file/initialState';
 import { useFileStore } from '@/store/file/store';
+import { initialState as libraryInitialState } from '@/store/library/initialState';
+import { useKnowledgeBaseStore } from '@/store/library/store';
+import type { KnowledgeBaseItem } from '@/types/knowledgeBase';
 import type { ResourceItem } from '@/types/resource';
 
 import { useResourceManagerStore } from '.';
@@ -39,13 +44,134 @@ vi.mock('@/services/resource', () => ({
   },
 }));
 
+const enterpriseLibrary: KnowledgeBaseItem = {
+  avatar: null,
+  createdAt: new Date(0),
+  enterprise: { accessLevel: 'owner', ownerName: 'Owner' },
+  id: 'kb-ent',
+  isPublic: false,
+  name: 'Enterprise',
+  settings: {},
+  type: null,
+  updatedAt: new Date(0),
+};
+
 describe('resource manager store actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
     useResourceManagerStore.setState(initialState);
     useFileStore.setState(fileInitialState);
+    useKnowledgeBaseStore.setState(libraryInitialState);
   });
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(['delete', 'batchChunking'] as const)(
+    'resolves a directory slug before enterprise %s permission checks',
+    async (action) => {
+      const slug = 'information-sunlight-mistake';
+      const ids = ['file_a', 'file_b'];
+      const mutate = vi.fn(async () => undefined);
+      const permission = vi
+        .spyOn(enterpriseKnowledgeService, 'canEditNodes')
+        .mockImplementation(async (_kb, nodeIds) => nodeIds.every((id) => id !== slug));
+      vi.spyOn(fileService, 'getFolderBreadcrumb').mockResolvedValue([
+        { id: 'docs_directory', name: 'Directory', slug },
+      ]);
+      useKnowledgeBaseStore.setState({
+        knowledgeBaseDetailMap: {
+          'kb-ent': enterpriseLibrary,
+        },
+      });
+      useResourceManagerStore.setState({
+        libraryId: 'kb-ent',
+        selectedFileIds: ids,
+        selectAllState: 'loaded',
+      });
+      useFileStore.setState({
+        deleteResources: mutate,
+        parseFilesToChunks: mutate,
+        queryParams: { parentId: slug },
+        resourceMap: new Map(
+          ids.map((id) => [
+            id,
+            {
+              createdAt: new Date(0),
+              fileType: 'text/plain',
+              id,
+              name: `${id}.txt`,
+              size: 10,
+              sourceType: 'file',
+              updatedAt: new Date(0),
+            },
+          ]),
+        ),
+      });
+      await useResourceManagerStore.getState().onActionClick(action);
+      expect(permission).toHaveBeenCalledWith('kb-ent', ['docs_directory', ...ids]);
+      if (action === 'delete') expect(mutate).toHaveBeenCalledWith(ids);
+      else expect(mutate).toHaveBeenCalledWith(ids, { skipExist: true });
+    },
+  );
+
+  it('does not treat an unresolved non-root directory as the enterprise library root', async () => {
+    const mutate = vi.fn();
+    const permission = vi.spyOn(enterpriseKnowledgeService, 'canEditNodes').mockResolvedValue(true);
+    vi.spyOn(fileService, 'getFolderBreadcrumb').mockResolvedValue([]);
+    useKnowledgeBaseStore.setState({
+      knowledgeBaseDetailMap: {
+        'kb-ent': enterpriseLibrary,
+      },
+    });
+    useResourceManagerStore.setState({
+      libraryId: 'kb-ent',
+      selectedFileIds: ['file_a'],
+      selectAllState: 'loaded',
+    });
+    useFileStore.setState({
+      deleteResources: mutate,
+      queryParams: { parentId: 'missing-folder' },
+    });
+    await expect(useResourceManagerStore.getState().onActionClick('delete')).rejects.toThrow();
+    expect(permission).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [null, null],
+    ['docs_directory', 'docs_directory'],
+    ['cached-directory', 'docs_cached'],
+  ])(
+    'keeps the permission boundary for parent %s and blocks a denied deletion',
+    async (parentId, nodeId) => {
+      const mutate = vi.fn();
+      const permission = vi
+        .spyOn(enterpriseKnowledgeService, 'canEditNodes')
+        .mockResolvedValue(false);
+      const breadcrumb = vi.spyOn(fileService, 'getFolderBreadcrumb');
+      useKnowledgeBaseStore.setState({
+        knowledgeBaseDetailMap: {
+          'kb-ent': enterpriseLibrary,
+        },
+      });
+      useResourceManagerStore.setState({
+        libraryId: 'kb-ent',
+        selectedFileIds: ['file_a'],
+        selectAllState: 'loaded',
+      });
+      useFileStore.setState({
+        deleteResources: mutate,
+        folderBreadcrumbMap: {
+          'cached-directory': [{ id: 'docs_cached', name: 'Cached', slug: 'cached-directory' }],
+        },
+        queryParams: { parentId },
+      });
+      await useResourceManagerStore.getState().onActionClick('delete');
+      expect(permission).toHaveBeenCalledWith('kb-ent', [nodeId, 'file_a']);
+      expect(breadcrumb).not.toHaveBeenCalled();
+      expect(mutate).not.toHaveBeenCalled();
+    },
+  );
 
   it('should default workspace resources to workspace mode when no preference is persisted', () => {
     useResourceManagerStore.setState({

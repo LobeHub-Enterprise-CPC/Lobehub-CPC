@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   activeWorkspaceSlug: null as string | null,
   copyToClipboard: vi.fn(async (_text: string) => undefined),
   confirmModal: vi.fn(),
+  enterprise: false,
   deleteResource: vi.fn<() => Promise<void>>(async () => {}),
   downloadFile: vi.fn(async (_url: string, _filename: string) => undefined),
   dropTreeNodes: vi.fn(async () => undefined),
@@ -111,6 +112,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.activeWorkspaceId = null;
   mocks.activeWorkspaceSlug = null;
+  mocks.enterprise = false;
 });
 
 /** @example Sharing a workspace page copies a link other members can open. */
@@ -164,6 +166,21 @@ describe('useFileItemDropdown — delete confirmation', () => {
     await item.onClick({ domEvent: { stopPropagation: vi.fn() } });
     return mocks.confirmModal.mock.calls.at(-1)![0];
   };
+
+  it.each([false, true])(
+    'uses the appropriate file and folder confirmation for enterprise=%s',
+    async (enterprise) => {
+      mocks.enterprise = enterprise;
+      const file = await openConfirm({ libraryId: 'kb-1' });
+      const folder = await openConfirm({ libraryId: 'kb-1', fileType: CUSTOM_FOLDER_FILE_TYPE });
+      expect(file.content).toBe(
+        enterprise ? 'enterprise.trash.confirmItem' : 'FileManager.actions.confirmDeleteNamedFile',
+      );
+      expect(folder.content).toBe(
+        enterprise ? 'enterprise.trash.confirmFolder' : 'FileManager.actions.confirmDeleteFolder',
+      );
+    },
+  );
 
   it('localizes both buttons, which otherwise fall back to Cancel / OK', async () => {
     const options = await openConfirm();
@@ -470,5 +487,5 @@ describe('useFileItemDropdown — row without a stored URL', () => {
 });
 
 vi.mock('@/features/EnterpriseKnowledge/useLibraryPermission', () => ({
-  useLibraryPermission: () => ({ allowed: true, enterprise: false }),
+  useLibraryPermission: () => ({ allowed: true, enterprise: mocks.enterprise }),
 }));

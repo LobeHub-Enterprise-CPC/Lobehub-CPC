@@ -23,6 +23,7 @@ import {
   resolveItemsScope,
   resolveKnowledgeBaseScope,
 } from '@/server/services/enterpriseKnowledge';
+import { moveEnterpriseContent } from '@/server/services/enterpriseKnowledge/move';
 import { getEnterpriseNodeMetadata } from '@/server/services/enterpriseKnowledge/nodeAccess';
 
 const grant = z.object({
@@ -32,6 +33,10 @@ const grant = z.object({
 });
 const libraryInput = z.object({ knowledgeBaseId: z.string().min(1) });
 const nodeInput = libraryInput.extend({ nodeId: z.string().min(1) });
+const contentMoveInput = libraryInput.extend({
+  ids: z.array(z.string().min(1)).min(1).max(1000),
+  parentId: z.string().min(1).nullable().optional(),
+});
 const nodeChange = nodeInput.extend({
   mode: z.enum(['inherit', 'custom']),
   grants: z.array(grant),
@@ -100,6 +105,16 @@ const ownerProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) =>
 });
 
 export const enterpriseKnowledgeRouter = router({
+  moveIn: wsCompatProcedure
+    .use(serverDatabase)
+    .input(contentMoveInput)
+    .mutation(({ ctx, input }) => moveEnterpriseContent(ctx, input, 'in')),
+  moveOut: wsCompatProcedure
+    .use(serverDatabase)
+    .input(
+      contentMoveInput.extend({ targetKnowledgeBaseId: z.string().min(1).nullable().optional() }),
+    )
+    .mutation(({ ctx, input }) => moveEnterpriseContent(ctx, input, 'out')),
   resolveLevel: wsCompatProcedure
     .use(serverDatabase)
     .input(libraryInput.extend({ nodeId: z.string().nullable().optional() }))

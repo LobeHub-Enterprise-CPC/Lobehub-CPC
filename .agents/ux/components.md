@@ -67,6 +67,8 @@
 
 ### 反馈、错误与弹窗
 
+`DropdownMenu` 的直接子节点应能接收事件、aria 属性与 ref；自定义组件封装原生 `<button>` 时显式设置 `nativeButton={true}`，非原生按钮则设置为 false，不能依赖未知组件名称的自动推断。需要说明时用 `Tooltip` 包在 `DropdownMenu` 外面。已安装的 UI 6.15.2 中，`Tooltip` 在没有 title/hotkey 时直接返回 children，会丢弃外层菜单传来的触发属性，表现为按钮无 `aria-haspopup` 且点击无菜单；未知名称的自定义按钮又会被推断为 `nativeButton=false`，与实际 DOM 不符时报 Base UI console error。此约束覆盖批量操作；回归位于 `ResourceManager/components/Explorer/index.test.tsx`，用真实 Dropdown 点击，断言菜单出现且没有 nativeButton 错误。
+
 | 组件                                                            | 什么时候用                     | 注意点                                                   |
 | --------------------------------------------------------------- | ------------------------------ | -------------------------------------------------------- |
 | `AsyncBoundary`、`AsyncError`                                   | 异步区块的加载与失败           | 失败态要给重试，不留空白（K-05）                         |

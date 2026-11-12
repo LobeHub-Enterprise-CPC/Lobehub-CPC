@@ -54,6 +54,19 @@ export const AccessEvents = ({ knowledgeBaseId }: { knowledgeBaseId: string }) =
           <Text type="secondary">
             {event.actor.name} · {new Date(event.createdAt).toLocaleString(i18n.language)}
           </Text>
+          {(event.action === 'moved_in' || event.action === 'moved_out') && (
+            <Text>
+              {t('enterprise.move.eventDetail', {
+                count: typeof event.detail.count === 'number' ? event.detail.count : 0,
+                names: Array.isArray(event.detail.items)
+                  ? event.detail.items
+                      .map((item) => (typeof item?.name === 'string' ? item.name : ''))
+                      .filter(Boolean)
+                      .join('、')
+                  : '',
+              })}
+            </Text>
+          )}
           {String(event.action) === 'node_access_updated' && (
             <Text>
               {t('enterprise.node.eventDetail', {

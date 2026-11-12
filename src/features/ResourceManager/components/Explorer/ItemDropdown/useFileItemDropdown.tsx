@@ -23,6 +23,10 @@ import { shallow } from 'zustand/shallow';
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import RepoIcon from '@/components/LibIcon';
+import {
+  getMoveOutMenuItems,
+  selectContentMoveTarget,
+} from '@/features/EnterpriseKnowledge/confirmContentMove';
 import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useSendToMessengerMenuItem } from '@/features/Messenger/PushResourceModal/useSendToMessengerMenuItem';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
@@ -196,7 +200,8 @@ export const useFileItemDropdown = ({
     // only join a public KB. Personal-mode files (visibility null/undefined)
     // ignore the scope filter.
     const availableKnowledgeBases = libraries.filter((kb) => {
-      if (kb.id === libraryId || kb.enterprise) return false;
+      if (kb.id === libraryId || enterprise) return false;
+      if (kb.enterprise) return !activeWorkspaceId;
       if (visibility === 'private' || visibility === 'public') {
         return kb.visibility === visibility;
       }
@@ -210,6 +215,17 @@ export const useFileItemDropdown = ({
       label: <span style={{ marginLeft: 8 }}>{kb.name}</span>,
       onClick: async ({ domEvent }) => {
         domEvent.stopPropagation();
+        if (kb.enterprise) {
+          await selectContentMoveTarget({
+            count: 1,
+            direction: 'in',
+            getIds: async () => [id],
+            knowledgeBaseId: kb.id,
+            libraryName: kb.name,
+            onMoved: onDeleted,
+          });
+          return;
+        }
         try {
           await addFilesToKnowledgeBase(kb.id, [id]);
           toast.success(
@@ -241,6 +257,17 @@ export const useFileItemDropdown = ({
       label: <span style={{ marginLeft: 8 }}>{kb.name}</span>,
       onClick: async ({ domEvent }) => {
         domEvent.stopPropagation();
+        if (kb.enterprise) {
+          await selectContentMoveTarget({
+            count: 1,
+            direction: 'in',
+            getIds: async () => [id],
+            knowledgeBaseId: kb.id,
+            libraryName: kb.name,
+            onMoved: onDeleted,
+          });
+          return;
+        }
         try {
           // First remove from current library
           if (libraryId) {
@@ -265,50 +292,68 @@ export const useFileItemDropdown = ({
     }));
 
     const libraryRelatedActions = (
-      !canEditResources || enterprise
+      !canEditResources
         ? []
-        : isInLibrary
+        : enterprise && libraryId
           ? [
-              availableKnowledgeBases.length > 0 && {
-                children: moveToKnowledgeBaseSubmenu,
-                icon: <Icon icon={BookPlusIcon} />,
-                key: 'moveToOtherLibrary',
-                label: t('FileManager.actions.moveToOtherLibrary'),
-              },
               {
                 icon: <Icon icon={BookMinusIcon} />,
-                key: 'removeFromLibrary',
-                label: t('FileManager.actions.removeFromLibrary'),
-                onClick: async ({ domEvent }) => {
-                  domEvent.stopPropagation();
-
-                  confirmModal({
-                    cancelText: t('cancel', { ns: 'common' }),
-                    content: t('FileManager.actions.confirmRemoveFromLibrary', {
-                      count: 1,
-                    }),
-                    okButtonProps: {
-                      danger: true,
-                    },
-                    okText: t('FileManager.actions.removeFromLibrary'),
-                    onOk: async () => {
-                      await removeFilesFromKnowledgeBase(libraryId, [id]);
-
-                      toast.success(t('FileManager.actions.removeFromLibrarySuccess'));
-                    },
-                    title: t('FileManager.actions.removeFromLibrary'),
-                  });
+                key: 'moveToMyResources',
+                label: t('enterprise.moveOut.action', { ns: 'knowledgeBase' }),
+                children: getMoveOutMenuItems({
+                  count: 1,
+                  getIds: async () => [id],
+                  knowledgeBaseId: libraryId,
+                  libraryName: library?.name ?? '',
+                  onMoved: onDeleted,
+                  libraries,
+                  userId: currentUserId,
+                  workspaceId: activeWorkspaceId,
+                }),
+              },
+            ]
+          : isInLibrary
+            ? [
+                availableKnowledgeBases.length > 0 && {
+                  children: moveToKnowledgeBaseSubmenu,
+                  icon: <Icon icon={BookPlusIcon} />,
+                  key: 'moveToOtherLibrary',
+                  label: t('FileManager.actions.moveToOtherLibrary'),
                 },
-              },
-            ]
-          : [
-              availableKnowledgeBases.length > 0 && {
-                children: addToKnowledgeBaseSubmenu,
-                icon: <Icon icon={BookPlusIcon} />,
-                key: 'addToLibrary',
-                label: t('FileManager.actions.addToLibrary'),
-              },
-            ]
+                {
+                  icon: <Icon icon={BookMinusIcon} />,
+                  key: 'removeFromLibrary',
+                  label: t('FileManager.actions.removeFromLibrary'),
+                  onClick: async ({ domEvent }) => {
+                    domEvent.stopPropagation();
+
+                    confirmModal({
+                      cancelText: t('cancel', { ns: 'common' }),
+                      content: t('FileManager.actions.confirmRemoveFromLibrary', {
+                        count: 1,
+                      }),
+                      okButtonProps: {
+                        danger: true,
+                      },
+                      okText: t('FileManager.actions.removeFromLibrary'),
+                      onOk: async () => {
+                        await removeFilesFromKnowledgeBase(libraryId, [id]);
+
+                        toast.success(t('FileManager.actions.removeFromLibrarySuccess'));
+                      },
+                      title: t('FileManager.actions.removeFromLibrary'),
+                    });
+                  },
+                },
+              ]
+            : [
+                availableKnowledgeBases.length > 0 && {
+                  children: addToKnowledgeBaseSubmenu,
+                  icon: <Icon icon={BookPlusIcon} />,
+                  key: 'addToLibrary',
+                  label: t('FileManager.actions.addToLibrary'),
+                },
+              ]
     ) as ItemType[];
 
     const hasKnowledgeBaseActions = libraryRelatedActions.some(Boolean);
@@ -512,9 +557,14 @@ export const useFileItemDropdown = ({
             domEvent.stopPropagation();
             confirmModal({
               cancelText: t('cancel', { ns: 'common' }),
-              content: isFolder
-                ? t('FileManager.actions.confirmDeleteFolder')
-                : t('FileManager.actions.confirmDeleteNamedFile', { name: filename }),
+              content: enterprise
+                ? t(isFolder ? 'enterprise.trash.confirmFolder' : 'enterprise.trash.confirmItem', {
+                    ns: 'knowledgeBase',
+                    name: filename,
+                  })
+                : isFolder
+                  ? t('FileManager.actions.confirmDeleteFolder')
+                  : t('FileManager.actions.confirmDeleteNamedFile', { name: filename }),
               okButtonProps: { danger: true },
               okText: isFolder
                 ? t('delete', { ns: 'common' })
