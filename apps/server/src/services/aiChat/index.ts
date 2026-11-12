@@ -4,6 +4,7 @@ import { createTimingHelpers } from '@lobechat/utils';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { FileService } from '@/server/services/file';
+import { resolveMessageFileUrlsInBatch } from '@/server/services/message/resolveMessageFileUrls';
 
 const { createPrefixedTimingContext, runTimedStage, toTimingContext } = createTimingHelpers(
   'lobe-server:chat:lobehub:timing',
@@ -57,8 +58,6 @@ export class AiChatService {
       'lambda.aiChat.messagesAndTopics.messageModel.query',
       () =>
         this.messageModel.query(messageParams, {
-          postProcessUrl: (path, file) =>
-            this.fileService.getFileAccessUrl({ id: file.id, url: path }),
           ...(messageTiming ? { timing: messageTiming } : {}),
         }),
       {
@@ -86,6 +85,11 @@ export class AiChatService {
         : undefined,
     ]);
 
-    return { messages, topics };
+    return {
+      messages: await resolveMessageFileUrlsInBatch(messages, (files) =>
+        this.fileService.getFileBrowserUrls(files),
+      ),
+      topics,
+    };
   }
 }

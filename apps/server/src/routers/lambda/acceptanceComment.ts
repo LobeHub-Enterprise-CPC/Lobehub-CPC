@@ -152,6 +152,7 @@ const enrich = async (
     db,
     scope.ownerUserId,
     scope.workspaceId ?? undefined,
+    attachmentIds,
   );
   const fileById = new Map<string, AcceptanceAttachment>(
     await Promise.all(

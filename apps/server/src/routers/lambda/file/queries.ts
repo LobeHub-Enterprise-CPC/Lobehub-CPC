@@ -2,6 +2,10 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { router } from '@/libs/trpc/lambda';
+import {
+  createEnterpriseListFilter,
+  queryEnterprisePage,
+} from '@/server/services/enterpriseKnowledge/listAccess';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import type { FileListItem } from '@/types/files';
 import { QueryFileListSchema } from '@/types/files';
@@ -41,14 +45,14 @@ export const queriesRouter = router({
         size: item.size,
         source: item.source,
         updatedAt: item.updatedAt,
-        url: await ctx.fileService.getFileAccessUrl(item),
+        url: await ctx.fileService.getFileBrowserUrl(item),
         userId: item.userId,
         visibility: item.visibility,
       };
     }),
   /**
-   * Direct storage URL for reading a file's bytes in the browser (canvas
-   * export). The `/f/:id` proxy answers with a cross-origin redirect, which
+   * Enterprise bytes use the authenticated same-origin proxy (also for canvas).
+   * Ordinary files keep a direct storage URL: their proxy redirect
    * drops the request's Origin so bucket CORS can never allow it; fetching the
    * storage URL directly keeps the Origin the bucket already allows for uploads.
    */
@@ -64,7 +68,7 @@ export const queriesRouter = router({
 
       await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
 
-      return { url: await ctx.fileService.getFullFileUrl(item.url) };
+      return { url: await ctx.fileService.getFileBrowserUrl(item, { readable: true }) };
     }),
   getFileItemById: fileProcedure
     .input(
@@ -97,7 +101,7 @@ export const queriesRouter = router({
         size: item.size,
         sourceType: 'file' as const,
         updatedAt: item.updatedAt,
-        url: await ctx.fileService.getFileAccessUrl(item),
+        url: await ctx.fileService.getFileBrowserUrl(item),
         userId: item.userId,
         visibility: item.visibility,
       };
@@ -109,16 +113,33 @@ export const queriesRouter = router({
         ? await getRestrictedKnowledgeBaseIds(ctx)
         : undefined;
 
-    const fileList = await ctx.fileModel.query({ ...input, excludeKnowledgeBaseIds });
+    const fileList = await queryEnterprisePage(
+      { ...ctx, userId: ctx.enterpriseCallerId },
+      (page) =>
+        ctx.fileModel.query({
+          ...input,
+          ...(ctx.enterpriseScope.enterprise
+            ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
+            : {}),
+          excludeKnowledgeBaseIds,
+          ...page,
+        }),
+      {
+        limit: input.limit,
+        offset: input.offset,
+        scope: ctx.enterpriseScope.enterprise ? ctx.enterpriseScope : undefined,
+      },
+    );
     const statusMap = await getKnowledgeItemStatusMap(ctx, fileList);
 
+    const urls = await ctx.fileService.getFileBrowserUrls(fileList);
     const resultFiles = [] as any[];
-    for (const item of fileList as any[]) {
+    for (const [index, item] of (fileList as any[]).entries()) {
       const status = statusMap.get(item.id)!;
       const fileItem = {
         ...item,
         sourceType: 'file' as const,
-        url: await ctx.fileService.getFileAccessUrl(item),
+        url: urls[index],
         ...status,
       } as FileListItem;
       resultFiles.push(fileItem);
@@ -139,12 +160,15 @@ export const queriesRouter = router({
       const limit = input?.limit ?? 12;
       // Files only (pages are excluded in SQL, so `limit` can't be eaten by
       // page rows that are then filtered out).
-      const fileItems = await ctx.knowledgeRepo.queryRecent(limit, 'file', input?.visibility);
+      const fileItems = await createEnterpriseListFilter({
+        ...ctx,
+        userId: ctx.enterpriseCallerId,
+      })(await ctx.knowledgeRepo.queryRecent(limit, 'file', input?.visibility));
 
       if (fileItems.length === 0) return [];
 
       // Get file IDs for batch processing
-      const fileIds = fileItems.map((item) => item.id);
+      const fileIds = fileItems.map((item) => item.fileId ?? item.id);
       const chunksArray = await ctx.chunkModel.countByFileIds(fileIds);
       const chunks: Record<string, number> = {};
       for (const item of chunksArray) {
@@ -166,8 +190,9 @@ export const queriesRouter = router({
       ]);
 
       // Build result with task status
+      const urls = await ctx.fileService.getFileBrowserUrls(fileItems);
       const resultFiles: FileListItem[] = [];
-      for (const item of fileItems) {
+      for (const [index, item] of fileItems.entries()) {
         const chunkTask = item.chunkTaskId
           ? chunkTasks.find((task) => task.id === item.chunkTaskId)
           : null;
@@ -177,14 +202,14 @@ export const queriesRouter = router({
 
         resultFiles.push({
           ...item,
-          chunkCount: chunks[item.id] ?? 0,
+          chunkCount: chunks[item.fileId ?? item.id] ?? 0,
           chunkingError: chunkTask?.error ?? null,
           chunkingStatus: chunkTask?.status as AsyncTaskStatus,
           embeddingError: embeddingTask?.error ?? null,
           embeddingStatus: embeddingTask?.status as AsyncTaskStatus,
           finishEmbedding: embeddingTask?.status === AsyncTaskStatus.Success,
           sourceType: 'file' as const,
-          url: await ctx.fileService.getFileAccessUrl(item),
+          url: urls[index],
         } as FileListItem);
       }
 
@@ -203,6 +228,15 @@ export const queriesRouter = router({
       const limit = input?.limit ?? 12;
       // Pages only (folders and files are excluded in SQL, so `limit` can't be
       // eaten by rows that are then filtered out).
-      return ctx.knowledgeRepo.queryRecent(limit, 'page', input?.visibility);
+      const items = await createEnterpriseListFilter({ ...ctx, userId: ctx.enterpriseCallerId })(
+        await ctx.knowledgeRepo.queryRecent(limit, 'page', input?.visibility),
+      );
+      return Promise.all(
+        items.map(async (item) =>
+          item.fileId && item.enterpriseAccess
+            ? { ...item, url: await ctx.fileService.getFileBrowserUrl(item) }
+            : item,
+        ),
+      );
     }),
 });

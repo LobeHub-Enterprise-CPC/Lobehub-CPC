@@ -14,24 +14,39 @@ import { FileUploadService } from '@/server/services/fileUpload';
 import { AsyncTaskStatus, AsyncTaskType, type IAsyncTaskError } from '@/types/asyncTask';
 import type { KnowledgeItemStatus } from '@/types/files';
 
+import { enterpriseContentContext } from '../_helpers/enterpriseContent';
 import type { KnowledgeBaseAccessCtx } from '../_helpers/knowledgeBaseAccess';
 import { assertContentsNotInRestrictedKnowledgeBase } from '../_helpers/knowledgeBaseAccess';
 
 export const fileProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
-  const { ctx } = opts;
+  const original = opts.ctx;
+  const enterprise = await enterpriseContentContext(
+    original,
+    await opts.getRawInput(),
+    opts.type === 'mutation',
+    {
+      domain: 'file',
+      procedure: opts.path.split('.').at(-1)!,
+      forbidExport: ['transferEntity', 'copyEntityToWorkspace'].includes(
+        opts.path.split('.').at(-1)!,
+      ),
+    },
+  );
+  const ctx = { ...original, ...enterprise };
   const wsId = ctx.workspaceId ?? undefined;
 
   return opts.next({
     ctx: {
-      asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.userId, wsId),
-      chunkModel: new ChunkModel(ctx.serverDB, ctx.userId, wsId),
-      documentModel: new DocumentModel(ctx.serverDB, ctx.userId, wsId),
-      documentService: new DocumentService(ctx.serverDB, ctx.userId, wsId),
-      fileModel: new FileModel(ctx.serverDB, ctx.userId, wsId),
-      fileService: new FileService(ctx.serverDB, ctx.userId, wsId),
-      fileUploadService: new FileUploadService(ctx.serverDB, ctx.userId, wsId),
-      knowledgeBaseModel: new KnowledgeBaseModel(ctx.serverDB, ctx.userId, wsId),
-      knowledgeRepo: new KnowledgeRepo(ctx.serverDB, ctx.userId, wsId),
+      ...enterprise,
+      asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      chunkModel: new ChunkModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      documentModel: new DocumentModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      documentService: new DocumentService(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      fileModel: new FileModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      fileService: new FileService(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      fileUploadService: new FileUploadService(ctx.serverDB, enterprise.enterpriseCallerId, wsId),
+      knowledgeBaseModel: new KnowledgeBaseModel(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
+      knowledgeRepo: new KnowledgeRepo(ctx.serverDB, ctx.enterpriseDataUserId, wsId),
     },
   });
 });

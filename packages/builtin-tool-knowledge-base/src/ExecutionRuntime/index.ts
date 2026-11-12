@@ -93,6 +93,7 @@ interface RagService {
      * An empty array means there was nothing to search.
      */
     searchedKnowledgeBaseIds?: string[];
+    skippedKnowledgeBaseCount?: number;
   }>;
 }
 
@@ -283,13 +284,14 @@ export class KnowledgeBaseExecutionRuntime {
     try {
       const { query, topK = 20 } = args;
 
-      const noScopeOutput = (): BuiltinServerRuntimeOutput => ({
+      const noScopeOutput = (skippedKnowledgeBaseCount?: number): BuiltinServerRuntimeOutput => ({
         content: promptNoKnowledgeBaseInScope(query),
         state: {
           chunks: [],
           documents: [],
           fileResults: [],
           scope: 'none',
+          ...(skippedKnowledgeBaseCount ? { skippedKnowledgeBaseCount } : {}),
           totalResults: 0,
         } satisfies SearchKnowledgeBaseState,
         success: true,
@@ -309,13 +311,16 @@ export class KnowledgeBaseExecutionRuntime {
 
       // Service resolved the scope itself (server runtime) and found none.
       if (result.searchedKnowledgeBaseIds && result.searchedKnowledgeBaseIds.length === 0) {
-        return noScopeOutput();
+        return noScopeOutput(result.skippedKnowledgeBaseCount);
       }
 
       const chunks = result.chunks ?? [];
       const fileResults = result.fileResults ?? [];
       const documents = result.documents ?? [];
       const errors = result.errors;
+      const skipped = result.skippedKnowledgeBaseCount
+        ? { skippedKnowledgeBaseCount: result.skippedKnowledgeBaseCount }
+        : {};
       const totalResults = chunks.length + documents.length;
 
       if (totalResults === 0) {
@@ -323,6 +328,7 @@ export class KnowledgeBaseExecutionRuntime {
           chunks: [],
           documents: [],
           errors,
+          ...skipped,
           fileResults: [],
           totalResults: 0,
         };
@@ -340,6 +346,7 @@ export class KnowledgeBaseExecutionRuntime {
         chunks,
         documents,
         errors,
+        ...skipped,
         fileResults,
         totalResults,
       };

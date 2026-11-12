@@ -10,6 +10,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@lobechat/business-knowledge": "workspace:*",
     "@lobechat/business-tenant": "workspace:*",
     "lru-cache": "11.5.3"
   }

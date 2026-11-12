@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getTestDB } from '../../core/getTestDB';
 import {
   agents,
+  documents,
+  files,
   messages,
   sessions,
   topics,
@@ -396,6 +398,113 @@ describe('TrashModel', () => {
   });
 
   describe('sweep helpers', () => {
+    it.each(['file', 'document'] as const)(
+      'prunes %s roots only when the resource is absent, live or outside the registry scope',
+      async (kind) => {
+        const deletedAt = at('2026-08-01T00:00:00Z');
+        const otherWorkspaceId = 'trash-model-other-ws';
+        await serverDB.insert(workspaces).values({
+          id: otherWorkspaceId,
+          name: 'other',
+          primaryOwnerId: otherUserId,
+          slug: otherWorkspaceId,
+        });
+        const seed = async (
+          type: 'file' | 'document',
+          id: string,
+          scope: {
+            isDeleted: boolean | null;
+            userId: string;
+            workspaceId?: string;
+          },
+        ) => {
+          if (type === 'file') {
+            await serverDB.insert(files).values({
+              id,
+              name: id,
+              fileType: 'text/plain',
+              size: 1,
+              url: 'test/file',
+              deletedAt,
+              ...scope,
+            });
+          } else {
+            await serverDB.insert(documents).values({
+              id,
+              title: id,
+              filename: id,
+              fileType: 'custom/document',
+              sourceType: 'api',
+              source: '',
+              content: '',
+              totalCharCount: 0,
+              totalLineCount: 0,
+              deletedAt,
+              ...scope,
+            });
+          }
+        };
+        const scenarios = [
+          {
+            id: 'personal-valid',
+            source: { isDeleted: true, userId },
+            registryWorkspace: undefined,
+            keep: true,
+          },
+          { id: 'restored-null', source: { isDeleted: null, userId }, keep: false },
+          { id: 'restored-false', source: { isDeleted: false, userId }, keep: false },
+          { id: 'missing', source: undefined, keep: false },
+          { id: 'wrong-owner', source: { isDeleted: true, userId: otherUserId }, keep: false },
+          {
+            id: 'personal-to-workspace',
+            source: { isDeleted: true, userId, workspaceId },
+            keep: false,
+          },
+          {
+            id: 'workspace-to-personal',
+            source: { isDeleted: true, userId },
+            registryWorkspace: workspaceId,
+            keep: false,
+          },
+          {
+            id: 'wrong-workspace',
+            source: { isDeleted: true, userId, workspaceId: otherWorkspaceId },
+            registryWorkspace: workspaceId,
+            keep: false,
+          },
+          // Workspace owners may trash another member's resource; workspace scope is authoritative.
+          {
+            id: 'workspace-valid',
+            source: { isDeleted: true, userId: otherUserId, workspaceId },
+            registryWorkspace: workspaceId,
+            keep: true,
+          },
+          { id: 'wrong-table', source: undefined, keep: false },
+        ];
+        const expected: string[] = [];
+        for (const scenario of scenarios) {
+          const id = `${kind}-${scenario.id}`;
+          if (scenario.source) await seed(kind, id, scenario.source);
+          if (scenario.id === 'wrong-table')
+            await seed(kind === 'file' ? 'document' : 'file', id, { isDeleted: true, userId });
+          await serverDB.insert(trashItems).values({
+            resourceType: sql`${kind}`,
+            resourceId: id,
+            userId,
+            workspaceId: scenario.registryWorkspace,
+            deletedAt,
+            expiresAt: new Date(deletedAt.getTime() + TRASH_RETENTION_MS),
+          });
+          if (scenario.keep) expected.push(id);
+        }
+
+        expect(await TrashModel.pruneOrphans(serverDB)).toBe(scenarios.length - expected.length);
+        const left = await serverDB.select().from(trashItems);
+        expect(left.map((row) => row.resourceId).sort()).toEqual(expected.sort());
+        expect(await TrashModel.pruneOrphans(serverDB)).toBe(0);
+      },
+    );
+
     it('listExpiredRoots returns roots past their expiry across users, oldest first', async () => {
       const now = at('2026-09-15T00:00:00Z');
       await model.register({

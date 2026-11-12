@@ -1,8 +1,64 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import {
+  isEnterpriseKnowledgeEnabled,
+  listEnterpriseKbIds,
+  resolveEnterpriseKbAccess,
+} from '@lobechat/business-knowledge';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 
 import { agentsFiles, agentsKnowledgeBases, files, knowledgeBases } from '../../schemas';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../../utils/workspace';
 import { type AgentModelContext } from './context';
+
+/**
+ * Mounts of enterprise knowledge bases owned by someone else. The ownership join
+ * above only matches the caller's own rows, so these come back as bare mounts
+ * with no knowledge base. Each one is decided per read, from the caller's
+ * current standing: still accessible → the knowledge base row (read through the
+ * owner), withdrawn or undecidable → `accessRevoked` with id and name only, so
+ * the editor can show it and the caller can unmount it, and retrieval skips it.
+ */
+const resolveEnterpriseMounts = async (
+  ctx: AgentModelContext,
+  mounts: { knowledgeBaseId: string; knowledgeBases: unknown; enabled: boolean | null }[],
+): Promise<Map<string, unknown>> => {
+  const resolved = new Map<string, unknown>();
+  if (ctx.workspaceId || !isEnterpriseKnowledgeEnabled()) return resolved;
+
+  const candidateIds = mounts.map((mount) => mount.knowledgeBaseId);
+  if (candidateIds.length === 0) return resolved;
+
+  let enterpriseIds: string[];
+  try {
+    enterpriseIds = await listEnterpriseKbIds(ctx.db, candidateIds);
+  } catch (error) {
+    console.error('[agent knowledge] enterprise lookup failed, leaving mounts unavailable', error);
+    enterpriseIds = candidateIds;
+  }
+  if (enterpriseIds.length === 0) return resolved;
+
+  const rows = await ctx.db
+    .select()
+    .from(knowledgeBases)
+    .where(and(inArray(knowledgeBases.id, enterpriseIds), isNull(knowledgeBases.workspaceId)));
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+
+  for (const kbId of enterpriseIds) {
+    const row = rowById.get(kbId);
+    if (!row) continue;
+    let ownerId: string | undefined;
+    try {
+      const resolution = await resolveEnterpriseKbAccess(ctx.db, ctx.userId, kbId);
+      if (resolution.enterprise && resolution.access && resolution.access.ownerId === row.userId) {
+        ownerId = resolution.access.ownerId;
+      }
+    } catch (error) {
+      console.error('[agent knowledge] access resolution failed, denying', error);
+    }
+    resolved.set(kbId, ownerId ? row : { accessRevoked: true, id: row.id, name: row.name });
+  }
+
+  return resolved;
+};
 
 export const getAgentAssignedKnowledge = async (ctx: AgentModelContext, id: string) => {
   // The junction tables carry the mount (created by whoever wired the agent
@@ -20,7 +76,11 @@ export const getAgentAssignedKnowledge = async (ctx: AgentModelContext, id: stri
   // the runtime naturally skips such rows via its `k.id` filter.
   const [knowledgeBaseResult, fileResult] = await Promise.all([
     ctx.db
-      .select({ enabled: agentsKnowledgeBases.enabled, knowledgeBases })
+      .select({
+        enabled: agentsKnowledgeBases.enabled,
+        knowledgeBaseId: agentsKnowledgeBases.knowledgeBaseId,
+        knowledgeBases,
+      })
       .from(agentsKnowledgeBases)
       .where(and(eq(agentsKnowledgeBases.agentId, id), ctx.agentsKnowledgeBasesOwnership()))
       .orderBy(desc(agentsKnowledgeBases.createdAt))
@@ -45,15 +105,23 @@ export const getAgentAssignedKnowledge = async (ctx: AgentModelContext, id: stri
       ),
   ]);
 
+  const enterpriseMounts = await resolveEnterpriseMounts(ctx, knowledgeBaseResult);
+
   return {
     files: fileResult.map((item) => ({
       ...item.files,
       enabled: item.enabled,
     })),
     knowledgeBases: knowledgeBaseResult.map((item) => ({
-      ...item.knowledgeBases,
+      ...((enterpriseMounts.get(item.knowledgeBaseId) as
+        Partial<typeof item.knowledgeBases> | undefined) ?? item.knowledgeBases),
       enabled: item.enabled,
-    })),
+    })) as Array<
+      Partial<NonNullable<(typeof knowledgeBaseResult)[number]['knowledgeBases']>> & {
+        accessRevoked?: boolean;
+        enabled: boolean;
+      }
+    >,
   };
 };
 

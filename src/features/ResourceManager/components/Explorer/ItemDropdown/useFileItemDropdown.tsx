@@ -1,8 +1,9 @@
 import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import { CUSTOM_FOLDER_FILE_TYPE, DERIVED_DOCUMENT_SOURCE_TYPE } from '@lobechat/const';
 import type { SFSymbol } from '@lobechat/electron-client-ipc';
+import type { EnterpriseItemAccess } from '@lobechat/types';
 import type { ItemType } from '@lobehub/ui';
-import { confirmModal, copyToClipboard, Icon, toast } from '@lobehub/ui';
+import { confirmModal, copyToClipboard, Icon, Spin, toast } from '@lobehub/ui';
 import {
   BookMinusIcon,
   BookPlusIcon,
@@ -12,22 +13,23 @@ import {
   GlobeIcon,
   LinkIcon,
   PencilIcon,
+  ShieldIcon,
   Trash,
 } from 'lucide-react';
-import { useCallback } from 'react';
+import { lazy, type ReactNode, Suspense, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { shallow } from 'zustand/shallow';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import RepoIcon from '@/components/LibIcon';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useSendToMessengerMenuItem } from '@/features/Messenger/PushResourceModal/useSendToMessengerMenuItem';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
 import { PAGE_FILE_TYPE } from '@/features/ResourceManager/constants';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { buildPagePath } from '@/features/ResourceManager/utils/resourcePath';
 import VisibilityConfirmContent from '@/features/VisibilityConfirmContent';
-import { usePermission } from '@/hooks/usePermission';
 import { documentService } from '@/services/document';
 import { fileService } from '@/services/file';
 import { useFileStore } from '@/store/file';
@@ -39,8 +41,15 @@ import { downloadFile } from '@/utils/client/downloadFile';
 
 import { openMoveToFolderModal } from '../MoveToFolderModal';
 
+const NodeAccessPanel = lazy(() =>
+  import('@/features/EnterpriseKnowledge/NodeAccessPanel').then((m) => ({
+    default: m.NodeAccessPanel,
+  })),
+);
+
 interface UseFileItemDropdownParams {
   enabled?: boolean;
+  enterpriseAccess?: EnterpriseItemAccess;
   /**
    * The underlying `files.id` when the row is a file. The unified resource
    * list addresses a file that backs a derived page by the PAGE id
@@ -77,6 +86,7 @@ interface UseFileItemDropdownParams {
 type FileMenuItem = ItemType & { sfSymbol?: SFSymbol };
 
 interface UseFileItemDropdownReturn {
+  accessPanel: ReactNode;
   menuItems: () => FileMenuItem[];
 }
 
@@ -93,6 +103,7 @@ interface UseFileItemDropdownReturn {
  * - Available actions with file visibility changes targeting the backing file.
  */
 export const useFileItemDropdown = ({
+  enterpriseAccess,
   fileId,
   id,
   libraryId,
@@ -110,7 +121,14 @@ export const useFileItemDropdown = ({
   const { t } = useTranslation(['components', 'common', 'knowledgeBase', 'chat']);
 
   const appOrigin = useAppBaseUrl();
-  const { allowed: canEditResources } = usePermission('edit_own_content');
+  const [accessOpen, setAccessOpen] = useState(false);
+  const {
+    allowed: canEditResources,
+    enterprise,
+    canManageAccess,
+    library,
+    item,
+  } = useLibraryPermission('edit_own_content', libraryId, fileId ?? id, enterpriseAccess);
   const currentUserId = useUserStore(userProfileSelectors.userId);
   const activeWorkspaceId = useActiveWorkspaceId();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
@@ -178,7 +196,7 @@ export const useFileItemDropdown = ({
     // only join a public KB. Personal-mode files (visibility null/undefined)
     // ignore the scope filter.
     const availableKnowledgeBases = libraries.filter((kb) => {
-      if (kb.id === libraryId) return false;
+      if (kb.id === libraryId || kb.enterprise) return false;
       if (visibility === 'private' || visibility === 'public') {
         return kb.visibility === visibility;
       }
@@ -247,7 +265,7 @@ export const useFileItemDropdown = ({
     }));
 
     const libraryRelatedActions = (
-      !canEditResources
+      !canEditResources || enterprise
         ? []
         : isInLibrary
           ? [
@@ -300,6 +318,7 @@ export const useFileItemDropdown = ({
     // is meaningless. Without this gate every personal file would offer
     // "Make private" (and, once flipped, "Publish to workspace").
     const isOwnWorkspaceFile =
+      !enterprise &&
       !!activeWorkspaceId &&
       sourceType !== DERIVED_DOCUMENT_SOURCE_TYPE &&
       !isFolder &&
@@ -315,6 +334,17 @@ export const useFileItemDropdown = ({
 
     return (
       [
+        enterprise &&
+          canManageAccess &&
+          library && {
+            icon: <Icon icon={ShieldIcon} />,
+            key: 'nodeAccess',
+            label: t('enterprise.node.permission', { ns: 'knowledgeBase' }),
+            onClick: ({ domEvent }) => {
+              domEvent.stopPropagation();
+              setAccessOpen(true);
+            },
+          },
         canEditResources &&
           isOwnPrivateFile && {
             icon: <Icon icon={GlobeIcon} />,
@@ -532,7 +562,10 @@ export const useFileItemDropdown = ({
     appOrigin,
     activeWorkspaceId,
     activeWorkspaceSlug,
+    canManageAccess,
+    library,
     canEditResources,
+    enterprise,
     currentUserId,
     deleteResource,
     fileId,
@@ -559,5 +592,19 @@ export const useFileItemDropdown = ({
     visibility,
   ]);
 
-  return { menuItems };
+  return {
+    menuItems,
+    accessPanel:
+      accessOpen && library ? (
+        <Suspense fallback={<Spin />}>
+          <NodeAccessPanel
+            knowledgeBaseId={library.id}
+            library={library}
+            nodeId={fileId ?? id}
+            parentId={parentId !== undefined ? parentId : item?.parentId}
+            onClose={() => setAccessOpen(false)}
+          />
+        </Suspense>
+      ) : null,
+  };
 };

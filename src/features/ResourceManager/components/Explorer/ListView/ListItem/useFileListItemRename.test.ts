@@ -76,3 +76,7 @@ describe('useFileListItemRename', () => {
     expect(mocks.patchSearchHit).not.toHaveBeenCalled();
   });
 });
+
+vi.mock('@/features/EnterpriseKnowledge/useLibraryPermission', () => ({
+  useLibraryPermission: () => ({ allowed: true, enterprise: false }),
+}));

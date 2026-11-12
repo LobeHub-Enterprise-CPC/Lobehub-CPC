@@ -37,7 +37,7 @@ const file: FileListItem = {
 };
 
 vi.mock('@/store/file', () => ({
-  fileManagerSelectors: { getFileById: () => () => file },
+  fileManagerSelectors: { getFileById: () => () => file, getFileByChunkTargetId: () => () => file },
   useFileStore: (selector: (s: unknown) => unknown) =>
     selector({ useFetchKnowledgeItem: () => ({ data: file }) }),
 }));

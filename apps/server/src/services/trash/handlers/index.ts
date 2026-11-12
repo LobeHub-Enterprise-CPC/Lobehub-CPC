@@ -1,5 +1,7 @@
 import type { TrashResourceType } from '@lobechat/types';
 
+import { enterpriseContentTrashHandler } from '@/server/services/enterpriseKnowledge/trash';
+
 import { agentHandler } from './agent';
 import { dashboardHandler } from './dashboard';
 import { messageHandler } from './message';
@@ -29,7 +31,9 @@ export const TRASH_HANDLERS: Partial<Record<TrashResourceType, TrashHandler>> = 
  * silently skipping the row and leaving it in the bin forever.
  */
 export const resolveTrashHandler = (resourceType: TrashResourceType): TrashHandler => {
-  const handler = TRASH_HANDLERS[resourceType];
+  const handler = ['file', 'document'].includes(String(resourceType))
+    ? { ...enterpriseContentTrashHandler, type: resourceType }
+    : TRASH_HANDLERS[resourceType];
   if (!handler) throw new Error(`No recycle-bin handler for resource type "${resourceType}"`);
   return handler;
 };

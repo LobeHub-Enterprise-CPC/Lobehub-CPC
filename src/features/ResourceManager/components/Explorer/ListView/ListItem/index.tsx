@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { shallow } from 'zustand/shallow';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
+import { EnterpriseCustomAccessBadge } from '@/features/EnterpriseKnowledge/CustomAccessBadge';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { isExplorerItemSelected } from '@/features/ResourceManager/store/selectors';
 import { fileManagerSelectors, getChunkTargetId, useFileStore } from '@/store/file';
@@ -148,6 +149,7 @@ const FileListItem = ({
   columnWidths,
   createdAt,
   embeddingError,
+  enterpriseAccess,
   embeddingStatus,
   fileId,
   fileType,
@@ -252,7 +254,8 @@ const FileListItem = ({
     slug,
   });
   const handleItemDoubleClick = useFileItemDoubleClick({ id, isPage });
-  const { menuItems } = useFileItemDropdown({
+  const { menuItems, accessPanel } = useFileItemDropdown({
+    enterpriseAccess,
     fileId,
     fileType,
     filename: name,
@@ -283,139 +286,143 @@ const FileListItem = ({
   }, []);
 
   return (
-    <ContextMenuTrigger items={menuItems}>
-      <Flexbox
-        horizontal
-        align={'center'}
-        data-drop-target-id={id}
-        data-is-folder={String(isFolder)}
-        data-row-index={index}
-        draggable={!!resourceManagerState.libraryId}
-        height={48}
-        paddingInline={8}
-        className={cx(
-          styles.container,
-          'file-list-item-group',
-          index % 2 === 0 && styles.evenRow,
-          isSelected && styles.selected,
-          isDragging && styles.dragging,
-          isOver && styles.dragOver,
-        )}
-        style={{
-          borderBlockEnd: `1px solid ${cssVar.colorBorderSecondary}`,
-          minWidth: getListViewMinWidth(showUploader),
-          userSelect: 'none',
-        }}
-        onClick={handleItemClick}
-        onDoubleClick={handleItemDoubleClick}
-        onDragEnd={handleDragEnd}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDragStart={handleDragStart}
-        onDrop={handleDrop}
-      >
-        <Center
-          height={40}
-          style={{ cursor: selectable ? 'pointer' : 'not-allowed', paddingInline: 4 }}
-          title={selectable ? undefined : t('FileManager.selection.onlyOwn')}
-          onClick={handleCheckboxClick}
-          onPointerDown={handleCheckboxPointerDown}
-        >
-          <Checkbox checked={isSelected} disabled={!selectable} />
-        </Center>
+    <>
+      {accessPanel}
+      <ContextMenuTrigger items={menuItems}>
         <Flexbox
           horizontal
           align={'center'}
-          className={styles.item}
-          distribution={'space-between'}
+          data-drop-target-id={id}
+          data-is-folder={String(isFolder)}
+          data-row-index={index}
+          draggable={!!resourceManagerState.libraryId}
+          height={48}
+          paddingInline={8}
+          className={cx(
+            styles.container,
+            'file-list-item-group',
+            index % 2 === 0 && styles.evenRow,
+            isSelected && styles.selected,
+            isDragging && styles.dragging,
+            isOver && styles.dragOver,
+          )}
           style={{
-            flexShrink: 0,
-            maxWidth: columnWidths.name,
-            minWidth: columnWidths.name,
-            paddingInline: 8,
-            width: columnWidths.name,
+            borderBlockEnd: `1px solid ${cssVar.colorBorderSecondary}`,
+            minWidth: getListViewMinWidth(showUploader),
+            userSelect: 'none',
           }}
+          onClick={handleItemClick}
+          onDoubleClick={handleItemDoubleClick}
+          onDragEnd={handleDragEnd}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDragStart={handleDragStart}
+          onDrop={handleDrop}
         >
-          <FileListItemName
-            emoji={emoji}
-            fallbackName={t('file:pageList.untitled')}
-            fileType={fileType}
-            inputRef={inputRef}
-            isFolder={isFolder}
-            isPage={isPage}
-            isPrivate={isPrivate}
-            isRenaming={isRenaming}
-            name={name}
-            privateTooltip={t('resources.visibility.privateTooltip', { ns: 'chat' })}
-            renamingValue={renamingValue}
-            onRenameCancel={handleRenameCancel}
-            onRenameConfirm={handleRenameConfirm}
-            onRenamingValueChange={setRenamingValue}
-          />
-          <FileListItemActions
-            chunkCount={chunkCount}
-            chunkingError={chunkingError}
-            chunkingStatus={chunkingStatus}
-            embeddingError={embeddingError}
-            embeddingStatus={embeddingStatus}
-            fileId={fileId}
-            finishEmbedding={finishEmbedding}
-            id={id}
-            isCreatingFileParseTask={fileStoreState.isCreatingFileParseTask}
-            isFolder={isFolder}
-            isPage={isPage}
-            isSupportedForChunking={isSupportedForChunking}
-            menuItems={menuItems}
-            parseFiles={fileStoreState.parseFiles}
-            t={t}
-          />
-        </Flexbox>
-        {!isDragging && (
-          <>
-            <Flexbox
-              horizontal
-              align={'center'}
-              className={styles.item}
-              gap={8}
-              style={{ flexShrink: 0 }}
-              width={columnWidths.date}
-            >
-              <span>{displayTime}</span>
-            </Flexbox>
-            {showUploader && (
+          <Center
+            height={40}
+            style={{ cursor: selectable ? 'pointer' : 'not-allowed', paddingInline: 4 }}
+            title={selectable ? undefined : t('FileManager.selection.onlyOwn')}
+            onClick={handleCheckboxClick}
+            onPointerDown={handleCheckboxPointerDown}
+          >
+            <Checkbox checked={isSelected} disabled={!selectable} />
+          </Center>
+          <Flexbox
+            horizontal
+            align={'center'}
+            className={styles.item}
+            distribution={'space-between'}
+            style={{
+              flexShrink: 0,
+              maxWidth: columnWidths.name,
+              minWidth: columnWidths.name,
+              paddingInline: 8,
+              width: columnWidths.name,
+            }}
+          >
+            <FileListItemName
+              emoji={emoji}
+              fallbackName={t('file:pageList.untitled')}
+              fileType={fileType}
+              inputRef={inputRef}
+              isFolder={isFolder}
+              isPage={isPage}
+              isPrivate={isPrivate}
+              isRenaming={isRenaming}
+              name={name}
+              privateTooltip={t('resources.visibility.privateTooltip', { ns: 'chat' })}
+              renamingValue={renamingValue}
+              onRenameCancel={handleRenameCancel}
+              onRenameConfirm={handleRenameConfirm}
+              onRenamingValueChange={setRenamingValue}
+            />
+            <EnterpriseCustomAccessBadge custom={enterpriseAccess?.custom} />
+            <FileListItemActions
+              chunkCount={chunkCount}
+              chunkingError={chunkingError}
+              chunkingStatus={chunkingStatus}
+              embeddingError={embeddingError}
+              embeddingStatus={embeddingStatus}
+              fileId={fileId}
+              finishEmbedding={finishEmbedding}
+              id={id}
+              isCreatingFileParseTask={fileStoreState.isCreatingFileParseTask}
+              isFolder={isFolder}
+              isPage={isPage}
+              isSupportedForChunking={isSupportedForChunking}
+              menuItems={menuItems}
+              parseFiles={fileStoreState.parseFiles}
+              t={t}
+            />
+          </Flexbox>
+          {!isDragging && (
+            <>
               <Flexbox
                 horizontal
                 align={'center'}
                 className={styles.item}
                 gap={8}
                 style={{ flexShrink: 0 }}
-                width={columnWidths.uploader}
+                width={columnWidths.date}
               >
-                {uploaderName ? (
-                  <Tooltip title={t('file:listView.uploadedBy', { name: uploaderName })}>
-                    <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
-                      <Avatar
-                        alt={uploaderName}
-                        avatar={uploader?.avatar || uploaderName}
-                        shape={'circle'}
-                        size={20}
-                        style={{ flexShrink: 0 }}
-                      />
-                      <span className={styles.uploaderName}>{uploaderName}</span>
-                    </Flexbox>
-                  </Tooltip>
-                ) : (
-                  '-'
-                )}
+                <span>{displayTime}</span>
               </Flexbox>
-            )}
-            <Flexbox className={styles.item} style={{ flexShrink: 0 }} width={columnWidths.size}>
-              {isFolder || isPage ? '-' : formatSize(size)}
-            </Flexbox>
-          </>
-        )}
-      </Flexbox>
-    </ContextMenuTrigger>
+              {showUploader && (
+                <Flexbox
+                  horizontal
+                  align={'center'}
+                  className={styles.item}
+                  gap={8}
+                  style={{ flexShrink: 0 }}
+                  width={columnWidths.uploader}
+                >
+                  {uploaderName ? (
+                    <Tooltip title={t('file:listView.uploadedBy', { name: uploaderName })}>
+                      <Flexbox horizontal align={'center'} gap={8} style={{ minWidth: 0 }}>
+                        <Avatar
+                          alt={uploaderName}
+                          avatar={uploader?.avatar || uploaderName}
+                          shape={'circle'}
+                          size={20}
+                          style={{ flexShrink: 0 }}
+                        />
+                        <span className={styles.uploaderName}>{uploaderName}</span>
+                      </Flexbox>
+                    </Tooltip>
+                  ) : (
+                    '-'
+                  )}
+                </Flexbox>
+              )}
+              <Flexbox className={styles.item} style={{ flexShrink: 0 }} width={columnWidths.size}>
+                {isFolder || isPage ? '-' : formatSize(size)}
+              </Flexbox>
+            </>
+          )}
+        </Flexbox>
+      </ContextMenuTrigger>
+    </>
   );
 };
 

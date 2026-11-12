@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef } from 'react';
 
 import { type EditLockClient, useEditLock } from '@/features/EditLock';
+import { usePageLibraryPermission } from '@/features/EnterpriseKnowledge/usePageLibraryPermission';
 import { useResourceAccess } from '@/features/ResourcePermission/useResourceAccess';
-import { usePermission } from '@/hooks/usePermission';
 import { revalidateReplica } from '@/libs/replica';
 import { documentService } from '@/services/document';
 import { useDocumentStore } from '@/store/document';
@@ -42,7 +42,7 @@ const createLockOwnerId = (documentId: string) => {
  * can't overwrite another member's edits.
  */
 export const useDocumentLock = () => {
-  const { allowed: canEdit } = usePermission('edit_own_content');
+  const { allowed: canEdit } = usePageLibraryPermission('edit_own_content');
   const documentId = usePageEditorStore((s) => s.documentId);
   const isWorkspacePage = usePageEditorStore((s) => s.isWorkspacePage);
   const isLockedByOther = usePageLockedByOther();

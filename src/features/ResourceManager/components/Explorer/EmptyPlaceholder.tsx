@@ -12,12 +12,12 @@ import {
 import { ArrowUpIcon, PlusIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useCreateNewModal } from '@/features/LibraryModal';
 import { useCurrentFolderId } from '@/features/ResourceManager/hooks/useCurrentFolderId';
 import { useTopLevelFileUpload } from '@/features/ResourceManager/hooks/useTopLevelFileUpload';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { getResourceSourceFilter } from '@/features/ResourceManager/store/selectors';
-import { usePermission } from '@/hooks/usePermission';
 import { useFileStore } from '@/store/file';
 import { ResourceSourceFilter } from '@/types/files';
 
@@ -87,7 +87,7 @@ const EmptyPlaceholder = () => {
   const currentFolderId = useCurrentFolderId();
 
   const { open } = useCreateNewModal();
-  const { allowed: canCreate } = usePermission('create_content');
+  const { allowed: canCreate } = useLibraryPermission('create_content');
 
   // A narrowed source can empty a category that is not actually empty — the
   // images view opens on generated output, so a library of uploads would
@@ -135,7 +135,7 @@ const EmptyPlaceholder = () => {
             <FileTypeIcon
               className={styles.icon}
               color={cssVar.purple}
-              icon={<Icon color={'#fff'} icon={PlusIcon} />}
+              icon={<Icon color={cssVar.colorTextLightSolid} icon={PlusIcon} />}
               size={ICON_SIZE}
               type={'folder'}
             />
@@ -148,7 +148,7 @@ const EmptyPlaceholder = () => {
             <FileTypeIcon
               className={styles.icon}
               color={cssVar.gold}
-              icon={<Icon color={'#fff'} icon={ArrowUpIcon} />}
+              icon={<Icon color={cssVar.colorTextLightSolid} icon={ArrowUpIcon} />}
               size={ICON_SIZE}
             />
           </Flexbox>
@@ -171,7 +171,7 @@ const EmptyPlaceholder = () => {
             <FileTypeIcon
               className={styles.icon}
               color={cssVar.geekblue}
-              icon={<Icon color={'#fff'} icon={ArrowUpIcon} />}
+              icon={<Icon color={cssVar.colorTextLightSolid} icon={ArrowUpIcon} />}
               size={ICON_SIZE}
               type={'folder'}
             />

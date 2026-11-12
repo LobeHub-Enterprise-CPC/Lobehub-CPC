@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { buildAgentDocumentPath } from '@/features/AgentDocumentPage/navigation';
+import { useDocumentLibraryPermission } from '@/features/EnterpriseKnowledge/useDocumentLibraryPermission';
 import { useSingleton } from '@/hooks/useSingleton';
 import { documentService } from '@/services/document';
 import { invalidateDocumentMutation } from '@/services/document/invalidation';
@@ -47,7 +48,8 @@ export const usePortalDocumentTitle = () => {
   // and desync the bundle. The full-page editor locks meta for the same reason
   // (see AgentDocumentPage's `metaReadOnly`); the rename API rejects it anyway.
   const isSkillIndex = !!document && isSkillMarkdownDocument(document);
-  const metaLocked = isReadonly || isSkillIndex;
+  const { allowed: canEditLibrary } = useDocumentLibraryPermission(documentId);
+  const metaLocked = isReadonly || isSkillIndex || !canEditLibrary;
 
   // Serializes title writes end-to-end. Two layers:
   // 1. `saveChain` queues the SERVER calls — updateDocument mutations run

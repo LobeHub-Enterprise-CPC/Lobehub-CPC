@@ -9,6 +9,7 @@ import {
   resourcePermissions,
 } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
+import { getInaccessibleEnterpriseKnowledgeBaseIds } from '@/server/services/enterpriseKnowledge';
 import {
   assertCanPerformResourceAction,
   type ResourceMeta,
@@ -90,7 +91,7 @@ export const getUseLevelKnowledgeBaseIds = async (
 export const getRestrictedKnowledgeBaseIds = async (
   ctx: KnowledgeBaseAccessCtx,
 ): Promise<string[]> => {
-  if (!ctx.workspaceId) return [];
+  if (!ctx.workspaceId) return getInaccessibleEnterpriseKnowledgeBaseIds(ctx);
 
   const rows = await ctx.serverDB
     .select({ id: resourcePermissions.resourceId })

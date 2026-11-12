@@ -1,11 +1,13 @@
 'use client';
 
-import { Flexbox } from '@lobehub/ui';
+import { Button, Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import SideBarHeaderLayout from '@/features/NavPanel/SideBarHeaderLayout';
 import AddButton from '@/features/ResourceManager/components/Header/AddButton';
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 
 import LibraryHead from './LibraryHead';
 import LibrarySearchBar from './LibrarySearchBar';
@@ -13,7 +15,9 @@ import { useActiveLibraryId } from './useActiveLibraryId';
 
 const Header = memo(() => {
   const id = useActiveLibraryId();
-  const { t } = useTranslation('common');
+  const navigate = useWorkspaceAwareNavigate();
+  const { enterprise, canManageAccess } = useLibraryPermission('edit_own_content', id);
+  const { t } = useTranslation(['common', 'knowledgeBase']);
   return (
     <>
       <SideBarHeaderLayout
@@ -40,6 +44,21 @@ const Header = memo(() => {
         <LibrarySearchBar />
         <AddButton iconOnly rootLevel />
       </Flexbox>
+      {enterprise && canManageAccess && (
+        <Flexbox horizontal gap={4} paddingBlock={4} paddingInline={8} wrap="wrap">
+          <Button
+            size="small"
+            type="text"
+            onClick={() => navigate(`/resource/library/${id}/permission`)}
+          >
+            {t('enterprise.access', { ns: 'knowledgeBase' })}
+          </Button>
+          <Button size="small" type="text" onClick={() => navigate('/settings/trash')}>
+            {t('enterprise.trash', { ns: 'knowledgeBase' })}
+          </Button>
+        </Flexbox>
+      )}
+      <Flexbox />
     </>
   );
 });

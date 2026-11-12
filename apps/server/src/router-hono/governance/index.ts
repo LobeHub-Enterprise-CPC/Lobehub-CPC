@@ -15,6 +15,7 @@ import {
   listRules,
   updateRuleHandler,
 } from './handlers/rules';
+import { knowledgeBasesApp } from './knowledgeBases';
 import { serviceTokenAuth } from './middlewares/serviceTokenAuth';
 
 /**
@@ -52,5 +53,7 @@ app.get('/execution-policy', serviceTokenAuth(), listExecutionPoliciesHandler);
 app.get('/execution-policy/:userId', serviceTokenAuth(), getExecutionPolicyByUserHandler);
 app.put('/execution-policy/:userId', serviceTokenAuth(), upsertExecutionPolicyHandler);
 app.delete('/execution-policy/:userId', serviceTokenAuth(), deleteExecutionPolicyHandler);
+
+app.route('/knowledge-bases', knowledgeBasesApp);
 
 export default app;

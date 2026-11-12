@@ -1,3 +1,5 @@
+import type { EnterpriseItemAccess } from '@lobechat/types';
+
 import type { ReplicaState } from '@/libs/replica';
 import type { StoreHandle } from '@/store/utils/optimisticEngine';
 
@@ -10,6 +12,7 @@ export interface TreeItem {
    * cached payloads carry no timestamp; those fall back to A-Z.
    */
   createdAt?: Date | string;
+  enterpriseAccess?: EnterpriseItemAccess;
   /**
    * Underlying `files.id` for file nodes. The unified resource list addresses
    * a file that backs a derived page by the page id, so file-table lookups

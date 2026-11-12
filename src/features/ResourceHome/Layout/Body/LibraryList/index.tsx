@@ -1,6 +1,6 @@
 'use client';
 
-import { Flexbox } from '@lobehub/ui';
+import { Flexbox, Text } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -20,7 +20,7 @@ import { getLibraryListAsyncState } from './state';
  * Show library list in the sidebar
  */
 const LibraryList = memo(() => {
-  const { t } = useTranslation('file');
+  const { t } = useTranslation(['file', 'knowledgeBase']);
   // Mirrors the file-explorer mode: `private` → only own private KBs,
   // `workspace` → only public KBs. Personal-mode users never render this list
   // with a filter (the toggle isn't shown), so `visibility` stays undefined
@@ -78,17 +78,30 @@ const LibraryList = memo(() => {
       onRetry={() => revalidate()}
     >
       <Flexbox gap={1} paddingInline={4}>
-        {data?.map((item) => (
-          <Item
-            description={item.description}
-            id={item.id}
-            key={item.id}
-            memberRestricted={(item as { memberRestricted?: boolean }).memberRestricted}
-            name={item.name}
-            permissionManageable={(item as { permissionManageable?: boolean }).permissionManageable}
-            userId={item.userId}
-            visibility={item.visibility}
-          />
+        {[
+          ...(data?.filter((item) => !item.enterprise) ?? []),
+          ...(data?.filter((item) => item.enterprise) ?? []),
+        ].map((item, index, rows) => (
+          <Flexbox key={item.id}>
+            {item.enterprise && (index === 0 || !rows[index - 1].enterprise) && (
+              <Text fontSize={12} style={{ padding: 8 }} type="secondary">
+                {t('enterprise.group', { ns: 'knowledgeBase' })}
+              </Text>
+            )}
+            <Item
+              description={item.description}
+              enterprise={item.enterprise}
+              id={item.id}
+              key={item.id}
+              memberRestricted={(item as { memberRestricted?: boolean }).memberRestricted}
+              name={item.name}
+              userId={item.userId}
+              visibility={item.visibility}
+              permissionManageable={
+                (item as { permissionManageable?: boolean }).permissionManageable
+              }
+            />
+          </Flexbox>
         ))}
       </Flexbox>
     </AsyncBoundary>

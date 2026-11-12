@@ -13,6 +13,11 @@ export interface FileUploader {
   username?: string | null;
 }
 
+export interface EnterpriseItemAccess {
+  custom: boolean;
+  level: 'owner' | 'edit' | 'view' | 'path';
+}
+
 export interface FileListItem {
   chunkCount: number | null;
   chunkingError: any | null;
@@ -30,6 +35,7 @@ export interface FileListItem {
   editorData?: Record<string, any> | null;
   embeddingError: any | null;
   embeddingStatus?: AsyncTaskStatus | null;
+  enterpriseAccess?: EnterpriseItemAccess;
   fileId?: string | null;
   fileType: string;
   finishEmbedding: boolean;

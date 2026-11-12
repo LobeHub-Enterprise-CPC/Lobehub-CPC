@@ -24,6 +24,7 @@
     "@lobechat/agent-templates": "workspace:*",
     "@lobechat/builtin-agents": "workspace:*",
     "@lobechat/business-const": "workspace:*",
+    "@lobechat/business-knowledge": "workspace:*",
     "@lobechat/business-model-bank": "workspace:*",
     "@lobechat/const": "workspace:*",
     "@lobechat/conversation-flow": "workspace:*",

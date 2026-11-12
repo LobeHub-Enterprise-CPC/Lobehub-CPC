@@ -1,3 +1,4 @@
+import { cacheScope } from '@/libs/replica';
 import {
   arrayEntity,
   createReplicaSlice,
@@ -10,6 +11,7 @@ import { knowledgeBaseService } from '@/services/knowledgeBase';
 import type { KnowledgeBaseStore } from '@/store/library/store';
 import type { StoreSetter } from '@/store/types';
 import type { CreateKnowledgeBaseParams, KnowledgeBaseItem } from '@/types/knowledgeBase';
+import { isTrpcErrorCode } from '@/utils/trpcError';
 
 import {
   KNOWLEDGE_BASE_LIST_ALL_KEY,
@@ -51,6 +53,24 @@ export class KnowledgeBaseCrudActionImpl {
 
     this.#kbList = createReplicaSlice(knowledgeBaseListResource, {
       actionPrefix: 'knowledgeBaseList',
+      effects: {
+        onApplied: (items, { visibility }, { scope }) => {
+          for (const item of items) {
+            this.#kbEntity.update(item.id, () => item);
+            if (item.enterprise) this.#markAccess(scope, item.id, 'confirmed');
+          }
+          if (visibility === undefined)
+            for (const previous of [
+              ...Object.values(this.#get().knowledgeBaseDetailMap),
+              ...Object.values(this.#get().knowledgeBaseListMap).flat(),
+            ]) {
+              if (previous.enterprise && !items.some((item) => item.id === previous.id)) {
+                this.#markAccess(scope, previous.id, 'denied');
+                void this.#kbEntity.remove(previous.id);
+              }
+            }
+        },
+      },
       entity: arrayEntity<KnowledgeBaseItem>((kb) => kb.id),
       get,
       set,
@@ -59,6 +79,20 @@ export class KnowledgeBaseCrudActionImpl {
     });
     this.#kbItem = createReplicaSlice(knowledgeBaseItemResource, {
       actionPrefix: 'knowledgeBaseItem',
+      effects: {
+        onApplied: (item, id, { scope }) => {
+          if (item) {
+            this.#kbEntity.update(id, () => item);
+            this.#markAccess(scope, id, 'confirmed');
+          }
+        },
+        onError: (error, id, { scope, isActive }) => {
+          if (isActive && isTrpcErrorCode(error, 'NOT_FOUND')) {
+            this.#markAccess(scope, id, 'denied');
+            void this.#kbEntity.remove(id);
+          }
+        },
+      },
       // The value IS the KB, so entity-level writes (rename, delete) find and
       // map it through this adapter.
       entity: singleEntity<KnowledgeBaseItem>((kb) => kb.id),
@@ -79,6 +113,16 @@ export class KnowledgeBaseCrudActionImpl {
     // The same KB lives in the list surfaces and in the by-id projection.
     this.#kbEntity = linkReplicaEntity<KnowledgeBaseItem>([this.#kbList, this.#kbItem]);
   }
+
+  #markAccess = (scope: string, id: string, result: 'confirmed' | 'denied') => {
+    this.#set(
+      (s) => ({
+        knowledgeBaseSessionAccess: { ...s.knowledgeBaseSessionAccess, [`${scope}|${id}`]: result },
+      }),
+      false,
+      'knowledgeBase/sessionAccess',
+    );
+  };
 
   // ---- reads -------------------------------------------------------------
 
@@ -140,6 +184,9 @@ export class KnowledgeBaseCrudActionImpl {
    * shows one visibility at a time while the switcher and the quick-access row
    * read the unfiltered list, so all three may be on screen.
    */
+  refreshKnowledgeBaseItem = (id: string) =>
+    this.#kbItem.fetch(id, { fresh: true, scope: cacheScope.get() });
+
   refreshKnowledgeBaseList = async (): Promise<void> => {
     await Promise.all([
       this.#kbList.revalidate(KNOWLEDGE_BASE_LIST_ALL_KEY),

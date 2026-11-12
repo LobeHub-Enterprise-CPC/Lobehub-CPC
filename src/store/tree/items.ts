@@ -1,4 +1,5 @@
 import { CUSTOM_FOLDER_FILE_TYPE } from '@lobechat/const';
+import type { EnterpriseItemAccess } from '@lobechat/types';
 
 import { hierarchySearchResource } from '@/features/ResourceManager/store/projection';
 import { revalidateReplica } from '@/libs/replica';
@@ -56,6 +57,7 @@ export const sortTreeItems = <T extends TreeItem>(items: T[]): T[] => {
 };
 
 export const toTreeItem = (item: {
+  enterpriseAccess?: EnterpriseItemAccess;
   createdAt?: Date | string | null;
   fileId?: string | null;
   fileType: string;
@@ -70,6 +72,7 @@ export const toTreeItem = (item: {
   userId?: string | null;
   visibility?: 'private' | 'public' | null;
 }): TreeItem => ({
+  enterpriseAccess: item.enterpriseAccess,
   createdAt: item.createdAt ?? undefined,
   fileId: item.fileId,
   fileType: item.fileType,
@@ -97,6 +100,7 @@ export const toTreeItem = (item: {
  * marking private rows and the row menu mis-gated publish / make-private.
  */
 export const toTreeItemFromResource = (item: {
+  enterpriseAccess?: EnterpriseItemAccess;
   createdAt?: Date | string | null;
   fileId?: string | null;
   fileType: string;

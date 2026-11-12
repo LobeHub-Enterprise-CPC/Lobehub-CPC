@@ -7,6 +7,7 @@ import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { router } from '@/libs/trpc/lambda';
 import { FileService } from '@/server/services/file';
+import { resolveMessageFileUrlsInBatch } from '@/server/services/message/resolveMessageFileUrls';
 
 import { findVisitorTopicOrThrow, resolveLinkShareOrThrow } from './guards';
 import { shareChatProcedure, ShareTopicScopeSchema } from './procedures';
@@ -73,10 +74,9 @@ export const conversationRouter = router({
       // snapshot and raw error payload too. Share messages persist under the
       // CREATOR's account (see the `shareChatProcedure` doc in `procedures.ts`), so the raw `query()` result
       // would otherwise leak the creator's account identity to the visitor.
-      return messageModel.queryForVisitor(
+      const messages = await messageModel.queryForVisitor(
         { includeFileWorks: input.includeFileWorks, topicId: input.topicId },
         {
-          postProcessUrl: (path, file) => fileService.getFileAccessUrl({ id: file.id, url: path }),
           redaction: {
             showErrorDetails: share.shareConfig.showErrorDetails,
             showModelInfo: share.shareConfig.showModelInfo,
@@ -97,6 +97,9 @@ export const conversationRouter = router({
               })
             : undefined,
         },
+      );
+      return resolveMessageFileUrlsInBatch(messages, (files) =>
+        fileService.getFileBrowserUrls(files),
       );
     }),
   /**

@@ -2092,6 +2092,8 @@
   "trash.title": "回收站",
   "trash.type.agent": "助手",
   "trash.type.dashboard": "看板",
+  "trash.type.document": "文稿或文件夹",
+  "trash.type.file": "文件",
   "trash.type.message": "消息",
   "trash.type.topic": "话题",
   "trash.type.widget": "小组件",

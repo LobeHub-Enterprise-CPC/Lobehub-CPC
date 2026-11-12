@@ -1,6 +1,7 @@
 import type { DragEvent } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import {
   getTransparentDragImage,
   useDragActive,
@@ -25,6 +26,7 @@ export const useFileListItemDrag = ({
   name,
   sourceType,
 }: UseFileListItemDragOptions) => {
+  const { allowed: canEdit } = useLibraryPermission('edit_own_content', libraryId, id);
   const isDragActive = useDragActive();
   const setCurrentDrag = useSetCurrentDrag();
 
@@ -43,7 +45,7 @@ export const useFileListItemDrag = ({
 
   const handleDragStart = useCallback(
     (e: DragEvent) => {
-      if (!libraryId) {
+      if (!libraryId || !canEdit) {
         e.preventDefault();
         return;
       }
@@ -63,7 +65,7 @@ export const useFileListItemDrag = ({
       }
       e.dataTransfer.effectAllowed = 'move';
     },
-    [dragData, id, isFolder, libraryId, setCurrentDrag],
+    [canEdit, dragData, id, isFolder, libraryId, setCurrentDrag],
   );
 
   const handleDragEnd = useCallback(() => {
@@ -72,13 +74,13 @@ export const useFileListItemDrag = ({
 
   const handleDragOver = useCallback(
     (e: DragEvent) => {
-      if (!isFolder || !isDragActive) return;
+      if (!canEdit || !isFolder || !isDragActive) return;
 
       e.preventDefault();
       e.stopPropagation();
       setIsOver(true);
     },
-    [isDragActive, isFolder],
+    [canEdit, isDragActive, isFolder],
   );
 
   const handleDragLeave = useCallback(() => {

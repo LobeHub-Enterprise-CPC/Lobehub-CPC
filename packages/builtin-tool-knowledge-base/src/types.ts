@@ -55,6 +55,7 @@ export interface SearchKnowledgeBaseState {
    * all — distinct from a search that ran and matched nothing.
    */
   scope?: 'none';
+  skippedKnowledgeBaseCount?: number;
   totalResults: number;
 }
 

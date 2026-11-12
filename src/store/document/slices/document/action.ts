@@ -128,7 +128,11 @@ export class DocumentActionImpl {
         // Transient failures keep it (stale-while-revalidate).
         onError: (error, _id, { key, scope }) => {
           if (!key) return;
-          if (isTrpcErrorCode(error, 'FORBIDDEN') || isTrpcErrorCode(error, 'UNAUTHORIZED'))
+          if (
+            isTrpcErrorCode(error, 'FORBIDDEN') ||
+            isTrpcErrorCode(error, 'UNAUTHORIZED') ||
+            isTrpcErrorCode(error, 'NOT_FOUND')
+          )
             this.#detail.remove(key, scope);
         },
       },

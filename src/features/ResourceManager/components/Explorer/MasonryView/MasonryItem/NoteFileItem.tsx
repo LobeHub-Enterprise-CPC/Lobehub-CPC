@@ -4,6 +4,7 @@ import { FileBoxIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { isChunkingSupported } from '@/libs/document-loaders/loaderType';
 import { fileManagerSelectors, useFileStore } from '@/store/file';
 import { type AsyncTaskStatus, type IAsyncTaskError } from '@/types/asyncTask';
@@ -99,6 +100,7 @@ const NoteFileItem = memo<NoteFileItemProps>(
     metadata,
   }) => {
     const { t } = useTranslation(['common', 'components', 'file']);
+    const { allowed: canEdit } = useLibraryPermission('edit_own_content', undefined, id);
     const [isCreatingFileParseTask, parseFiles] = useFileStore((s) => [
       fileManagerSelectors.isCreatingFileParseTask(id)(s),
       s.parseFilesToChunks,
@@ -145,6 +147,7 @@ const NoteFileItem = memo<NoteFileItemProps>(
             />
           </div>
         ) : (
+          canEdit &&
           isSupportedForChunking && (
             <Tooltip title={t('components:FileManager.actions.chunkingTooltip')}>
               <div
@@ -152,7 +155,7 @@ const NoteFileItem = memo<NoteFileItemProps>(
                 style={{ cursor: 'pointer' }}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (!isCreatingFileParseTask) {
+                  if (canEdit && !isCreatingFileParseTask) {
                     parseFiles([id]);
                   }
                 }}

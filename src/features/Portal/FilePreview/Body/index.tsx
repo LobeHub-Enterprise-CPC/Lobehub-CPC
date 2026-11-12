@@ -1,11 +1,11 @@
-import { Flexbox, Icon, Markdown, Tabs } from '@lobehub/ui';
+import { Empty, Flexbox, Icon, Markdown, Tabs } from '@lobehub/ui';
 import { BoltIcon, FileIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import AsyncError from '@/components/AsyncError';
 import Loading from '@/components/Loading/CircleLoading';
-import FileNotFound from '@/features/FileNotFound';
+import { useFileLibraryPermission } from '@/features/EnterpriseKnowledge/useFileLibraryPermission';
 import FileViewer from '@/features/FileViewer';
 import ImageEditTools from '@/features/FileViewer/ImageEditTools';
 import { normalizeAsyncError } from '@/libs/swr/normalizeError';
@@ -28,12 +28,13 @@ const FilePreview = () => {
   const previewFileId = useChatStore(chatPortalSelectors.previewFileId);
   const chunkText = useChatStore(chatPortalSelectors.chunkText);
   const activeTopicId = useChatStore((s) => s.activeTopicId);
-  const { t } = useTranslation('portal');
+  const { t } = useTranslation(['portal', 'knowledgeBase']);
 
   const topicKey = activeTopicId ?? NO_TOPIC_KEY;
   const [tabByTopic, setTabByTopic] = useState<Record<string, FilePreviewTab>>({});
   const tab = tabByTopic[topicKey] ?? getDefaultTab(chunkText);
   const { data, error, fromSource, isLoading, mutate } = usePreviewFileItem();
+  const { allowed: canEdit } = useFileLibraryPermission(fromSource ? undefined : previewFileId);
 
   useEffect(() => {
     setTabByTopic((prev) => ({ ...prev, [topicKey]: getDefaultTab(chunkText) }));
@@ -46,7 +47,8 @@ const FilePreview = () => {
   if (error && normalizeAsyncError(error).status !== 404) {
     return <AsyncError error={error} variant={'page'} onRetry={() => void mutate?.()} />;
   }
-  if (error || !data) return <FileNotFound />;
+  if (error || !data)
+    return <Empty description={t('enterprise.fileUnavailable', { ns: 'knowledgeBase' })} />;
 
   const showChunk = tab === FilePreviewTab.Chunk && !!chunkText;
   return (
@@ -88,7 +90,7 @@ const FilePreview = () => {
           {/* Image editing and chunk highlights act on the viewer's own library file. */}
           <FileViewer
             {...data}
-            imageTools={fromSource ? undefined : <ImageEditTools />}
+            imageTools={!fromSource && canEdit ? <ImageEditTools /> : undefined}
             showChunkHighlights={!fromSource}
           />
         </Flexbox>

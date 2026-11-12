@@ -21,6 +21,7 @@ import {
 } from '@/libs/replica';
 import { documentService } from '@/services/document';
 import { FileService, fileService } from '@/services/file';
+import { observeKnowledgeAccess } from '@/services/knowledgeAccessEvents';
 import { ragService } from '@/services/rag';
 import { type UploadFileListDispatch } from '@/store/file/reducers/uploadFileList';
 import { uploadFileListReducer } from '@/store/file/reducers/uploadFileList';
@@ -44,7 +45,7 @@ import {
 } from './projection';
 import { fileManagerSelectors } from './selectors';
 
-const serverFileService = new FileService();
+const serverFileService = observeKnowledgeAccess(new FileService());
 
 interface RefreshFileListOptions {
   revalidateResources?: boolean;

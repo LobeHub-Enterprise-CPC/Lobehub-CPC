@@ -59,6 +59,7 @@ import { deviceMetricRouter } from './deviceMetric';
 import { documentRouter } from './document';
 import { documentCommentRouter } from './documentComment';
 import { documentLikeRouter } from './documentLike';
+import { enterpriseKnowledgeRouter } from './enterpriseKnowledge';
 import { executionPolicyRouter } from './executionPolicy';
 import { expertiseRouter } from './expertise';
 import { exporterRouter } from './exporter';
@@ -158,6 +159,7 @@ export const lambdaRouter = router({
   document: documentRouter,
   documentComment: documentCommentRouter,
   documentLike: documentLikeRouter,
+  enterpriseKnowledge: enterpriseKnowledgeRouter,
   executionPolicy: executionPolicyRouter,
   exporter: exporterRouter,
   file: fileRouter,

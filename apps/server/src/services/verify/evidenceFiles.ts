@@ -1,6 +1,7 @@
 import { FileModel } from '@/database/models/file';
 import type { LobeChatDatabase } from '@/database/type';
-import { FileService } from '@/server/services/file';
+import { classifyEnterpriseContentIds } from '@/server/services/enterpriseKnowledge/contentClassification';
+import { FileService, getFileProxyUrl } from '@/server/services/file';
 
 export interface EvidenceFileMeta {
   /** Intrinsic image height (px) from the upload's stored metadata, when known. */
@@ -26,8 +27,10 @@ const dimension = (value: unknown): number | null =>
 export const createEvidenceFileResolver = (
   db: LobeChatDatabase,
   userId: string,
-  workspaceId?: string,
+  workspaceId: string | undefined,
+  fileIds: string[],
 ) => {
+  const enterpriseIds = classifyEnterpriseContentIds({ serverDB: db, workspaceId }, fileIds);
   let fileService: FileService | null | undefined;
   const getFileService = () => {
     if (fileService !== undefined) return fileService;
@@ -68,7 +71,12 @@ export const createEvidenceFileResolver = (
       if (!service) return base;
 
       try {
-        return { ...base, fileUrl: await service.getFullFileUrl(file.url) };
+        return {
+          ...base,
+          fileUrl: (await enterpriseIds).has(fileId)
+            ? getFileProxyUrl(fileId)
+            : await service.getFullFileUrl(file.url),
+        };
       } catch (error) {
         console.error('[verify:getReportBundle:resolveFileMeta]', error);
         return base;

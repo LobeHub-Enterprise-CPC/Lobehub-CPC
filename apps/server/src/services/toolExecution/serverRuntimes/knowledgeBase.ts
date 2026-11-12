@@ -1,5 +1,6 @@
 import { KnowledgeBaseIdentifier } from '@lobechat/builtin-tool-knowledge-base';
 import { KnowledgeBaseExecutionRuntime } from '@lobechat/builtin-tool-knowledge-base/executionRuntime';
+import { TRPCError } from '@trpc/server';
 
 import { AgentModel } from '@/database/models/agent';
 import { FileModel } from '@/database/models/file';
@@ -7,6 +8,16 @@ import { KnowledgeBaseModel } from '@/database/models/knowledgeBase';
 import { ProjectModel } from '@/database/models/project';
 import { KnowledgeRepo } from '@/database/repositories/knowledge';
 import { DocumentService } from '@/server/services/document';
+import {
+  assertNotEnterpriseKnowledgeBase,
+  itemsBelongToKnowledgeBase,
+  mergeEnterpriseKnowledgeBases,
+  resolveItemsScope,
+  resolveKnowledgeBaseScope,
+} from '@/server/services/enterpriseKnowledge';
+import { resolveContentScope } from '@/server/services/enterpriseKnowledge/contentScope';
+import { createEnterpriseDocuments } from '@/server/services/enterpriseKnowledge/createDocuments';
+import { queryEnterprisePage } from '@/server/services/enterpriseKnowledge/listAccess';
 import { FileService } from '@/server/services/file';
 import { KnowledgeBaseSearchService } from '@/server/services/knowledgeBase';
 
@@ -19,6 +30,8 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
       throw new Error('userId and serverDB are required for Knowledge Base execution');
     }
 
+    const askerId = context.agentShareVisitor ? null : userId;
+    const accessCtx = { serverDB, userId: askerId ?? '', workspaceId };
     const fileModel = new FileModel(serverDB, userId, workspaceId);
     const knowledgeBaseModel = new KnowledgeBaseModel(serverDB, userId, workspaceId);
     const projectModel = new ProjectModel(serverDB, userId, workspaceId);
@@ -30,6 +43,7 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
       userId,
       workspaceId,
       agentVisibility,
+      askerId,
     );
     const agentModel = agentId ? new AgentModel(serverDB, userId, workspaceId) : null;
 
@@ -76,11 +90,24 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
             errors: result.errors,
             fileResults: result.fileResults,
             searchedKnowledgeBaseIds: effectiveKnowledgeIds,
+            ...(result.skippedKnowledgeBaseCount
+              ? { skippedKnowledgeBaseCount: result.skippedKnowledgeBaseCount }
+              : {}),
           };
         },
       },
       {
         addFilesToKnowledgeBase: async (knowledgeBaseId, ids) => {
+          const scope = await resolveKnowledgeBaseScope(accessCtx, knowledgeBaseId, 'edit');
+          if (scope.enterprise) {
+            if (!(await itemsBelongToKnowledgeBase(serverDB, ids, knowledgeBaseId)))
+              throw new TRPCError({ code: 'NOT_FOUND' });
+            return new KnowledgeBaseModel(serverDB, scope.ownerId).addFilesToKnowledgeBase(
+              knowledgeBaseId,
+              ids,
+            );
+          }
+          await resolveItemsScope(accessCtx, ids, 'edit');
           try {
             return await knowledgeBaseModel.addFilesToKnowledgeBase(knowledgeBaseId, ids);
           } catch (e: any) {
@@ -100,7 +127,10 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
           return data?.id ?? '';
         },
         getKnowledgeBaseById: async (id) => {
-          const item = await knowledgeBaseModel.findById(id);
+          const scope = await resolveKnowledgeBaseScope(accessCtx, id, 'path');
+          const item = await (
+            scope.enterprise ? new KnowledgeBaseModel(serverDB, scope.ownerId) : knowledgeBaseModel
+          ).findById(id);
           if (!item) return undefined;
           return {
             avatar: item.avatar ?? null,
@@ -115,9 +145,10 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
           // own private KBs so a public agent can never surface them to
           // other workspace members. Documents/chunks already get this
           // treatment via `documentService`/`searchService` above.
-          const items = await knowledgeBaseModel.query({
+          const ownItems = await knowledgeBaseModel.query({
             callerAgentVisibility: agentVisibility ?? undefined,
           });
+          const items = await mergeEnterpriseKnowledgeBases(accessCtx, ownItems);
           return items.map((kb) => ({
             avatar: kb.avatar ?? null,
             description: kb.description,
@@ -127,12 +158,20 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
           }));
         },
         getKnowledgeItems: async ({ knowledgeBaseId, limit, offset }) => {
-          const items = await knowledgeRepo.query({
-            includeContent: false,
-            knowledgeBaseId,
-            limit: limit + 1,
-            offset,
-          });
+          const scope = await resolveKnowledgeBaseScope(accessCtx, knowledgeBaseId, 'path');
+          const repo = scope.enterprise
+            ? new KnowledgeRepo(serverDB, scope.ownerId)
+            : knowledgeRepo;
+          const items = await queryEnterprisePage(
+            accessCtx,
+            (page) =>
+              repo.query({
+                includeContent: false,
+                knowledgeBaseId,
+                ...page,
+              }),
+            { limit: limit + 1, offset, scope: scope.enterprise ? scope : undefined },
+          );
           const hasMore = items.length > limit;
           const slice = hasMore ? items.slice(0, limit) : items;
           return {
@@ -147,19 +186,31 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
             })),
           };
         },
-        removeFilesFromKnowledgeBase: (knowledgeBaseId, ids) =>
-          knowledgeBaseModel.removeFilesFromKnowledgeBase(knowledgeBaseId, ids),
+        removeFilesFromKnowledgeBase: async (knowledgeBaseId, ids) => {
+          const scope = await resolveContentScope(accessCtx, { knowledgeBaseId, ids }, 'edit');
+          if (scope.enterprise)
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Enterprise content cannot leave its library',
+            });
+          return knowledgeBaseModel.removeFilesFromKnowledgeBase(knowledgeBaseId, ids);
+        },
         removeKnowledgeBase: async (id) => {
+          await assertNotEnterpriseKnowledgeBase(accessCtx, id);
           await knowledgeBaseModel.deleteWithFiles(id);
         },
       },
       {
         createDocument: async ({ content, fileType, knowledgeBaseId, parentId, title }) => {
-          const doc = await documentService.createDocument({
+          const scope = await resolveContentScope(accessCtx, { knowledgeBaseId, parentId }, 'edit');
+          const service = scope.enterprise
+            ? new DocumentService(serverDB, scope.ownerId)
+            : documentService;
+          const params = {
             content,
             editorData: {},
             fileType,
-            knowledgeBaseId,
+            knowledgeBaseId: scope.enterprise ? scope.knowledgeBaseId : knowledgeBaseId,
             parentId,
             title,
             // Inherit caller-agent visibility: private-agent output stays in
@@ -170,13 +221,19 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
             ...(agentVisibility === 'private' || agentVisibility === 'public'
               ? { visibility: agentVisibility }
               : {}),
-          });
+          };
+          const doc = scope.enterprise
+            ? (await createEnterpriseDocuments(accessCtx, scope, [params]))[0]
+            : await service.createDocument(params);
           return { id: doc.id };
         },
       },
       {
         getFileItemById: async (id) => {
-          const item = await fileModel.findById(id);
+          const scope = await resolveItemsScope(accessCtx, [id], 'view');
+          const item = await (
+            scope.enterprise ? new FileModel(serverDB, scope.ownerId) : fileModel
+          ).findById(id);
           if (!item) return undefined;
           return {
             createdAt: item.createdAt,
@@ -187,20 +244,29 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
             size: item.size,
             sourceType: 'file',
             updatedAt: item.updatedAt,
-            url: await fileService.getFileAccessUrl(item),
+            url: await fileService.getFileBrowserUrl(item),
           };
         },
         getKnowledgeItems: async ({ category, limit, offset, q, showFilesInKnowledgeBase }) => {
-          const items = await knowledgeRepo.query({
-            category,
-            includeContent: false,
-            limit: limit + 1,
-            offset,
-            q,
-            showFilesInKnowledgeBase,
-          });
+          const items = await queryEnterprisePage(
+            accessCtx,
+            (page) =>
+              knowledgeRepo.query({
+                category,
+                includeContent: false,
+                ...page,
+                q,
+                showFilesInKnowledgeBase,
+              }),
+            { limit: limit + 1, offset },
+          );
           const hasMore = items.length > limit;
           const slice = hasMore ? items.slice(0, limit) : items;
+          const fileRows = slice.filter(
+            (item) => item.sourceType === 'file' || (item.fileId && item.enterpriseAccess),
+          );
+          const urls = await fileService.getFileBrowserUrls(fileRows);
+          const urlById = new Map(fileRows.map((item, index) => [item.id, urls[index]]));
           return {
             hasMore,
             items: await Promise.all(
@@ -214,8 +280,8 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
                 sourceType: item.sourceType,
                 updatedAt: item.updatedAt,
                 url:
-                  item.sourceType === 'file'
-                    ? await fileService.getFileAccessUrl(item)
+                  item.sourceType === 'file' || (item.fileId && item.enterpriseAccess)
+                    ? urlById.get(item.id)!
                     : item.url || '',
               })),
             ),

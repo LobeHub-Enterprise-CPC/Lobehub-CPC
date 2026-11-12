@@ -13,6 +13,36 @@ const createRuntime = (searchResult: Record<string, unknown> = emptySearch) => {
 };
 
 describe('KnowledgeBaseExecutionRuntime.searchKnowledgeBase', () => {
+  it.each([
+    ['all attached libraries revoked', ['revoked-a', 'revoked-b'], 2],
+    ['enterprise libraries skipped for a share visitor', ['enterprise-a'], 1],
+  ] as const)(
+    'retains skipped-library counts with no searched scope: %s',
+    async (_case, ids, count) => {
+      const { runtime } = createRuntime({
+        ...emptySearch,
+        searchedKnowledgeBaseIds: [],
+        skippedKnowledgeBaseCount: count,
+      });
+
+      const result = await runtime.searchKnowledgeBase(
+        { query: 'quarterly revenue forecast' },
+        { knowledgeBaseIds: [...ids] },
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.state).toMatchObject({
+        chunks: [],
+        documents: [],
+        fileResults: [],
+        scope: 'none',
+        skippedKnowledgeBaseCount: count,
+        totalResults: 0,
+      });
+      expect(result.content).toContain('No enabled knowledge base');
+    },
+  );
+
   it('tells the model no knowledge base is attached when the service searched an empty scope', async () => {
     const { runtime } = createRuntime({ ...emptySearch, searchedKnowledgeBaseIds: [] });
 

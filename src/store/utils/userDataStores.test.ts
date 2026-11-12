@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resetGatewayMuxRegistry = vi.hoisted(() => vi.fn());
 const storeResets = vi.hoisted(() => [] as Array<() => void>);
+const enterpriseKnowledgeReset = vi.hoisted(() => vi.fn());
 const pageReset = vi.hoisted(() => vi.fn());
 const resourcePermissionReset = vi.hoisted(() => vi.fn());
 const sandboxReset = vi.hoisted(() => vi.fn());
@@ -24,6 +25,9 @@ vi.mock('@/store/agentQuota', () => ({ useAgentQuotaStore: fakeStore() }));
 vi.mock('@/store/chat', () => ({ useChatStore: fakeStore() }));
 vi.mock('@/store/discover', () => ({ useDiscoverStore: fakeStore() }));
 vi.mock('@/store/document', () => ({ useDocumentStore: fakeStore() }));
+vi.mock('@/store/enterpriseKnowledge', () => ({
+  enterpriseKnowledgeActions: { reset: enterpriseKnowledgeReset },
+}));
 vi.mock('@/store/eval', () => ({ useEvalStore: fakeStore() }));
 vi.mock('@/store/file', () => ({ useFileStore: fakeStore() }));
 vi.mock('@/store/home', () => ({ useHomeStore: fakeStore() }));
@@ -49,6 +53,7 @@ describe('stores.reset', () => {
     resetGatewayMuxRegistry.mockClear();
     storeResets.length = 0;
     pageReset.mockClear();
+    enterpriseKnowledgeReset.mockClear();
     resourcePermissionReset.mockClear();
     sandboxReset.mockClear();
     workReset.mockClear();
@@ -64,6 +69,7 @@ describe('stores.reset', () => {
     expect(resetGatewayMuxRegistry).toHaveBeenCalledTimes(1);
     expect(storeResets).toHaveLength(19);
     expect(pageReset).toHaveBeenCalledTimes(1);
+    expect(enterpriseKnowledgeReset).toHaveBeenCalledTimes(1);
     // Confirmed manage grants and the memory-only collaborator roster must not
     // outlive the data context, even when the next one reuses the scope string.
     expect(resourcePermissionReset).toHaveBeenCalledTimes(1);

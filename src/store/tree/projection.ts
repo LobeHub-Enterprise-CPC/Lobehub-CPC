@@ -25,6 +25,7 @@ const compactItem = (item: TreeItem): TreeItem => {
   const emoji = item.metadata?.emoji;
   return {
     createdAt: item.createdAt,
+    enterpriseAccess: item.enterpriseAccess,
     fileId: item.fileId,
     fileType: item.fileType,
     id: item.id,

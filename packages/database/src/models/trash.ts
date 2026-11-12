@@ -9,9 +9,19 @@ import type {
   TrashRootFilter,
 } from '@lobechat/types';
 import { and, asc, count, desc, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core';
 
 import type { NewTrashItemRow, TrashItemRow } from '../schemas';
-import { agents, dashboards, messages, topics, trashItems, widgets } from '../schemas';
+import {
+  agents,
+  dashboards,
+  documents,
+  files,
+  messages,
+  topics,
+  trashItems,
+  widgets,
+} from '../schemas';
 import type { LobeChatDatabase, Transaction } from '../type';
 import { buildWorkspaceWhere } from '../utils/workspace';
 
@@ -41,13 +51,19 @@ export interface TrashRegisterParams {
  * when its resource was hard-deleted through a non-trash path — the sweep
  * uses this map to prune those.
  */
-const ROOT_TABLES: Record<TrashResourceType, { id: any; isDeleted: any; table: any }> = {
+type PrunableResourceType = TrashResourceType | 'document' | 'file';
+const ROOT_TABLES = {
   agent: { id: agents.id, isDeleted: agents.isDeleted, table: agents },
   dashboard: { id: dashboards.id, isDeleted: dashboards.isDeleted, table: dashboards },
+  document: { id: documents.id, isDeleted: documents.isDeleted, table: documents },
+  file: { id: files.id, isDeleted: files.isDeleted, table: files },
   message: { id: messages.id, isDeleted: messages.isDeleted, table: messages },
   topic: { id: topics.id, isDeleted: topics.isDeleted, table: topics },
   widget: { id: widgets.id, isDeleted: widgets.isDeleted, table: widgets },
-};
+} satisfies Record<
+  PrunableResourceType,
+  { id: AnyPgColumn; isDeleted: AnyPgColumn; table: PgTable }
+>;
 
 const toTrashItem = (row: TrashItemRow): TrashItem => ({
   deletedAt: row.deletedAt,
@@ -413,17 +429,23 @@ export class TrashModel {
   static pruneOrphans = async (db: LobeChatDatabase): Promise<number> => {
     let pruned = 0;
     for (const [resourceType, source] of Object.entries(ROOT_TABLES) as [
-      TrashResourceType,
-      (typeof ROOT_TABLES)[TrashResourceType],
+      PrunableResourceType,
+      (typeof ROOT_TABLES)[PrunableResourceType],
     ][]) {
+      // Content follows buildWorkspaceWhere: only personal scope compares owners; a workspace
+      // member can trash a resource created by another member of that same workspace.
+      const contentScope =
+        resourceType === 'file' || resourceType === 'document'
+          ? sql`((${trashItems.workspaceId} IS NULL AND ${source.table.workspaceId} IS NULL AND ${source.table.userId} = ${trashItems.userId}) OR (${trashItems.workspaceId} IS NOT NULL AND ${source.table.workspaceId} = ${trashItems.workspaceId}))`
+          : sql`true`;
       const result = await db
         .delete(trashItems)
         .where(
           and(
-            eq(trashItems.resourceType, resourceType),
+            eq(trashItems.resourceType, sql`${resourceType}`),
             isNull(trashItems.rootId),
             // `::text` because some roots (widgets, dashboards) key on uuid while the registry stores text ids
-            sql`NOT EXISTS (SELECT 1 FROM ${source.table} WHERE ${source.id}::text = ${trashItems.resourceId} AND ${source.isDeleted} = true)`,
+            sql`NOT EXISTS (SELECT 1 FROM ${source.table} WHERE ${source.id}::text = ${trashItems.resourceId} AND ${source.isDeleted} = true AND ${contentScope})`,
           ),
         )
         .returning({ id: trashItems.id });

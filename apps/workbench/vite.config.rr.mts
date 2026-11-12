@@ -84,11 +84,13 @@ const workbenchClientShikiCdn = (): Plugin => ({
 // workbench flows; requesting one at runtime degrades to raw keys instead of
 // bundling 18 locale files each. `agent` is pulled in by the agent-share
 // visitor upload branch of the chat upload store, a surface workbench has no
-// route for.
+// route for. `knowledgeBase` comes from the resource manager store's enterprise
+// read-only notice, which, like the rest of that store, never runs in workbench.
 const I18N_DEAD_NS = new Set([
   'agent',
   'electron',
   'file',
+  'knowledgeBase',
   'modelProvider',
   'setting',
   'topic',

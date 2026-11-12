@@ -6,6 +6,7 @@ import { TaskSearchRepo } from '@/database/repositories/taskSearch';
 import { router } from '@/libs/trpc/lambda';
 import { resolveMarketUserContext, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { DiscoverService } from '@/server/services/discover';
+import { searchEnterpriseKnowledge } from '@/server/services/enterpriseKnowledge/search';
 import { createFtsSearchRepo } from '@/server/services/ftsSearch';
 
 import { getRestrictedKnowledgeBaseIds } from './_helpers/knowledgeBaseAccess';
@@ -121,7 +122,7 @@ export const searchRouter = router({
       if (!query || query.trim() === '') return [];
 
       // Build search promises based on type filter
-      const searchPromises: Promise<any>[] = [];
+      const searchPromises: Promise<any>[] = [searchEnterpriseKnowledge(ctx, input)];
 
       // Database searches (agent, topic, file, folder, message, page, memory)
       if (
@@ -292,6 +293,13 @@ export const searchRouter = router({
       // topics/messages by recency, marketplace types from the discover service).
       // The command palette groups results by type, so we keep each source's order
       // instead of re-sorting the merged list by relevance.
-      return results.flat();
+      if (results[0].length === 0) return results.flat();
+      const seen = new Set<string>();
+      return results.flat().filter((item) => {
+        const key = `${item.type}:${item.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
     }),
 });

@@ -1,11 +1,12 @@
 import { type ItemType } from '@lobehub/ui';
-import { Icon } from '@lobehub/ui';
+import { ActionIcon, Flexbox, Icon, Text } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
-import { ArrowRight, LibraryBig } from 'lucide-react';
+import { ArrowRight, LibraryBig, XIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import FileIcon from '@/components/FileIcon';
 import RepoIcon from '@/components/LibIcon';
+import { EnterpriseAccessBadge } from '@/features/EnterpriseKnowledge/AccessBadge';
 import { openAttachKnowledgeModal } from '@/features/LibraryModal';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors } from '@/store/agent/selectors';
@@ -52,6 +53,8 @@ export const useKnowledgeMenuItems = ({
     s.toggleKnowledgeBase,
   ]);
 
+  const removeKnowledgeBase = useAgentStore((s) => s.removeKnowledgeBaseFromAgent);
+
   if (!enabled || !canConfigureResource) return [];
 
   const items: ItemType[] = [];
@@ -81,11 +84,26 @@ export const useKnowledgeMenuItems = ({
         ...knowledgeBases.map((item) => ({
           icon: <RepoIcon size={MENU_ICON_SIZE} />,
           key: item.id,
-          label: (
+          label: item.accessRevoked ? (
+            <Flexbox horizontal align="center" gap={8}>
+              <Text ellipsis>{item.name}</Text>
+              <EnterpriseAccessBadge accessRevoked />
+              <ActionIcon
+                icon={XIcon}
+                title={t('knowledgeBase.library.action.remove')}
+                onClick={() => removeKnowledgeBase(item.id)}
+              />
+            </Flexbox>
+          ) : (
             <CheckboxItem
               checked={item.enabled}
               id={item.id}
-              label={item.name}
+              label={
+                <Flexbox horizontal align="center" gap={4}>
+                  <Text ellipsis>{item.name}</Text>
+                  <EnterpriseAccessBadge enterprise={item.enterprise} />
+                </Flexbox>
+              }
               onUpdate={async (id, enabled) => {
                 onUpdatingChange(true);
                 await toggleKnowledgeBase(id, enabled);

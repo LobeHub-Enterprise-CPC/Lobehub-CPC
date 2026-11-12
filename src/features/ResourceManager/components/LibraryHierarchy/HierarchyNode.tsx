@@ -21,6 +21,8 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import FileIcon from '@/components/FileIcon';
+import { EnterpriseCustomAccessBadge } from '@/features/EnterpriseKnowledge/CustomAccessBadge';
+import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { PAGE_FILE_TYPE } from '@/features/ResourceManager/constants';
 import {
   getTransparentDragImage,
@@ -63,6 +65,12 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
     const navigate = useWorkspaceAwareNavigate();
 
     const [setMode, libraryId] = useResourceManagerStore((s) => [s.setMode, s.libraryId]);
+    const { allowed: canEdit } = useLibraryPermission(
+      'edit_own_content',
+      libraryId,
+      item.fileId ?? item.id,
+      item.enterpriseAccess,
+    );
     const [pendingTreeRenameItemId, setPendingTreeRenameItemId] = useResourceManagerStore((s) => [
       s.pendingTreeRenameItemId,
       s.setPendingTreeRenameItemId,
@@ -104,15 +112,17 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
     }, [item.fileType, item.sourceType, item.name, item.metadata?.emoji]);
 
     const handleRenameStart = useCallback(() => {
+      if (!canEdit) return;
       setIsRenaming(true);
       setRenamingValue(item.name);
       setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
       }, 0);
-    }, [item.name]);
+    }, [item.name, canEdit]);
 
     const handleRenameConfirm = useCallback(async () => {
+      if (!canEdit) return;
       if (!renamingValue.trim()) {
         toast.error(t('FileManager.actions.folderNameRequired', { ns: 'components' }));
         return;
@@ -131,7 +141,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
         console.error('Rename error:', error);
         toast.error(t('FileManager.actions.renameError', { ns: 'components' }));
       }
-    }, [item.id, item.name, parentKey, renamingValue, renameItem, t]);
+    }, [canEdit, item.id, item.name, parentKey, renamingValue, renameItem, t]);
 
     // A folder freshly created from the tree's per-folder "+" enters inline
     // rename as soon as its row mounts (the parent was expanded/revalidated by
@@ -196,7 +206,8 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
       if (redirect) navigate(redirect);
     }, [item, parentKey, navigate]);
 
-    const { menuItems } = useFileItemDropdown({
+    const { menuItems, accessPanel } = useFileItemDropdown({
+      enterpriseAccess: item.enterpriseAccess,
       fileId: item.fileId,
       fileType: item.fileType,
       filename: item.name,
@@ -229,6 +240,10 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
 
     const handleDragStart = useCallback(
       (e: React.DragEvent<HTMLDivElement>) => {
+        if (!canEdit) {
+          e.preventDefault();
+          return;
+        }
         setIsDragging(true);
         setCurrentDrag({
           data: dragData,
@@ -245,7 +260,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
           e.dataTransfer.effectAllowed = 'move';
         }
       },
-      [dragData, item.id, item.isFolder, parentKey, setCurrentDrag],
+      [canEdit, dragData, item.id, item.isFolder, parentKey, setCurrentDrag],
     );
 
     const handleDragEnd = useCallback(() => {
@@ -254,13 +269,13 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
 
     const handleDragOver = useCallback(
       (e: React.DragEvent<HTMLDivElement>) => {
-        if (!item.isFolder || !isDragActive) return;
+        if (!canEdit || !item.isFolder || !isDragActive) return;
 
         e.preventDefault();
         e.stopPropagation();
         setIsOver(true);
       },
-      [item.isFolder, isDragActive],
+      [canEdit, item.isFolder, isDragActive],
     );
 
     const handleDragLeave = useCallback(() => {
@@ -298,13 +313,14 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
 
       return (
         <Flexbox gap={2}>
+          {accessPanel}
           <Block
             clickable
             horizontal
             align={'center'}
             data-drop-target-id={item.id}
             data-is-folder={String(item.isFolder)}
-            draggable={!flat}
+            draggable={!flat && canEdit}
             gap={8}
             height={36}
             paddingInline={4}
@@ -359,7 +375,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
               style={{ minHeight: 28, minWidth: 0, overflow: 'hidden' }}
             >
               <Icon icon={isExpanded ? FolderOpenIcon : FolderIcon} size={18} />
-              {isRenaming ? (
+              {isRenaming && canEdit ? (
                 <Input
                   ref={inputRef}
                   size="small"
@@ -380,7 +396,10 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
                   }}
                 />
               ) : (
-                <HierarchyNodeName name={item.name} />
+                <>
+                  <HierarchyNodeName name={item.name} />
+                  <EnterpriseCustomAccessBadge custom={item.enterpriseAccess?.custom} />
+                </>
               )}
             </Flexbox>
             <Flexbox horizontal align={'center'}>
@@ -396,6 +415,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
     const isActive = isHierarchyNodeActive(item, selectedKey);
     return (
       <Flexbox gap={2}>
+        {accessPanel}
         <Block
           clickable
           horizontal
@@ -403,7 +423,7 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
           className={cx(styles.treeItem, isDragging && styles.dragging)}
           data-drop-target-id={item.id}
           data-is-folder={false}
-          draggable={!flat}
+          draggable={!flat && canEdit}
           gap={8}
           height={36}
           paddingInline={4}
@@ -440,7 +460,10 @@ export const HierarchyNode = memo<HierarchyNodeProps>(
             ) : (
               <FileIcon fileName={item.name} fileType={item.fileType} size={18} />
             )}
-            <HierarchyNodeName name={item.name} />
+            <>
+              <HierarchyNodeName name={item.name} />
+              <EnterpriseCustomAccessBadge custom={item.enterpriseAccess?.custom} />
+            </>
           </Flexbox>
           <HierarchyNodeMenuButton menuItems={menuItems} />
         </Block>

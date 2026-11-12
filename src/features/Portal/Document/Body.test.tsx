@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import DocumentBody from './Body';
+import { DocumentViewProvider } from './documentViewContext';
 
 vi.mock('@/features/FileViewer/FileDocumentPreview', () => ({
   FileDocumentPreview: ({ fileId }: { fileId?: string | null }) => (
@@ -115,6 +116,7 @@ vi.mock('@/store/agent', () => ({
 
 const mockDocumentState = vi.hoisted(() => ({
   current: {
+    documentDetailMap: {} as Record<string, { document: { knowledgeBaseId: string } }>,
     documents: {
       'document-1': {},
     },
@@ -171,6 +173,15 @@ describe('DocumentBody', () => {
     mockAgentState.current.activeAgentId = 'agent-1';
     mockChatState.current.portalStack[0].agentDocumentId = 'agent-document-1';
     mockDocumentMeta.current = { content: '', filename: 'doc.md' };
+    mockDocumentState.current.documents = { 'document-1': {} };
+    mockDocumentState.current.documentDetailMap = {};
+    mockLibraryState.current.knowledgeBaseDetailMap = {};
+    mockLibraryState.current.knowledgeBaseSessionAccess = {};
+    mockNodeState.current.nodeLevelMap = {
+      [JSON.stringify(['library-1', 'document-1'])]: { level: 'edit' },
+      [JSON.stringify(['old-library', 'document-1'])]: { level: 'edit' },
+      [JSON.stringify(['next-library', 'document-2'])]: { level: 'view' },
+    };
     mockUpdateDocument.mockClear();
     mockDocumentState.current.internal_dispatchDocument.mockClear();
     vi.useFakeTimers();
@@ -258,6 +269,197 @@ describe('DocumentBody', () => {
     });
   });
 
+  it.each(['unresolved', 'view', 'denied'] as const)(
+    'keeps %s library content readable without autosave',
+    async (access) => {
+      mockDocumentMeta.current = { content: 'library content', filename: 'config.json' };
+      mockDocumentState.current.documentDetailMap = {
+        'document-1': { document: { knowledgeBaseId: 'library-1' } },
+      };
+      if (access === 'view') {
+        mockLibraryState.current.knowledgeBaseDetailMap['library-1'] = {
+          id: 'library-1',
+          enterprise: { accessLevel: 'edit' },
+        };
+        mockNodeState.current.nodeLevelMap[JSON.stringify(['library-1', 'document-1'])] = {
+          level: 'view',
+        };
+      }
+      if (access === 'denied') {
+        mockLibraryState.current.knowledgeBaseSessionAccess['test-scope|library-1'] = 'denied';
+      }
+      render(<DocumentBody />);
+      const editor = screen.queryByTestId('highlight-editor');
+      if (editor) fireEvent.change(editor, { target: { value: 'unauthorized edit' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+
+      expect(mockUpdateDocument).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('highlight-editor')).toBeNull();
+      expect(screen.queryByTestId('editor-canvas')).toBeNull();
+      expect(screen.getByText('library content')).toBeVisible();
+    },
+  );
+
+  it('shows skill metadata without a write entry while its library is unresolved', () => {
+    mockDocumentMeta.current = { content: '# Skill content', filename: 'SKILL.md' };
+    mockDocumentState.current.documentDetailMap = {
+      'document-1': { document: { knowledgeBaseId: 'library-1' } },
+    };
+    mockDocumentState.current.documents['document-1'] = {
+      contentFormat: 'skillMarkdown',
+      skillFrontmatter: 'name: example\ndescription: Example skill',
+    };
+    render(<DocumentBody />);
+
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByTestId('editor-canvas')).toBeNull();
+    expect(screen.getByText('Example skill')).toBeVisible();
+  });
+
+  it('preserves skill metadata editing for an allowed personal document', () => {
+    mockDocumentMeta.current = { content: '# Skill content', filename: 'SKILL.md' };
+    mockDocumentState.current.documents['document-1'] = {
+      contentFormat: 'skillMarkdown',
+      skillFrontmatter: 'name: example\ndescription: Example skill',
+    };
+    render(<DocumentBody />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByRole('textbox')).toHaveValue('name: example\ndescription: Example skill');
+  });
+
+  it('allows autosave after the enterprise node resolves edit', async () => {
+    mockDocumentMeta.current = { content: 'before', filename: 'config.json' };
+    mockDocumentState.current.documentDetailMap = {
+      'document-1': { document: { knowledgeBaseId: 'library-1' } },
+    };
+    mockLibraryState.current.knowledgeBaseDetailMap['library-1'] = {
+      id: 'library-1',
+      enterprise: { accessLevel: 'edit' },
+    };
+    mockNodeState.current.nodeLevelMap = {};
+    const { rerender } = render(
+      <DocumentViewProvider value={{ documentId: 'document-1' }}>
+        <DocumentBody />
+      </DocumentViewProvider>,
+    );
+    expect(screen.queryByTestId('highlight-editor')).toBeNull();
+    mockNodeState.current.nodeLevelMap[JSON.stringify(['library-1', 'document-1'])] = {
+      level: 'edit',
+    };
+    rerender(
+      <DocumentViewProvider value={{ documentId: 'document-1' }}>
+        <DocumentBody />
+      </DocumentViewProvider>,
+    );
+    fireEvent.change(screen.getByTestId('highlight-editor'), { target: { value: 'allowed edit' } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(mockUpdateDocument).toHaveBeenCalledWith({
+      content: 'allowed edit',
+      id: 'document-1',
+      saveSource: 'autosave',
+    });
+  });
+
+  it.each(['view', 'denied'] as const)(
+    'does not flush a pending edit when its node becomes %s or the library is denied',
+    async (access) => {
+      mockDocumentMeta.current = { content: 'before', filename: 'config.json' };
+      mockDocumentState.current.documentDetailMap = {
+        'document-1': { document: { knowledgeBaseId: 'library-1' } },
+      };
+      mockLibraryState.current.knowledgeBaseDetailMap['library-1'] = {
+        id: 'library-1',
+        enterprise: { accessLevel: 'edit' },
+      };
+      const { rerender } = render(
+        <DocumentViewProvider value={{ documentId: 'document-1' }}>
+          <DocumentBody />
+        </DocumentViewProvider>,
+      );
+      fireEvent.change(screen.getByTestId('highlight-editor'), {
+        target: { value: 'pending edit' },
+      });
+      if (access === 'view') {
+        mockNodeState.current.nodeLevelMap[JSON.stringify(['library-1', 'document-1'])] = {
+          level: 'view',
+        };
+      } else {
+        mockLibraryState.current.knowledgeBaseSessionAccess['test-scope|library-1'] = 'denied';
+      }
+      await act(async () => {
+        rerender(
+          <DocumentViewProvider value={{ documentId: 'document-1' }}>
+            <DocumentBody />
+          </DocumentViewProvider>,
+        );
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+
+      expect(screen.queryByTestId('highlight-editor')).toBeNull();
+      expect(screen.getByText('before')).toBeVisible();
+      expect(mockUpdateDocument).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['view', 'unresolved'] as const)(
+    'flushes authorized edits for the old document when navigating to a different %s document',
+    async (nextAccess) => {
+      mockDocumentMeta.current = { content: 'old content', filename: 'config.json' };
+      mockDocumentState.current.documentDetailMap = {
+        'document-1': { document: { knowledgeBaseId: 'old-library' } },
+        'document-2': { document: { knowledgeBaseId: 'next-library' } },
+      };
+      mockLibraryState.current.knowledgeBaseDetailMap['old-library'] = {
+        id: 'old-library',
+        enterprise: { accessLevel: 'edit' },
+      };
+      if (nextAccess === 'view') {
+        mockLibraryState.current.knowledgeBaseDetailMap['next-library'] = {
+          id: 'next-library',
+          enterprise: { accessLevel: 'view' },
+        };
+      }
+      const { rerender, unmount } = render(
+        <DocumentViewProvider value={{ documentId: 'document-1' }}>
+          <DocumentBody />
+        </DocumentViewProvider>,
+      );
+      fireEvent.change(screen.getByTestId('highlight-editor'), {
+        target: { value: 'pending authorized edit' },
+      });
+      mockDocumentMeta.current = { content: 'next read-only content', filename: 'config.json' };
+      await act(async () => {
+        rerender(
+          <DocumentViewProvider value={{ documentId: 'document-2' }}>
+            <DocumentBody />
+          </DocumentViewProvider>,
+        );
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+
+      expect(screen.getByText('next read-only content')).toBeVisible();
+      expect(screen.queryByTestId('highlight-editor')).toBeNull();
+      expect(screen.queryByTestId('editor-canvas')).toBeNull();
+      expect(mockUpdateDocument).toHaveBeenCalledExactlyOnceWith({
+        content: 'pending authorized edit',
+        id: 'document-1',
+        saveSource: 'autosave',
+      });
+      await act(async () => {
+        unmount();
+      });
+      expect(mockUpdateDocument).toHaveBeenCalledOnce();
+    },
+  );
+
   it('flushes pending highlight edits when the editor unmounts', async () => {
     mockDocumentMeta.current = { content: 'before', filename: 'config.json' };
 
@@ -319,3 +521,40 @@ describe('DocumentBody', () => {
     );
   });
 });
+
+// Exercise the real document -> library permission chain, including unresolved libraries.
+const mockLibraryState = vi.hoisted(() => ({
+  current: {
+    knowledgeBaseDetailMap: {} as Record<
+      string,
+      { id: string; enterprise?: { accessLevel: 'view' | 'edit' | 'owner' } }
+    >,
+    knowledgeBaseListMap: {},
+    knowledgeBaseSessionAccess: {} as Record<string, string>,
+  },
+}));
+vi.mock('@/store/library', async () => ({
+  ...(await import('@/store/library/slices/crud/selectors')),
+  useKnowledgeBaseStore: (selector: (state: typeof mockLibraryState.current) => unknown) =>
+    selector(mockLibraryState.current),
+}));
+vi.mock('@/features/ResourceManager/hooks/useKnowledgeItem', () => ({
+  useKnowledgeBaseItem: vi.fn(),
+}));
+vi.mock('@/features/ResourceManager/store', () => ({ useResourceManagerStore: () => undefined }));
+vi.mock('@/hooks/usePermission', () => ({ usePermission: () => ({ allowed: true }) }));
+vi.mock('@/libs/replica', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  cacheScope: { use: () => 'test-scope' },
+}));
+
+// Keep the real permission hooks and selectors; the network/cache boundary supplies node tiers.
+const mockNodeState = vi.hoisted(() => ({
+  current: { nodeLevelMap: {} as Record<string, { level: 'edit' | 'view' | 'path' | 'owner' }> },
+}));
+vi.mock('@/store/enterpriseKnowledge', async () => ({
+  ...(await import('@/store/enterpriseKnowledge/selectors')),
+  enterpriseKnowledgeActions: { useFetchNodeLevel: () => ({ error: undefined }) },
+  useEnterpriseKnowledgeStore: (selector: (state: typeof mockNodeState.current) => unknown) =>
+    selector(mockNodeState.current),
+}));

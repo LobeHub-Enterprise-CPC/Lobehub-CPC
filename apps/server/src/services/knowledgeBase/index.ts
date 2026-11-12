@@ -1,3 +1,4 @@
+import { isEnterpriseKnowledgeEnabled } from '@lobechat/business-knowledge';
 import { DEFAULT_FILE_EMBEDDING_MODEL_ITEM } from '@lobechat/const';
 import { type LobeChatDatabase } from '@lobechat/database';
 import {
@@ -20,7 +21,16 @@ import { buildWorkspaceWhere } from '@/database/utils/workspace';
 import { getServerDefaultFilesConfig } from '@/server/globalConfig';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { DocumentService } from '@/server/services/document';
+import {
+  loadItemMemberships,
+  planRetrieval,
+  resolveItemsScope,
+} from '@/server/services/enterpriseKnowledge';
+import { resolveEnterpriseContentScopes } from '@/server/services/enterpriseKnowledge/contentAccess';
+import { createEnterpriseListFilter } from '@/server/services/enterpriseKnowledge/listAccess';
+import type { EnterpriseNodeAccess } from '@/server/services/enterpriseKnowledge/nodeAccess';
 import { createFtsSearchRepo } from '@/server/services/ftsSearch';
+import { assertContentsNotInRestrictedKnowledgeBase } from '@/server/services/knowledgeBaseAccess';
 
 export interface FileContentResult {
   content: string;
@@ -46,6 +56,7 @@ export interface SemanticSearchForChatResult {
    * a search path failed.
    */
   rejections?: { bm25?: unknown; vector?: unknown };
+  skippedKnowledgeBaseCount?: number;
   totalResults: number;
 }
 
@@ -102,6 +113,7 @@ export class KnowledgeBaseSearchService {
     userId: string,
     workspaceId?: string,
     callerAgentVisibility?: 'private' | 'public' | null,
+    private readonly askerId: string | null = null,
   ) {
     this.serverDB = serverDB;
     this.userId = userId;
@@ -130,6 +142,15 @@ export class KnowledgeBaseSearchService {
   async semanticSearchForChat(
     input: SemanticSearchSchemaType,
   ): Promise<SemanticSearchForChatResult> {
+    if (!this.workspaceId && isEnterpriseKnowledgeEnabled())
+      return this.searchEnterpriseAware(input);
+    return this.searchScoped(input);
+  }
+
+  private async searchScoped(
+    input: SemanticSearchSchemaType,
+    nodeAccess?: EnterpriseNodeAccess,
+  ): Promise<SemanticSearchForChatResult> {
     const topK = input.topK ?? 20;
     const knowledgeIds = input.knowledgeIds ?? [];
 
@@ -137,9 +158,12 @@ export class KnowledgeBaseSearchService {
     const vectorPath = async (): Promise<ChatSemanticSearchChunk[]> => {
       const { model, provider } =
         (await getServerDefaultFilesConfig()).embeddingModel || DEFAULT_FILE_EMBEDDING_MODEL_ITEM;
+      // The owner scope only selects data. Credentials and billing belong to the
+      // authenticated asker, so a library grant never spends the owner's keys.
+      const runtimeUserId = this.askerId ?? this.userId;
       const modelRuntime = await initModelRuntimeFromDB(
         this.serverDB,
-        this.userId,
+        runtimeUserId,
         provider,
         this.workspaceId,
       );
@@ -149,7 +173,7 @@ export class KnowledgeBaseSearchService {
 
       const embeddings = await modelRuntime.embeddings(
         { dimensions: 1024, input: query, model },
-        { metadata: { trigger: RequestTrigger.SemanticSearch }, user: this.userId },
+        { metadata: { trigger: RequestTrigger.SemanticSearch }, user: runtimeUserId },
       );
 
       let finalFileIds = input.fileIds ?? [];
@@ -168,6 +192,25 @@ export class KnowledgeBaseSearchService {
         finalFileIds = knowledgeFiles.map((f) => f.fileId).concat(finalFileIds);
       }
 
+      if (!this.workspaceId && isEnterpriseKnowledgeEnabled() && finalFileIds.length) {
+        finalFileIds = (await this.fileModel.findByIds(finalFileIds)).map((file) => file.id);
+      }
+
+      if (nodeAccess)
+        finalFileIds = finalFileIds.filter((id) => {
+          const level = nodeAccess.levels.get(id);
+          return level && level !== 'path' && nodeAccess.nodes.get(id)?.kind === 'file';
+        });
+      // A non-enterprise library can reference an enterprise file too. Gate those exact
+      // files before querying, including anonymous/share calls and policy failures.
+      if (!nodeAccess)
+        finalFileIds = (
+          await createEnterpriseListFilter({
+            serverDB: this.serverDB,
+            userId: this.askerId ?? '',
+            workspaceId: this.workspaceId,
+          })(finalFileIds.map((id) => ({ id })))
+        ).map((row) => row.id);
       return this.chunkModel.semanticSearchForChat({
         embedding: embeddings![0],
         fileIds: finalFileIds,
@@ -190,7 +233,24 @@ export class KnowledgeBaseSearchService {
         usage: 'knowledge_base',
         workspaceId: this.workspaceId,
       });
-      return ftsSearchRepo.searchKnowledgeBaseDocuments(input.query, knowledgeIds, topK);
+      // Providers currently scope full-text by library. Retrieve enough candidates to cover the
+      // whole authoritative tree, then filter before snippets leave this service and before topK.
+      const hits = await ftsSearchRepo.searchKnowledgeBaseDocuments(
+        input.query,
+        knowledgeIds,
+        nodeAccess ? Math.max(topK, nodeAccess.nodes.size) : topK,
+      );
+      const permitted = nodeAccess
+        ? hits.filter((hit) => {
+            const level = nodeAccess.levels.get(hit.fileId ?? hit.documentId);
+            return level && level !== 'path';
+          })
+        : await createEnterpriseListFilter({
+            serverDB: this.serverDB,
+            userId: this.askerId ?? '',
+            workspaceId: this.workspaceId,
+          })(hits.map((hit) => ({ ...hit, id: hit.documentId })));
+      return permitted.slice(0, topK);
     };
 
     const [vectorResult, bm25Result] = await Promise.allSettled([vectorPath(), bm25Path()]);
@@ -229,7 +289,147 @@ export class KnowledgeBaseSearchService {
     };
   }
 
+  private async searchEnterpriseAware(
+    input: SemanticSearchSchemaType,
+  ): Promise<SemanticSearchForChatResult> {
+    const ctx = { serverDB: this.serverDB, workspaceId: this.workspaceId };
+    const memberships = await loadItemMemberships(this.serverDB, input.fileIds ?? []);
+    const requestedIds = [
+      ...new Set([
+        ...(input.knowledgeIds ?? []),
+        ...[...memberships.values()].flatMap((item) => [...item.knowledgeBaseIds]),
+      ]),
+    ];
+    const plan = await planRetrieval(ctx, requestedIds, this.askerId);
+    const enterpriseFiles = new Set<string>();
+    for (const [id, membership] of memberships) {
+      if ([...membership.knowledgeBaseIds].some((kbId) => !plan.plainIds.includes(kbId)))
+        enterpriseFiles.add(id);
+    }
+    const plainFiles = (input.fileIds ?? []).filter((id) => !enterpriseFiles.has(id));
+    const groups = [
+      ...(plan.plainIds.length || plainFiles.length || requestedIds.length === 0
+        ? [
+            {
+              fileIds: plainFiles,
+              knowledgeIds: plan.plainIds,
+              userId: this.userId,
+              nodeAccess: undefined as EnterpriseNodeAccess | undefined,
+            },
+          ]
+        : []),
+      ...plan.enterpriseGroups.map((group) => ({
+        fileIds: (input.fileIds ?? []).filter((id) =>
+          [...(memberships.get(id)?.knowledgeBaseIds ?? [])].some((kbId) =>
+            group.knowledgeBaseIds.includes(kbId),
+          ),
+        ),
+        knowledgeIds: group.knowledgeBaseIds.filter((id) => input.knowledgeIds?.includes(id)),
+        userId: group.ownerId,
+        nodeAccess: group.nodeAccess,
+      })),
+    ];
+    const results = await Promise.all(
+      groups.map((group) =>
+        new KnowledgeBaseSearchService(
+          this.serverDB,
+          group.userId,
+          undefined,
+          this.callerAgentVisibility,
+          this.askerId,
+        ).searchScoped(
+          { ...input, fileIds: group.fileIds, knowledgeIds: group.knowledgeIds },
+          group.nodeAccess,
+        ),
+      ),
+    );
+    const topK = input.topK ?? 20;
+    const chunks = [
+      ...new Map(results.flatMap((result) => result.chunks).map((hit) => [hit.id, hit])).values(),
+    ]
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topK);
+    const documents = [
+      ...new Map(
+        results.flatMap((result) => result.documents).map((hit) => [hit.documentId, hit]),
+      ).values(),
+    ]
+      .sort((a, b) => a.relevance - b.relevance)
+      .slice(0, topK);
+    const errors = Object.assign({}, ...results.map((result) => result.errors));
+    const rejections = Object.assign({}, ...results.map((result) => result.rejections));
+    return {
+      chunks,
+      documents,
+      fileResults: groupAndRankFiles(chunks, topK),
+      totalResults: chunks.length + documents.length,
+      ...(Object.keys(errors).length ? { errors, rejections } : {}),
+      ...(plan.skippedCount ? { skippedKnowledgeBaseCount: plan.skippedCount } : {}),
+    };
+  }
+
   async getFileContents(ids: string[]): Promise<FileContentResult[]> {
+    await assertContentsNotInRestrictedKnowledgeBase(
+      {
+        serverDB: this.serverDB,
+        userId: this.askerId ?? this.userId,
+        workspaceId: this.workspaceId,
+      },
+      ids,
+    );
+    const scopes = await resolveEnterpriseContentScopes(
+      { serverDB: this.serverDB, userId: this.askerId, workspaceId: this.workspaceId },
+      ids,
+    );
+    // Keep CPC's strict personal-content boundary for ordinary siblings too.
+    await Promise.all(
+      ids
+        .filter((id) => !scopes.has(id))
+        .map((id) =>
+          resolveItemsScope(
+            {
+              serverDB: this.serverDB,
+              userId: this.askerId ?? this.userId,
+              workspaceId: this.workspaceId,
+            },
+            [id],
+            'view',
+          ),
+        ),
+    );
+    // Validate the complete batch before reading or parsing any content.
+    if (scopes.size > 0) {
+      return (
+        await pMap(
+          ids,
+          (id) => {
+            // An enterprise owner's scope applies only to that exact item.
+            // Ordinary siblings in a mixed batch stay in the caller's scope.
+            const ownerId = scopes.get(id) ?? this.askerId ?? this.userId;
+            return new KnowledgeBaseSearchService(
+              this.serverDB,
+              ownerId,
+              undefined,
+              this.callerAgentVisibility,
+              this.askerId,
+            ).readScopedContents([id]);
+          },
+          { concurrency: 3 },
+        )
+      ).flat();
+    }
+    if (this.askerId && this.askerId !== this.userId)
+      return new KnowledgeBaseSearchService(
+        this.serverDB,
+        this.askerId,
+        this.workspaceId,
+        this.callerAgentVisibility,
+        this.askerId,
+      ).readScopedContents(ids);
+    return this.readScopedContents(ids);
+  }
+
+  private async readScopedContents(ids: string[]): Promise<FileContentResult[]> {
     return pMap(
       ids,
       async (id) => {

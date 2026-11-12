@@ -5,12 +5,15 @@ import { ordinaryFileAccessScope } from '@lobechat/types';
 import { inferContentTypeFromImageUrl, nanoid, uuid } from '@lobechat/utils';
 import { TRPCError } from '@trpc/server';
 import { sha256 } from 'js-sha256';
+import pMap from 'p-map';
 
 import { serverDBEnv } from '@/config/db';
 import { FileModel } from '@/database/models/file';
 import { type FileItem } from '@/database/schemas';
 import { buildTenantPublicUrl } from '@/server/modules/Tenant/callbackUrl';
+import { classifyEnterpriseContentIds } from '@/server/services/enterpriseKnowledge/contentClassification';
 import { TempFileManager } from '@/server/utils/tempFileManager';
+import type { EnterpriseItemAccess } from '@/types/files';
 import { isDev } from '@/utils/env';
 
 import { createFileServiceModule } from './impls';
@@ -20,6 +23,7 @@ import type { FileServiceImpl, PreSignedUpload } from './impls/type';
 export const getFileProxyUrl = (fileId: string): string => buildTenantPublicUrl(`/f/${fileId}`);
 
 export interface FileAccessUrlItem {
+  enterpriseAccess?: EnterpriseItemAccess;
   fileId?: string | null;
   id?: string | null;
   url?: string | null;
@@ -48,9 +52,11 @@ export class FileService {
   private fileModel: FileModel;
 
   private impl: FileServiceImpl;
+  private workspaceId?: string;
 
   constructor(db: LobeChatDatabase, userId: string, workspaceId?: string) {
     this.db = db;
+    this.workspaceId = workspaceId;
     this.userId = userId;
     this.fileModel = new FileModel(db, userId, workspaceId);
     this.impl = createFileServiceModule(db);
@@ -104,6 +110,14 @@ export class FileService {
     return byteLength === undefined
       ? this.impl.getFileContent(key)
       : this.impl.getFileContent(key, byteLength);
+  }
+
+  public async getFileStream(
+    key: string,
+    range?: string,
+    signal?: AbortSignal,
+  ): Promise<ReadableStream<Uint8Array>> {
+    return this.impl.getFileStream(key, range, signal);
   }
 
   /**
@@ -176,6 +190,9 @@ export class FileService {
    * Get full file URL
    */
   public async getFullFileUrl(url?: string | null, expiresIn?: number): Promise<string> {
+    // Native documents keep their content in the database, not object storage.
+    if (url?.startsWith('internal://')) return '';
+
     return this.impl.getFullFileUrl(url, expiresIn);
   }
 
@@ -192,6 +209,47 @@ export class FileService {
     }
 
     return this.getFullFileUrl(file.url);
+  }
+
+  /** Classify a whole browser response once. Authorization belongs to the proxy. */
+  public async getFileBrowserUrls(
+    items: FileAccessUrlItem[],
+    options?: { readable?: boolean },
+  ): Promise<string[]> {
+    const ids = [
+      ...new Set(
+        items
+          .filter(
+            (file) =>
+              !file.enterpriseAccess && !(options?.readable && file.url?.startsWith('internal://')),
+          )
+          .map((file) => file.fileId || file.id)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const enterpriseIds = ids.length
+      ? await classifyEnterpriseContentIds(
+          { serverDB: this.db, workspaceId: this.workspaceId },
+          ids,
+        )
+      : new Set<string>();
+    return pMap(
+      items,
+      (file) => {
+        if (options?.readable && file.url?.startsWith('internal://')) return '';
+        const id = file.fileId || file.id;
+        if (id && (file.enterpriseAccess || enterpriseIds.has(id))) return getFileProxyUrl(id);
+        return options?.readable ? this.getFullFileUrl(file.url) : this.getFileAccessUrl(file);
+      },
+      { concurrency: 10 },
+    );
+  }
+
+  public async getFileBrowserUrl(
+    file: FileAccessUrlItem,
+    options?: { readable?: boolean },
+  ): Promise<string> {
+    return (await this.getFileBrowserUrls([file], options))[0];
   }
 
   /**

@@ -1,9 +1,16 @@
 import debug from 'debug';
+import type { NextRequest } from 'next/server';
 
 import { FileModel } from '@/database/models/file';
 import { getServerDB } from '@/database/server';
+import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
+import {
+  resolveEnterpriseContentScopes,
+  resolveManagedContentReader,
+} from '@/server/services/enterpriseKnowledge/contentAccess';
 import { FileService } from '@/server/services/file';
+import { createEnterpriseFileResponse } from '@/server/services/file/enterpriseProxy';
 
 const log = debug('lobe-file:proxy');
 
@@ -15,15 +22,16 @@ type Params = Promise<{ id: string }>;
  *
  * Features:
  * - Query database to get file record (without userId filter for public access)
- * - Generate a temporary S3 presigned preview URL
- * - Return 302 redirect
+ * - Stream enterprise bytes after authorizing every request
+ * - Redirect ordinary files to their existing temporary storage URLs
  *
- * NOTE: This endpoint is intentionally unauthenticated. The proxy URL is
+ * Non-enterprise links remain public by id. The proxy URL is
  * embedded in bare `<img>` tags, download links, and links shared to AI — none
  * of which can attach auth headers/cookies. Adding `checkAuth` here would break
- * every previously-shared `/f/:id` link, so access stays public by id.
+ * every previously-shared `/f/:id` link. Distribution-managed enterprise
+ * content requires the current authenticated caller's library access.
  */
-const handleGet = async (req: Request, segmentData: { params: Params }) => {
+const handleGet = async (req: NextRequest, segmentData: { params: Params }) => {
   try {
     const params = await segmentData.params;
     const { id } = params;
@@ -43,8 +51,34 @@ const handleGet = async (req: Request, segmentData: { params: Params }) => {
       });
     }
 
+    // Classify with the owner's scope, then authorize the actual request. No
+    // storage URL may be created before the enterprise policy has passed.
+    let enterprise = false;
+    try {
+      const scopes = await resolveEnterpriseContentScopes({ serverDB: db, userId: file.userId }, [
+        id,
+      ]);
+      enterprise = scopes.has(id);
+      if (enterprise) {
+        const reader = resolveManagedContentReader(await createLambdaContext(req));
+        if (!reader)
+          return new Response('File not found', {
+            headers: { 'Cache-Control': 'private, no-store' },
+            status: 404,
+          });
+        await resolveEnterpriseContentScopes({ serverDB: db, userId: reader }, [id]);
+      }
+    } catch {
+      return new Response('File not found', {
+        headers: { 'Cache-Control': 'private, no-store' },
+        status: 404,
+      });
+    }
+
     // Create file service with file owner's userId
     const fileService = new FileService(db, file.userId);
+
+    if (enterprise) return await createEnterpriseFileResponse(req, file, fileService);
 
     const isDownload = new URL(req.url).searchParams.get('download') === '1';
     const redirectUrl = isDownload
