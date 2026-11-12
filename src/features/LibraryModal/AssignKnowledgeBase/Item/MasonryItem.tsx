@@ -80,10 +80,15 @@ const MasonryItem = memo<MasonryItemProps>(
                 <Text className={styles.title} ellipsis={{ rows: 2 }}>
                   {name}
                 </Text>
+                <EnterpriseAccessBadge
+                  accessRevoked={accessRevoked}
+                  enterprise={enterprise}
+                  size={'small'}
+                  style={{ flex: 'none' }}
+                />
               </Flexbox>
             </Flexbox>
           </Flexbox>
-          <EnterpriseAccessBadge accessRevoked={accessRevoked} enterprise={enterprise} />
           {description && (
             <Text className={styles.desc} ellipsis={{ rows: 3 }}>
               {description}

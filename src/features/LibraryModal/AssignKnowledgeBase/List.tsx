@@ -1,5 +1,5 @@
 import { type KnowledgeItem } from '@lobechat/types';
-import { Alert, Center, Empty, Flexbox, Icon, Segmented, Text } from '@lobehub/ui';
+import { Alert, Center, Empty, Flexbox, Icon, Segmented } from '@lobehub/ui';
 import { VirtuosoMasonry } from '@virtuoso.dev/masonry';
 import { BookOpen, ServerCrash } from 'lucide-react';
 import React, { memo, useMemo, useState } from 'react';
@@ -103,8 +103,23 @@ export const List = memo(() => {
        * group and view switcher line up with the item icons / add buttons.
        */}
       <Flexbox gap={8} style={{ paddingBlockEnd: 12 }}>
-        <Flexbox horizontal align={'center'} justify={'space-between'}>
-          {showVisibilityTabs ? <VisibilityTabs value={mode} onChange={setMode} /> : <span />}
+        <Flexbox horizontal align={'center'} gap={8} justify={'space-between'}>
+          <Flexbox horizontal align={'center'} gap={8}>
+            {showVisibilityTabs && <VisibilityTabs value={mode} onChange={setMode} />}
+            {hasEnterprise && (
+              <Segmented
+                value={activeGroup}
+                options={[
+                  {
+                    label: t('enterprise.personalGroup', { ns: 'knowledgeBase' }),
+                    value: 'personal',
+                  },
+                  { label: t('enterprise.group', { ns: 'knowledgeBase' }), value: 'enterprise' },
+                ]}
+                onChange={(value) => setGroup(String(value))}
+              />
+            )}
+          </Flexbox>
           <ViewSwitcher view={viewMode} onViewChange={setViewMode} />
         </Flexbox>
         {showPublicAgentHint && (
@@ -115,23 +130,6 @@ export const List = memo(() => {
           />
         )}
       </Flexbox>
-      {hasEnterprise && (
-        <Segmented
-          value={activeGroup}
-          options={[
-            { label: t('enterprise.personalGroup', { ns: 'knowledgeBase' }), value: 'personal' },
-            { label: t('enterprise.group', { ns: 'knowledgeBase' }), value: 'enterprise' },
-          ]}
-          onChange={(value) => setGroup(String(value))}
-        />
-      )}
-      {hasEnterprise && (
-        <Text fontSize={12} type="secondary">
-          {t(activeGroup === 'enterprise' ? 'enterprise.group' : 'enterprise.personalGroup', {
-            ns: 'knowledgeBase',
-          })}
-        </Text>
-      )}
       {isLoading || isTransitioning ? (
         viewMode === 'masonry' ? (
           <MasonrySkeleton columnCount={columnCount} />
