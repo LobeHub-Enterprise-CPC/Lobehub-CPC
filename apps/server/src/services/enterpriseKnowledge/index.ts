@@ -15,6 +15,7 @@ import { KnowledgeBaseModel } from '@/database/models/knowledgeBase';
 import { documents, files, knowledgeBaseFiles, knowledgeBases, users } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
 
+import { classifyEnterpriseContentIds } from './contentClassification';
 import { type EnterpriseNodeAccess, nodeLevel, resolveNodeAccess } from './nodeAccess';
 
 /**
@@ -151,6 +152,31 @@ export const assertNotEnterpriseKnowledgeBase = async (
 ): Promise<void> => {
   const scope = await resolveKnowledgeBaseScope(ctx, knowledgeBaseId, 'path');
   if (scope.enterprise) throw forbidden(message);
+};
+
+/**
+ * Reject moving or copying a library whose linked files or documents also live in
+ * an enterprise knowledge base: the move would rehome them (and copy would
+ * duplicate them) outside enterprise policy. Classification failure refuses.
+ */
+export const assertNoLinkedEnterpriseContent = async (
+  ctx: EnterpriseAccessCtx,
+  knowledgeBaseId: string,
+  message: string,
+): Promise<void> => {
+  if (ctx.workspaceId || !isEnterpriseKnowledgeEnabled()) return;
+  const [linkedFiles, linkedDocuments] = await Promise.all([
+    ctx.serverDB
+      .select({ id: knowledgeBaseFiles.fileId })
+      .from(knowledgeBaseFiles)
+      .where(eq(knowledgeBaseFiles.knowledgeBaseId, knowledgeBaseId)),
+    ctx.serverDB
+      .select({ id: documents.id })
+      .from(documents)
+      .where(eq(documents.knowledgeBaseId, knowledgeBaseId)),
+  ]);
+  const ids = [...linkedFiles, ...linkedDocuments].map((row) => row.id);
+  if ((await classifyEnterpriseContentIds(ctx, ids)).size > 0) throw forbidden(message);
 };
 
 interface ItemMembership {

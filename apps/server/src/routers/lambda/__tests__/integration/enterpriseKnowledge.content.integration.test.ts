@@ -156,6 +156,24 @@ describe('enterprise knowledge content boundaries', () => {
     },
   );
 
+  it('pages a large enterprise file list once, without repeating or re-querying rows', async () => {
+    // FileModel.query is unpaginated: a page loop that re-ran it per batch returned
+    // the same rows again (and never ended when every row was filtered out).
+    for (let index = 0; index < 100; index += 1)
+      await createKbFile(testDB, {
+        knowledgeBaseId: w.entA,
+        name: `bulk-${index}.txt`,
+        userId: w.owner,
+      });
+    const c = caller(w.viewer);
+    const head = await c.file.getFiles({ knowledgeBaseId: w.entA, limit: 100 });
+    expect(head).toHaveLength(100);
+    expect(new Set(head.map((file) => file.id)).size).toBe(100);
+    const tail = await c.file.getFiles({ knowledgeBaseId: w.entA, limit: 50, offset: 100 });
+    expect(tail).toHaveLength(1);
+    expect(head.map((file) => file.id)).not.toContain(tail[0].id);
+  });
+
   it('view reads library file lists, document bodies, URLs and chunks in the owner scope', async () => {
     await createChunk(testDB, w.owner, w.entAFile, 'A chunk');
     const c = caller(w.viewer);

@@ -13,6 +13,7 @@ import { DEFAULT_RESOURCE_ACCESS_LEVELS } from '@/database/schemas';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import {
+  assertNoLinkedEnterpriseContent,
   assertNotEnterpriseKnowledgeBase,
   filterEnterpriseKnowledgeBaseIds,
   getUserDisplayNames,
@@ -180,6 +181,11 @@ export const knowledgeBaseRouter = router({
         ctx,
         input.id,
         'An enterprise knowledge base cannot be copied',
+      );
+      await assertNoLinkedEnterpriseContent(
+        ctx,
+        input.id,
+        'A knowledge base that links enterprise knowledge content cannot be copied',
       );
 
       const knowledgeBase = await ctx.knowledgeBaseModel.findById(input.id);
@@ -471,6 +477,11 @@ export const knowledgeBaseRouter = router({
         ctx,
         input.id,
         'An enterprise knowledge base cannot be moved',
+      );
+      await assertNoLinkedEnterpriseContent(
+        ctx,
+        input.id,
+        'A knowledge base that links enterprise knowledge content cannot be moved',
       );
 
       if (input.targetWorkspaceId === (ctx.workspaceId ?? null)) {

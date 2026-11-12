@@ -113,17 +113,21 @@ export const queriesRouter = router({
         ? await getRestrictedKnowledgeBaseIds(ctx)
         : undefined;
 
+    // FileModel.query is unpaginated: read it once and serve every page from that
+    // result, so the page loop advances (and ends) instead of re-reading all rows.
+    let allFiles: Awaited<ReturnType<typeof ctx.fileModel.query>> | undefined;
     const fileList = await queryEnterprisePage(
       { ...ctx, userId: ctx.enterpriseCallerId },
-      (page) =>
-        ctx.fileModel.query({
+      async ({ limit, offset }) => {
+        allFiles ??= await ctx.fileModel.query({
           ...input,
           ...(ctx.enterpriseScope.enterprise
             ? { knowledgeBaseId: ctx.enterpriseScope.knowledgeBaseId }
             : {}),
           excludeKnowledgeBaseIds,
-          ...page,
-        }),
+        });
+        return allFiles.slice(offset, offset + limit);
+      },
       {
         limit: input.limit,
         offset: input.offset,

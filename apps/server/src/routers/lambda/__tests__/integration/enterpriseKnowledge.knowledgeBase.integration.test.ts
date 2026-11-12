@@ -1,7 +1,12 @@
 import type * as BusinessKnowledge from '@lobechat/business-knowledge';
 // @vitest-environment node
 import type { LobeChatDatabase } from '@lobechat/database';
-import { agentsKnowledgeBases, knowledgeBases } from '@lobechat/database/schemas';
+import {
+  agentsKnowledgeBases,
+  files,
+  knowledgeBaseFiles,
+  knowledgeBases,
+} from '@lobechat/database/schemas';
 import { getTestDB } from '@lobechat/database/test-utils';
 import { eq } from 'drizzle-orm';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -33,6 +38,7 @@ vi.mock('@/server/services/file', () => ({
   }),
 }));
 
+const linkedEnterpriseContent = /links enterprise knowledge content/;
 const kbCaller = (userId: string) => knowledgeBaseRouter.createCaller(context(userId) as any);
 
 describe('knowledgeBase router with enterprise knowledge bases', () => {
@@ -139,6 +145,48 @@ describe('knowledgeBase router with enterprise knowledge bases', () => {
 
       const rows = await testDB.select().from(knowledgeBases).where(eq(knowledgeBases.id, w.entA));
       expect(rows).toHaveLength(1);
+    });
+
+    it('refuses moving or copying a personal library that links enterprise content', async () => {
+      // Linking keeps the file in the enterprise library too; moving or copying the
+      // personal library would rehome or duplicate it outside enterprise policy.
+      await testDB
+        .insert(knowledgeBaseFiles)
+        .values({ fileId: w.entAFile, knowledgeBaseId: w.personalKb, userId: w.owner });
+
+      for (const attempt of [
+        kbCaller(w.owner).transferKnowledgeBase({ id: w.personalKb, targetWorkspaceId: 'ws-1' }),
+        kbCaller(w.owner).copyKnowledgeBaseToWorkspace({
+          id: w.personalKb,
+          targetWorkspaceId: 'ws-1',
+        }),
+      ]) {
+        const error = await attempt.then(
+          () => undefined,
+          (reason: { code?: string; message?: string }) => reason,
+        );
+        expect(error?.code).toBe('FORBIDDEN');
+        expect(error?.message).toMatch(linkedEnterpriseContent);
+      }
+
+      const [file] = await testDB.select().from(files).where(eq(files.id, w.entAFile));
+      expect(file.workspaceId).toBeNull();
+      const [library] = await testDB
+        .select()
+        .from(knowledgeBases)
+        .where(eq(knowledgeBases.id, w.personalKb));
+      expect(library.workspaceId).toBeNull();
+    });
+
+    it('still lets a personal library without enterprise content past the enterprise guard', async () => {
+      // The fixture has no target workspace, so a later check may still refuse it.
+      const outcome = await kbCaller(w.owner)
+        .transferKnowledgeBase({ id: w.personalKb, targetWorkspaceId: 'ws-1' })
+        .then(
+          () => 'ok',
+          (error: { message?: string }) => error.message ?? '',
+        );
+      expect(outcome).not.toMatch(linkedEnterpriseContent);
     });
 
     it('does not take enterprise libraries along with "delete all"', async () => {
