@@ -12,7 +12,7 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   desc: css`
     margin: 0 !important;
     font-size: 12px;
-    line-height: 1;
+    line-height: 1.4;
     color: ${cssVar.colorTextDescription};
   `,
   link: css`
@@ -22,7 +22,7 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   title: css`
     margin: 0 !important;
     font-size: 14px;
-    line-height: 1;
+    line-height: 1.4;
   `,
 }));
 
@@ -76,8 +76,13 @@ const PluginItem = memo<PluginItemProps>(
               <Text ellipsis className={styles.title}>
                 {name}
               </Text>
+              <EnterpriseAccessBadge
+                accessRevoked={accessRevoked}
+                enterprise={enterprise}
+                size={'small'}
+                style={{ flex: 'none' }}
+              />
             </Flexbox>
-            <EnterpriseAccessBadge accessRevoked={accessRevoked} enterprise={enterprise} />
             {description && (
               <Text ellipsis className={styles.desc}>
                 {description}
