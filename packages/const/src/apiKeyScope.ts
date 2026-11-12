@@ -225,6 +225,8 @@ export const TRPC_NAMESPACE_API_KEY_RULES: Record<string, TrpcNamespaceScopeRule
   document: rw('knowledge:read', 'knowledge:write'),
   documentComment: rw('knowledge:read', 'knowledge:write'),
   documentLike: rw('knowledge:read', 'knowledge:write'),
+  // Per-caller access levels and owner-managed item lists of enterprise libraries.
+  enterpriseKnowledge: rw('knowledge:read', 'knowledge:write'),
   // Session/OIDC and full-access keys still bypass this scope guard.
   executionPolicy: 'blocked',
   expertise: rw('agent:read', 'agent:write'),
