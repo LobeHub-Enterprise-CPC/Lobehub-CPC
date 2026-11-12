@@ -19,12 +19,12 @@ import { withTenantRequest } from '@/server/modules/Tenant/gate';
  * directory light it up without any route changes.
  *
  * This is the actual source the model picker's LobeHub group renders from —
- * NOT the aiModel.getAiProviderModelList tRPC procedure, which also gates beta
- * models but is a different call path entirely. Skipping the check here means
- * a beta-gated model still shows (and is selectable) for every ungranted user
- * regardless of that gate. Stays a public route on purpose (no auth required
- * to load it) — an anonymous caller simply gets no session, so every beta
- * model is filtered out for them, same as a logged-in but ungranted user.
+ * NOT the aiModel.getAiProviderModelList tRPC procedure, which also applies the
+ * tenant/policy gate but is a different call path entirely. Skipping the check
+ * here means a model hidden by the tenant switch or a policy still shows (and
+ * is selectable) for every user regardless of that gate. Stays a public route
+ * on purpose (no auth required to load it) — an anonymous caller simply gets
+ * no session, so only the tenant's default-open models remain.
  */
 const handleGet = async (request: Request) => {
   try {
@@ -42,8 +42,11 @@ const handleGet = async (request: Request) => {
 
     const session = await auth.api.getSession({ headers: request.headers });
     const userEmail = session?.user?.email;
+    const userId = session?.user?.id;
     const availability = await Promise.all(
-      clientModels.map((model) => isLobeHubModelAvailable(model.id, model.type, { userEmail })),
+      clientModels.map((model) =>
+        isLobeHubModelAvailable(model.id, model.type, { userEmail, userId }),
+      ),
     );
     const availableModels = clientModels.filter((_, index) => availability[index]);
 

@@ -111,7 +111,12 @@ vi.mock('@lobechat/business-model-bank/model-config', () => ({
     ...args: [
       string,
       string,
-      { getUserEmail?: () => Promise<string | null | undefined>; userEmail?: string | null }?,
+      {
+        getUserEmail?: () => Promise<string | null | undefined>;
+        trigger?: string;
+        userEmail?: string | null;
+        userId?: string | null;
+      }?,
     ]
   ) => mockIsLobeHubModelAvailable(...args),
 }));
@@ -289,6 +294,7 @@ describe('imageRouter', () => {
       expect(mockResolveBusinessModelMapping).toHaveBeenCalledWith('lobehub', 'onboarding-image');
       expect(mockIsLobeHubModelAvailable).toHaveBeenCalledWith('gpt-image-1', 'image', {
         getUserEmail: expect.any(Function),
+        userId: expect.any(String),
       });
       const availabilityOptions = mockIsLobeHubModelAvailable.mock.calls.at(-1)?.[2];
       expect(mockFindUserById).not.toHaveBeenCalled();
