@@ -231,6 +231,26 @@ export const assertSubtreeHasNoEnterpriseContent = async (
     throw forbidden('This folder or document contains enterprise knowledge content');
 };
 
+/**
+ * Whether a storage object backs any enterprise library file, trashed ones included. Upload
+ * registration must not let another file row alias such an object without uploading its own
+ * bytes: the alias would be ordinary content and expose the bytes outside the library's access
+ * control. Classification failure counts as enterprise.
+ */
+export const isEnterpriseStorageObject = async (
+  db: LobeChatDatabase,
+  url: string,
+): Promise<boolean> => {
+  if (!isEnterpriseKnowledgeEnabled()) return false;
+  const rows = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.url, url), isNull(files.workspaceId)));
+  if (rows.length === 0) return false;
+  const ids = rows.map((row) => row.id);
+  return (await classifyEnterpriseContentIds({ serverDB: db, workspaceId: null }, ids)).size > 0;
+};
+
 interface ItemMembership {
   isDeleted: boolean | null;
   knowledgeBaseIds: Set<string>;

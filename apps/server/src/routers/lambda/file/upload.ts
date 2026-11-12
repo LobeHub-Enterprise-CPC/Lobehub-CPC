@@ -10,7 +10,10 @@ import { checkFileStorageUsage } from '@/business/server/trpc-middlewares/lambda
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import type { LobeChatDatabase } from '@/database/type';
 import { router } from '@/libs/trpc/lambda';
-import { recordMemberUploads } from '@/server/services/enterpriseKnowledge';
+import {
+  isEnterpriseStorageObject,
+  recordMemberUploads,
+} from '@/server/services/enterpriseKnowledge';
 import type { FileService } from '@/server/services/file';
 import { downloadRemoteImage } from '@/server/services/file/downloadRemoteImage';
 import {
@@ -76,6 +79,8 @@ export const uploadRouter = router({
       const existingFile = await ctx.fileModel.checkHash(input.hash);
       const existingHashUrl = existingFile?.isExist ? existingFile.url : undefined;
       if (!existingHashUrl) return existingFile;
+      // Never hand out the key of an enterprise object: the caller uploads its own bytes instead.
+      if (await isEnterpriseStorageObject(ctx.serverDB, existingHashUrl)) return { isExist: false };
 
       const isStorageAvailable = await isStoredObjectAvailable(ctx.fileService, existingHashUrl);
 
@@ -173,6 +178,14 @@ export const uploadRouter = router({
           : undefined;
       if (latestUpload?.status === 'active' && !activeUpload) {
         throw new TRPCError({ code: 'CONFLICT', message: 'Upload session is no longer active' });
+      }
+      // Without its own upload session the caller registers an existing object; an enterprise
+      // object may only be reached through its library.
+      if (!activeUpload && (await isEnterpriseStorageObject(ctx.serverDB, input.url))) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'This storage object belongs to an enterprise knowledge base',
+        });
       }
 
       let actualSize: number;
