@@ -158,9 +158,12 @@ export class KnowledgeBaseSearchService {
     const vectorPath = async (): Promise<ChatSemanticSearchChunk[]> => {
       const { model, provider } =
         (await getServerDefaultFilesConfig()).embeddingModel || DEFAULT_FILE_EMBEDDING_MODEL_ITEM;
+      // The owner scope only selects data. Credentials and billing belong to the
+      // authenticated asker, so a library grant never spends the owner's keys.
+      const runtimeUserId = this.askerId ?? this.userId;
       const modelRuntime = await initModelRuntimeFromDB(
         this.serverDB,
-        this.userId,
+        runtimeUserId,
         provider,
         this.workspaceId,
       );
@@ -170,7 +173,7 @@ export class KnowledgeBaseSearchService {
 
       const embeddings = await modelRuntime.embeddings(
         { dimensions: 1024, input: query, model },
-        { metadata: { trigger: RequestTrigger.SemanticSearch }, user: this.userId },
+        { metadata: { trigger: RequestTrigger.SemanticSearch }, user: runtimeUserId },
       );
 
       let finalFileIds = input.fileIds ?? [];

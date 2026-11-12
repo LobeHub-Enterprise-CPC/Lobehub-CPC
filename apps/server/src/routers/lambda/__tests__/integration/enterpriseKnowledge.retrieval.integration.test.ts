@@ -17,6 +17,7 @@ import {
   FtsSearchRepo,
   PgLikeFtsSearchBackend,
 } from '@/database/repositories/ftsSearch';
+import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
 import { KnowledgeBaseSearchService } from '@/server/services/knowledgeBase';
 import { knowledgeBaseRuntime } from '@/server/services/toolExecution/serverRuntimes/knowledgeBase';
 import {
@@ -121,6 +122,23 @@ describe('enterprise retrieval uses the actual asker and exact library membershi
     expect(result.errors).toBeUndefined();
     expect(result.documents.map((item) => item.documentId)).toEqual([w.entADoc]);
     expect(result.documents.every((item) => item.knowledgeBaseId === w.entA)).toBe(true);
+  });
+
+  it('embeds the query with the asker runtime, never the library owner credentials', async () => {
+    const embed = vi.fn(async () => [Array.from({ length: 1024 }, () => 0.1)]);
+    vi.mocked(initModelRuntimeFromDB).mockClear();
+    vi.mocked(initModelRuntimeFromDB).mockResolvedValue({ embeddings: embed } as any);
+    await new KnowledgeBaseSearchService(
+      db,
+      w.viewer,
+      undefined,
+      undefined,
+      w.viewer,
+    ).semanticSearchForChat({ knowledgeIds: [w.entA], query: 'secret' });
+    const users = vi.mocked(initModelRuntimeFromDB).mock.calls.map((call) => call[1]);
+    expect(users.length).toBeGreaterThan(0);
+    expect(users.every((user) => user === w.viewer)).toBe(true);
+    expect(embed.mock.calls.every((call: any[]) => call[1]?.user === w.viewer)).toBe(true);
   });
 
   it.each([null, 'missing'])(
