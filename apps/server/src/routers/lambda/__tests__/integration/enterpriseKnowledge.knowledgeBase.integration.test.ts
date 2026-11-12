@@ -3,6 +3,7 @@ import type * as BusinessKnowledge from '@lobechat/business-knowledge';
 import type { LobeChatDatabase } from '@lobechat/database';
 import {
   agentsKnowledgeBases,
+  documents,
   files,
   knowledgeBaseFiles,
   knowledgeBases,
@@ -187,6 +188,40 @@ describe('knowledgeBase router with enterprise knowledge bases', () => {
           (error: { message?: string }) => error.message ?? '',
         );
       expect(outcome).not.toMatch(linkedEnterpriseContent);
+    });
+
+    it('refuses filing enterprise content into another library', async () => {
+      // Adding a document re-homes it (knowledgeBaseId is rewritten); linking an
+      // enterprise file into an ordinary library is the first step of moving it out.
+      for (const ids of [[w.entAFolder], [w.entADoc], [w.entAFile]]) {
+        const error = await kbCaller(w.owner)
+          .addFilesToKnowledgeBase({ ids, knowledgeBaseId: w.personalKb })
+          .then(
+            () => undefined,
+            (reason: { code?: string; message?: string }) => reason,
+          );
+        expect(error?.code).toBe('FORBIDDEN');
+        expect(error?.message).toMatch(/Enterprise knowledge content cannot leave/);
+      }
+      const [folder] = await testDB.select().from(documents).where(eq(documents.id, w.entAFolder));
+      expect(folder.knowledgeBaseId).toBe(w.entA);
+      const links = await testDB
+        .select()
+        .from(knowledgeBaseFiles)
+        .where(eq(knowledgeBaseFiles.knowledgeBaseId, w.personalKb));
+      expect(links.map((link) => link.fileId)).not.toContain(w.entAFile);
+    });
+
+    it('still lets the owner file personal content into the enterprise library', async () => {
+      await kbCaller(w.owner).addFilesToKnowledgeBase({
+        ids: [w.personalFile],
+        knowledgeBaseId: w.entA,
+      });
+      const links = await testDB
+        .select()
+        .from(knowledgeBaseFiles)
+        .where(eq(knowledgeBaseFiles.knowledgeBaseId, w.entA));
+      expect(links.map((link) => link.fileId)).toContain(w.personalFile);
     });
 
     it('does not take enterprise libraries along with "delete all"', async () => {

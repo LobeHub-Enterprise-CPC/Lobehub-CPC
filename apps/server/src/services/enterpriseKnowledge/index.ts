@@ -15,7 +15,10 @@ import { KnowledgeBaseModel } from '@/database/models/knowledgeBase';
 import { documents, files, knowledgeBaseFiles, knowledgeBases, users } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
 
-import { classifyEnterpriseContentIds } from './contentClassification';
+import {
+  classifyEnterpriseContentIds,
+  loadEnterpriseContentMemberships,
+} from './contentClassification';
 import { type EnterpriseNodeAccess, nodeLevel, resolveNodeAccess } from './nodeAccess';
 
 /**
@@ -177,6 +180,39 @@ export const assertNoLinkedEnterpriseContent = async (
   ]);
   const ids = [...linkedFiles, ...linkedDocuments].map((row) => row.id);
   if ((await classifyEnterpriseContentIds(ctx, ids)).size > 0) throw forbidden(message);
+};
+
+/**
+ * Filing existing rows into a library must not carry enterprise content out of its
+ * library: documents are re-homed (their knowledgeBaseId is rewritten), and linking
+ * an enterprise file into an ordinary library is the first step of moving it out.
+ * Enterprise documents may only be filed into the library that already holds them;
+ * enterprise files only into enterprise libraries. Classification failure refuses.
+ */
+export const assertEnterpriseContentStaysInLibrary = async (
+  ctx: EnterpriseAccessCtx,
+  ids: string[],
+  target: { enterprise: boolean; knowledgeBaseId: string },
+): Promise<void> => {
+  if (ctx.workspaceId || ids.length === 0 || !isEnterpriseKnowledgeEnabled()) return;
+  const message = 'Enterprise knowledge content cannot leave its knowledge base';
+  let memberships: Awaited<ReturnType<typeof loadEnterpriseContentMemberships>>;
+  try {
+    memberships = await loadEnterpriseContentMemberships(ctx, ids);
+  } catch {
+    throw forbidden(message);
+  }
+  const enterpriseIds = new Set(memberships.enterpriseIds);
+  for (const id of ids) {
+    const libraries = [...(memberships.items.get(id)?.knowledgeBaseIds ?? [])].filter((kbId) =>
+      enterpriseIds.has(kbId),
+    );
+    if (libraries.length === 0) continue;
+    const leaves = id.startsWith('docs_')
+      ? libraries.some((kbId) => kbId !== target.knowledgeBaseId)
+      : !target.enterprise;
+    if (leaves) throw forbidden(message);
+  }
 };
 
 interface ItemMembership {

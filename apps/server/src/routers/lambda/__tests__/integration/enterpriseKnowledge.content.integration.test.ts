@@ -516,6 +516,20 @@ describe('enterprise knowledge content boundaries', () => {
     );
   });
 
+  it('refuses the runtime filing enterprise content into an ordinary library', async () => {
+    const runtime = knowledgeBaseRuntime.factory({
+      serverDB: testDB,
+      userId: w.owner,
+      toolManifestMap: {},
+    });
+    const result = await runtime.addFiles({
+      fileIds: [w.entAFolder],
+      knowledgeBaseId: w.personalKb,
+    });
+    expect(result.success).toBe(false);
+    expect(result.content).toMatch(/Enterprise knowledge content cannot leave/);
+  });
+
   it('enforces the same view/edit boundaries on runtime browsing and creation', async () => {
     const runtime = (id: string) =>
       knowledgeBaseRuntime.factory({ serverDB: testDB, userId: id, toolManifestMap: {} });

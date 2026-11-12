@@ -13,6 +13,7 @@ import { DEFAULT_RESOURCE_ACCESS_LEVELS } from '@/database/schemas';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import {
+  assertEnterpriseContentStaysInLibrary,
   assertNoLinkedEnterpriseContent,
   assertNotEnterpriseKnowledgeBase,
   filterEnterpriseKnowledgeBaseIds,
@@ -111,6 +112,10 @@ export const knowledgeBaseRouter = router({
           message: 'Only the knowledge base owner can add existing files; upload them instead',
         });
       }
+      await assertEnterpriseContentStaysInLibrary(ctx, input.ids, {
+        enterprise: scope.enterprise,
+        knowledgeBaseId: input.knowledgeBaseId,
+      });
 
       const kb = await ctx.knowledgeBaseModel.findById(input.knowledgeBaseId);
       if (!kb) throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge base not found' });
