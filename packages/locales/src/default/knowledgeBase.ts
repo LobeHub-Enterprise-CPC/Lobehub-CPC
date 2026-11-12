@@ -116,6 +116,8 @@ export default {
   'enterprise.move.processing':
     'Some files are still being processed. Wait for processing to finish and try again.',
   'enterprise.move.refreshFailed': 'Content was moved. Refresh the list to see the result.',
+  'enterprise.move.tooMany':
+    'You can move at most {{max}} items at a time. Select fewer items and try again.',
   'enterprise.moveIn.action': 'Move to library',
   'enterprise.moveIn.confirm':
     '"{{name}}" is a shared knowledge base. After moving, these {{count}} items will be owned by the knowledge base owner and visible to other members according to the permissions of that location. The originals in your resources will be deleted.',

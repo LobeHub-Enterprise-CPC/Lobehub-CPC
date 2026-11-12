@@ -62,6 +62,7 @@
   "enterprise.move.loadFailed": "未能加载文件夹，请重试。",
   "enterprise.move.processing": "部分文件仍在处理中，请等待处理完成后重试。",
   "enterprise.move.refreshFailed": "内容已移动，请刷新列表查看结果。",
+  "enterprise.move.tooMany": "一次最多移动 {{max}} 项，请减少选择后重试。",
   "enterprise.move.unavailable": "无法移动：内容不存在或你没有编辑权限。",
   "enterprise.moveIn.action": "移入知识库",
   "enterprise.moveIn.confirm": "「{{name}}」是共享知识库。移入后，这 {{count}} 项内容将归知识库负责人所有，并按库内该位置的权限对其他成员可见；你个人资源中的原件会被删除。",
