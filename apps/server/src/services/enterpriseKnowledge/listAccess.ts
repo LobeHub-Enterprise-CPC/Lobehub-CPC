@@ -91,9 +91,15 @@ export const createEnterpriseListFilter = (
 export const queryEnterprisePage = async <T extends { id: string }>(
   ctx: EnterpriseAccessCtx,
   query: (page: { limit: number; offset: number }) => Promise<T[]>,
-  options: { limit: number; offset?: number; scope?: EnterpriseScope },
+  options: {
+    limit: number;
+    /** Applied before paging so a typed page is filled with matching rows. */
+    match?: (row: T) => boolean;
+    offset?: number;
+    scope?: EnterpriseScope;
+  },
 ): Promise<(T & { enterpriseAccess?: EnterpriseItemAccess })[]> => {
-  if (ctx.workspaceId || !isEnterpriseKnowledgeEnabled())
+  if (!options.match && (ctx.workspaceId || !isEnterpriseKnowledgeEnabled()))
     return query({ limit: options.limit, offset: options.offset ?? 0 });
   const filter = createEnterpriseListFilter(ctx, options.scope);
   const wanted = (options.offset ?? 0) + options.limit;
@@ -101,7 +107,9 @@ export const queryEnterprisePage = async <T extends { id: string }>(
   let offset = 0;
   while (visible.length < wanted) {
     const batch = await query({ limit: 100, offset });
-    visible.push(...(await filter(batch)));
+    const permitted =
+      ctx.workspaceId || !isEnterpriseKnowledgeEnabled() ? batch : await filter(batch);
+    visible.push(...(options.match ? permitted.filter(options.match) : permitted));
     offset += batch.length;
     if (batch.length < 100) break;
   }

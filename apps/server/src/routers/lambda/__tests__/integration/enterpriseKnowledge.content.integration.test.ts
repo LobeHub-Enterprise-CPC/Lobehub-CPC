@@ -404,6 +404,20 @@ describe('enterprise knowledge content boundaries', () => {
     ).toEqual([]);
   });
 
+  it('typed enterprise search fills the page with the requested type', async () => {
+    for (let index = 0; index < 6; index += 1)
+      await createDoc(testDB, {
+        knowledgeBaseId: w.entA,
+        title: `Folder A note ${index}`,
+        userId: w.owner,
+      });
+    const folders = await searchEnterpriseKnowledge(
+      { serverDB: testDB, userId: w.viewer },
+      { query: 'Folder A', type: 'folder' },
+    );
+    expect(folders.map((item) => item.id)).toEqual([w.entAFolder]);
+  });
+
   it('folder deletion and restore retain all contained documents and refuse member purge', async () => {
     await caller(w.editor).doc.deleteDocument({ id: w.entAFolder });
     const [doc] = await testDB.select().from(documents).where(eq(documents.id, w.entADoc));

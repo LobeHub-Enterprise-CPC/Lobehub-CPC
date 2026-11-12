@@ -8,6 +8,9 @@ import {
 } from './index';
 import { queryEnterprisePage } from './listAccess';
 
+const rowType = (fileType: string | null | undefined) =>
+  fileType === 'custom/folder' ? 'folder' : fileType === 'custom/document' ? 'page' : 'file';
+
 /** Search names inside the requester's currently accessible libraries, never an owner's global scope. */
 export const searchEnterpriseKnowledge = async (
   ctx: EnterpriseAccessCtx,
@@ -49,15 +52,14 @@ export const searchEnterpriseKnowledge = async (
           includeContent: false,
           ...page,
         }),
-      { limit: limit + offset, scope: scope.enterprise ? scope : undefined },
+      {
+        limit: limit + offset,
+        match: input.type ? (row) => rowType(row.fileType) === input.type : undefined,
+        scope: scope.enterprise ? scope : undefined,
+      },
     );
     for (const row of rows) {
-      const type =
-        row.fileType === 'custom/folder'
-          ? 'folder'
-          : row.fileType === 'custom/document'
-            ? 'page'
-            : 'file';
+      const type = rowType(row.fileType);
       if (!input.type || input.type === type) {
         const base = {
           enterpriseAccess: row.enterpriseAccess,
