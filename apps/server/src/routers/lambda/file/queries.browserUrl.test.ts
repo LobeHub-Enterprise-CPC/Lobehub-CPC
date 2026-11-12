@@ -18,7 +18,10 @@ vi.mock('@/server/services/enterpriseKnowledge/contentClassification', () => ({
   classifyEnterpriseContentIds: mocks.scopes,
 }));
 vi.mock('@/server/services/enterpriseKnowledge/listAccess', () => ({
-  queryEnterprisePage: (_ctx: unknown, query: (page: object) => unknown) => query({}),
+  queryEnterprisePage: (
+    _ctx: unknown,
+    query: (page: { limit: number; offset: number }) => unknown,
+  ) => query({ limit: 100, offset: 0 }),
 }));
 vi.mock('../_helpers/knowledgeBaseAccess', () => ({
   assertFileNotInRestrictedKnowledgeBase: vi.fn(),
