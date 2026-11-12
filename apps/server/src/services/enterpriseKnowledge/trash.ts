@@ -26,18 +26,20 @@ export const trashEnterpriseItems = async (
   ctx.serverDB.transaction(async (tx) => {
     const db = tx as unknown as LobeChatDatabase;
     const date = new Date();
-    const pending = [...new Set(ids)];
+    // Each requested item is its own recycle-bin root; its cascade hangs under that root only.
+    const pending = [...new Set(ids)].map((id) => ({ id, origin: id }));
     const visited = new Set<string>();
-    const roots: string[] = [];
+    const roots = new Map<string, string>();
     // Collect and authorize the whole live cascade before any row changes, so a child's
     // policy is judged against its live parent rather than one this cascade just trashed.
     const cascade: {
       doc?: typeof documents.$inferSelect;
       file?: typeof files.$inferSelect;
       id: string;
+      origin: string;
     }[] = [];
     while (pending.length) {
-      const id = pending.shift()!;
+      const { id, origin } = pending.shift()!;
       if (visited.has(id)) continue;
       visited.add(id);
       if (!(await itemsBelongToKnowledgeBase(db, [id], scope.knowledgeBaseId)))
@@ -72,21 +74,21 @@ export const trashEnterpriseItems = async (
           .select({ id: files.id })
           .from(files)
           .where(eq(files.parentId, doc.id));
-        pending.push(...children.map((row) => row.id), ...childFiles.map((row) => row.id));
+        pending.push(...[...children, ...childFiles].map((row) => ({ id: row.id, origin })));
       }
-      if (doc?.fileId) pending.push(doc.fileId);
+      if (doc?.fileId) pending.push({ id: doc.fileId, origin });
       if (file) {
         const derived = await db
           .select({ id: documents.id })
           .from(documents)
           .where(eq(documents.fileId, file.id));
-        pending.push(...derived.map((row) => row.id));
+        pending.push(...derived.map((row) => ({ id: row.id, origin })));
       }
       // A folder edit grant must not cascade into a separately restricted child.
       await resolveKnowledgeBaseScope({ ...ctx, serverDB: db }, scope.knowledgeBaseId, 'edit', id);
-      cascade.push({ doc, file, id });
+      cascade.push({ doc, file, id, origin });
     }
-    for (const { doc, file, id } of cascade) {
+    for (const { doc, file, id, origin } of cascade) {
       const type = doc ? 'document' : 'file';
       const table = doc ? documents : files;
       await db
@@ -105,11 +107,11 @@ export const trashEnterpriseItems = async (
           userId: scope.ownerId,
           title: doc ? (doc.title ?? doc.filename) : file!.name,
           meta: { kind: type },
-          rootId: roots[0] ?? null,
+          rootId: id === origin ? null : (roots.get(origin) ?? null),
         })
         .onConflictDoNothing()
         .returning({ id: trashItems.id });
-      if (root) roots.push(root.id);
+      if (root && id === origin) roots.set(origin, root.id);
     }
     return { count: new Set(ids).size };
   });

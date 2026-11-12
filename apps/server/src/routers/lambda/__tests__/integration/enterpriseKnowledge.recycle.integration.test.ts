@@ -326,6 +326,17 @@ describe('enterprise recycle lifecycle across frontend and governance', () => {
     },
   );
 
+  it('gives every item of a batch its own recycle-bin root, restorable on its own', async () => {
+    // The folder cascades its page; the file is a separate selection in the same batch.
+    await trash([w.entAFile, w.entAFolder]);
+    expect((await visible()).sort()).toEqual([w.entAFile, w.entAFolder].sort());
+    expect((await entryFor(w.entADoc)).rootId).toBe((await entryFor(w.entAFolder)).id);
+    await front().restore({ ids: [(await entryFor(w.entAFile)).id] });
+    expect((await file(w.entAFile)).isDeleted).toBeNull();
+    expect((await document(w.entAFolder)).isDeleted).toBe(true);
+    expect(await visible()).toEqual([w.entAFolder]);
+  });
+
   it('uses registry cascade membership, preserving independent trash even when timestamps coincide', async () => {
     await trash([w.entADoc]);
     await content.trash(w.entA, w.entAFolder);
