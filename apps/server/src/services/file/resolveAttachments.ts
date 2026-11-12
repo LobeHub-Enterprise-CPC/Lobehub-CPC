@@ -214,20 +214,22 @@ export const resolveAttachmentMetadata = async ({
 
   const fileService = signUrls ? new FileService(db, userId, workspaceId) : null;
   const recordById = new Map(fileRecords.map((f) => [f.id, f]));
-  const items = await Promise.all(
-    dedupedFileIds.map(async (id): Promise<ChatFileItem | undefined> => {
-      const file = recordById.get(id);
-      if (!file) return undefined;
-      const url = fileService ? (await fileService.getFullFileUrl(file.url)) || file.url : file.url;
-      return {
-        downloadUrl: getFileProxyUrl(file.id),
-        fileType: file.fileType || 'application/octet-stream',
-        id: file.id,
-        name: file.name || 'file',
-        size: file.size ?? 0,
-        url,
-      } satisfies ChatFileItem;
-    }),
-  );
-  return items.filter((it): it is ChatFileItem => !!it);
+  const orderedFiles = dedupedFileIds.flatMap((id) => {
+    const file = recordById.get(id);
+    return file ? [file] : [];
+  });
+  const urls = fileService
+    ? await fileService.getFileBrowserUrls(orderedFiles, { readable: true })
+    : orderedFiles.map((file) => file.url);
+  return orderedFiles.map((file, index): ChatFileItem => {
+    const url = urls[index] || file.url;
+    return {
+      downloadUrl: getFileProxyUrl(file.id),
+      fileType: file.fileType || 'application/octet-stream',
+      id: file.id,
+      name: file.name || 'file',
+      size: file.size ?? 0,
+      url,
+    } satisfies ChatFileItem;
+  });
 };

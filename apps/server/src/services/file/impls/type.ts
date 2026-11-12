@@ -66,6 +66,13 @@ export interface FileServiceImpl {
    */
   getFileMetadata: (key: string) => Promise<{ contentLength: number; contentType?: string }>;
 
+  /** Read bytes directly from storage without creating a public URL. */
+  getFileStream: (
+    key: string,
+    range?: string,
+    signal?: AbortSignal,
+  ) => Promise<ReadableStream<Uint8Array>>;
+
   /**
    * Get full file URL
    */

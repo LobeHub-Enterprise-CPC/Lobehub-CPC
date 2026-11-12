@@ -16,7 +16,7 @@ import { MessageModel } from '@/database/models/message';
 
 import { FileService } from '../file';
 import { TrashService } from '../trash';
-import { resolveMessageFileUrls } from './resolveMessageFileUrls';
+import { resolveMessageFileUrlsInBatch } from './resolveMessageFileUrls';
 
 /** Apply the same error contract to single and batched message writes. */
 const normalizeMessageError = <T extends Pick<UpdateMessageParams, 'error'>>(value: T): T =>
@@ -117,21 +117,18 @@ export class MessageService {
     this.trashService = new TrashService(db, userId, workspaceId);
   }
 
-  /**
-   * Unified URL processing function
-   */
-  private get postProcessUrl() {
-    return (path: string | null, file: { fileType: string; id?: string | null }) =>
-      this.fileService.getFileAccessUrl({ id: file.id, url: path });
+  private async queryUiMessages(...args: Parameters<MessageModel['query']>) {
+    return this.prepareUiMessages(await this.messageModel.query(...args));
   }
 
   /**
    * Unified query options
    */
-  private getQueryOptions() {
+  private getQueryOptions(): Parameters<MessageModel['query']>[1] & {
+    groupAssistantMessages: boolean;
+  } {
     return {
       groupAssistantMessages: false,
-      postProcessUrl: this.postProcessUrl,
     };
   }
 
@@ -156,7 +153,7 @@ export class MessageService {
 
     const queryStartedAt = Date.now();
     const modelTiming = createModelTiming(options, 'lambda.message.update.queryMessages');
-    const messages = await this.messageModel.query(
+    const messages = await this.queryUiMessages(
       { agentId, groupId, sessionId, threadId, topicId },
       {
         ...this.getQueryOptions(),
@@ -193,7 +190,7 @@ export class MessageService {
       workAccessScope?: WorkAccessScope;
     },
   ): Promise<UIChatMessage[]> {
-    return this.messageModel.query(params, {
+    return this.queryUiMessages(params, {
       ...this.getQueryOptions(),
       ...(options?.allowShareVisitor && { allowShareVisitor: true }),
       ...(options?.workAccessScope && { workAccessScope: options.workAccessScope }),
@@ -210,7 +207,9 @@ export class MessageService {
    * which is where the projection decision is made.
    */
   async prepareUiMessages(messages: UIChatMessage[]) {
-    return resolveMessageFileUrls(messages, (file) => this.fileService.getFileAccessUrl(file));
+    return resolveMessageFileUrlsInBatch(messages, (files) =>
+      this.fileService.getFileBrowserUrls(files),
+    );
   }
 
   /**
@@ -333,7 +332,7 @@ export class MessageService {
 
     // 2. Query all messages for this agent/topic
     // Use agentId field for query
-    const messages = await this.messageModel.query(
+    const messages = await this.queryUiMessages(
       {
         agentId: params.agentId,
         current: 0,
@@ -342,9 +341,7 @@ export class MessageService {
         threadId: params.threadId,
         topicId: params.topicId,
       },
-      {
-        postProcessUrl: this.postProcessUrl,
-      },
+      {},
     );
 
     // 3. Return the result
@@ -543,10 +540,7 @@ export class MessageService {
     success: boolean;
   }> {
     // 1. Get messages that need to be summarized (before marking them as compressed)
-    const allMessages = await this.messageModel.query(
-      { topicId, ...options },
-      this.getQueryOptions(),
-    );
+    const allMessages = await this.queryUiMessages({ topicId, ...options }, this.getQueryOptions());
 
     const messagesToSummarize = allMessages.filter((msg) => messageIds.includes(msg.id));
 
@@ -561,7 +555,7 @@ export class MessageService {
     });
 
     // 3. Query updated messages (compressed messages will be grouped)
-    const messages = await this.messageModel.query({ topicId, ...options }, this.getQueryOptions());
+    const messages = await this.queryUiMessages({ topicId, ...options }, this.getQueryOptions());
 
     return {
       messageGroupId,
@@ -601,7 +595,7 @@ export class MessageService {
 
     // 2. Query final messages
     const queryOptions = { agentId, groupId, threadId, topicId };
-    const finalMessages = await this.messageModel.query(queryOptions, this.getQueryOptions());
+    const finalMessages = await this.queryUiMessages(queryOptions, this.getQueryOptions());
 
     return {
       messages: finalMessages,
@@ -619,7 +613,7 @@ export class MessageService {
   ): Promise<{ messages: UIChatMessage[] }> {
     await this.compressionRepository.updateMetadata(messageGroupId, metadata);
 
-    const messages = await this.messageModel.query(context, this.getQueryOptions());
+    const messages = await this.queryUiMessages(context, this.getQueryOptions());
 
     return { messages };
   }
@@ -638,7 +632,7 @@ export class MessageService {
     await this.compressionRepository.deleteCompressionGroup(messageGroupId);
 
     // Query updated messages
-    const messages = await this.messageModel.query(context, this.getQueryOptions());
+    const messages = await this.queryUiMessages(context, this.getQueryOptions());
 
     return { messages, success: true };
   }

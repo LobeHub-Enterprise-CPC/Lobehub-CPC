@@ -36,7 +36,18 @@ let db: LobeChatDatabase;
 vi.mock('@/database/server', () => ({ getServerDB: vi.fn(() => db) }));
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn().mockImplementation(function () {
-    return { createDownloadUrl: mocks.sign, createCachedPreSignedUrlForPreview: mocks.sign };
+    return {
+      createDownloadUrl: mocks.sign,
+      createCachedPreSignedUrlForPreview: mocks.sign,
+      getFileMetadata: async () => ({ contentLength: 2 }),
+      getFileStream: async () =>
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('ok'));
+            controller.close();
+          },
+        }),
+    };
   }),
 }));
 const request = (id: string, download = false) =>
@@ -44,7 +55,7 @@ const request = (id: string, download = false) =>
     params: Promise.resolve({ id }),
   });
 
-describe('enterprise file proxy authorization before signing', () => {
+describe('enterprise file proxy authorization before streaming', () => {
   let w: EnterpriseWorld;
   beforeAll(async () => {
     db = await getTestDB();
@@ -67,9 +78,9 @@ describe('enterprise file proxy authorization before signing', () => {
   );
   it('permits a viewer only for the exact granted library', async () => {
     mocks.userId = w.viewer;
-    expect((await request(w.entAFile)).status).toBe(302);
+    expect((await request(w.entAFile)).status).toBe(200);
     expect((await request(w.entBFile)).status).toBe(404);
-    expect(mocks.sign).toHaveBeenCalledTimes(1);
+    expect(mocks.sign).not.toHaveBeenCalled();
   });
   it('fails closed when the policy resolution throws', async () => {
     mocks.userId = w.viewer;

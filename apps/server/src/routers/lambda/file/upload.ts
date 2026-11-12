@@ -157,7 +157,7 @@ export const uploadRouter = router({
         if (isRetry) {
           return {
             id: settledFile.id,
-            url: await ctx.fileService.getFileAccessUrl(settledFile),
+            url: await ctx.fileService.getFileBrowserUrl(settledFile),
           };
         }
 
@@ -314,7 +314,7 @@ export const uploadRouter = router({
         return createFile();
       });
 
-      return { id, url: await ctx.fileService.getFileAccessUrl({ id, url: input.url }) };
+      return { id, url: await ctx.fileService.getFileBrowserUrl({ id, url: input.url }) };
     }),
   rehostImage: fileProcedure
     .use(withScopedPermission('file:upload'))

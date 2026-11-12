@@ -123,10 +123,30 @@ export const bundleRouter = router({
       // Enrich the evidence backing every executed timeline step — the final
       // round's artifacts render inline on the row; earlier steps' artifacts
       // render inside the check's iteration-history timeline.
+      const attachmentIds = new Set<string>(
+        flowData.flatMap((flow) =>
+          flow.versions.flatMap((version) =>
+            version.runs.flatMap((run) =>
+              run.attempts.flatMap((attempt) => attempt.reviewDetail?.fileIds ?? []),
+            ),
+          ),
+        ),
+      );
+      for (const result of results)
+        for (const id of result.userDecisionDetail?.fileIds ?? []) attachmentIds.add(id);
+      for (const run of runs)
+        for (const entry of run.decisionDetail?.groupFeedback ?? [])
+          for (const id of entry.fileIds ?? []) attachmentIds.add(id);
       const resolveFileMeta = createEvidenceFileResolver(
         ctx.serverDB,
         acceptance.userId,
         acceptance.workspaceId ?? undefined,
+        [
+          ...new Set([
+            ...evidence.flatMap((item) => (item.fileId ? [item.fileId] : [])),
+            ...attachmentIds,
+          ]),
+        ],
       );
       const timelineResultIds = new Set(
         checks.flatMap((check) => check.timeline.map((entry) => entry.resultId)),
@@ -148,20 +168,6 @@ export const bundleRouter = router({
       // Resolve the files backing user feedback (uploaded/pasted screenshots)
       // to URLs with the same owner-scoped resolver the evidence uses — one
       // batch for every attachment id across check rejects and group feedback.
-      const attachmentIds = new Set<string>(
-        flowData.flatMap((flow) =>
-          flow.versions.flatMap((version) =>
-            version.runs.flatMap((run) =>
-              run.attempts.flatMap((attempt) => attempt.reviewDetail?.fileIds ?? []),
-            ),
-          ),
-        ),
-      );
-      for (const result of results)
-        for (const id of result.userDecisionDetail?.fileIds ?? []) attachmentIds.add(id);
-      for (const run of runs)
-        for (const entry of run.decisionDetail?.groupFeedback ?? [])
-          for (const id of entry.fileIds ?? []) attachmentIds.add(id);
       const attachmentById = new Map<string, AcceptanceAttachment>();
       await pMap(
         attachmentIds,

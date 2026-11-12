@@ -56,6 +56,9 @@ vi.mock('@/server/services/file', () => ({
     return {
       getFullFileUrl: vi.fn(async (path: string) => `model:${path}`),
       getFileAccessUrl: vi.fn(async (file: { id: string }) => `ui:${file.id}`),
+      getFileBrowserUrls: vi.fn(async (files: { id: string }[]) =>
+        files.map((file) => `ui:${file.id}`),
+      ),
     };
   }),
 }));

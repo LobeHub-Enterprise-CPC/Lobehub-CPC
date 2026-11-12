@@ -35,7 +35,7 @@ const PUBLIC_READ_ACL_HEADER = 'public-read';
 // S3 DeleteObjects rejects more than 1000 keys per request.
 const DELETE_OBJECTS_MAX_KEYS = 1000;
 
-const encodeContentDispositionFilename = (fileName: string) =>
+export const encodeContentDispositionFilename = (fileName: string) =>
   encodeURIComponent(fileName || 'download').replaceAll(
     /['()*]/g,
     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
@@ -142,6 +142,24 @@ export class S3 {
     }
 
     return response.Body.transformToString();
+  }
+
+  /** Get an object as a Web stream, preserving backpressure and cancellation. */
+  public async getFileStream(
+    key: string,
+    range?: string,
+    signal?: AbortSignal,
+  ): Promise<ReadableStream<Uint8Array>> {
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: tenantObjectKey(key),
+        ...(range ? { Range: range } : {}),
+      }),
+      { abortSignal: signal },
+    );
+    if (!response.Body) throw new Error(`No body in response with ${key}`);
+    return response.Body.transformToWebStream();
   }
 
   public async getFileByteArray(key: string): Promise<Uint8Array> {

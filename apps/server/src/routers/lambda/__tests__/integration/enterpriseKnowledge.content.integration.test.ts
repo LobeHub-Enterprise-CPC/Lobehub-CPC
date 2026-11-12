@@ -113,17 +113,17 @@ describe('enterprise knowledge content boundaries', () => {
           fileId: doc.fileId,
           sourceType: 'file',
           fileType: 'custom/document',
-          url: isDev ? '' : expect.stringContaining(`/f/${doc.fileId}`),
+          url: expect.stringContaining(`/f/${doc.fileId}`),
         });
         expect(items.find((item) => item.id === w.entAFile)?.url).toBe(
-          isDev ? 'https://storage.test/files/a.txt' : `https://isolated.test/f/${w.entAFile}`,
+          `https://isolated.test/f/${w.entAFile}`,
         );
         expect(await c.doc.getDocumentById({ id: doc.id })).toMatchObject({
           content: 'native document body',
         });
         expect(await c.file.getReadableUrl({ id: doc.fileId! })).toEqual({ url: '' });
         expect(await c.file.getReadableUrl({ id: w.entAFile })).toEqual({
-          url: 'https://storage.test/files/a.txt',
+          url: `https://isolated.test/f/${w.entAFile}`,
         });
       }
 
@@ -144,14 +144,9 @@ describe('enterprise knowledge content boundaries', () => {
         .update(files)
         .set({ url: 'files/../private.txt' })
         .where(eq(files.id, w.entAFile));
-      await expect(caller(w.viewer).file.getReadableUrl({ id: w.entAFile })).rejects.toThrow(
-        'TENANT_OBJECT_KEY_INVALID',
-      );
-      if (isDev) {
-        await expect(
-          caller(w.viewer).file.getKnowledgeItems({ knowledgeBaseId: w.entA }),
-        ).rejects.toThrow('TENANT_OBJECT_KEY_INVALID');
-      }
+      expect(await caller(w.viewer).file.getReadableUrl({ id: w.entAFile })).toEqual({
+        url: `https://isolated.test/f/${w.entAFile}`,
+      });
       await expect(
         caller(w.viewer).doc.updateDocument({ id: doc.id, content: 'forbidden' }),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
@@ -176,7 +171,9 @@ describe('enterprise knowledge content boundaries', () => {
     expect((await c.doc.getDocumentById({ id: w.entADoc }))?.content).toBe(
       'enterprise A secret page',
     );
-    expect((await c.file.getReadableUrl({ id: w.entAFile })).url).toContain('a.txt');
+    expect((await c.file.getReadableUrl({ id: w.entAFile })).url).toBe(
+      `https://isolated.test/f/${w.entAFile}`,
+    );
     expect((await c.chunk.getChunksByFileId({ id: w.entAFile })).items[0]?.text).toBe('A chunk');
     expect((await c.chunk.getFileContents({ fileIds: [w.entADoc] }))[0]?.content).toBe(
       'enterprise A secret page',

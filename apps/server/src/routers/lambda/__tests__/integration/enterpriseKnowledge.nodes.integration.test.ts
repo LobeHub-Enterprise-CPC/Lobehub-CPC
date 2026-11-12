@@ -103,7 +103,10 @@ vi.mock('@lobechat/business-knowledge', async (original) => {
 });
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn().mockImplementation(function () {
-    return { getFileAccessUrl: async ({ id }: { id: string }) => '/f/' + id };
+    return {
+      getFileBrowserUrl: async ({ id }: { id: string }) => '/f/' + id,
+      getFileBrowserUrls: async (files: { id: string }[]) => files.map((file) => '/f/' + file.id),
+    };
   }),
 }));
 vi.mock('@/server/globalConfig', () => ({ getServerDefaultFilesConfig: async () => ({}) }));

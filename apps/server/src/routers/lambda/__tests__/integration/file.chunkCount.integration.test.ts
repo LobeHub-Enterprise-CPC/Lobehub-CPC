@@ -17,7 +17,10 @@ const boundary = vi.hoisted(() => ({ db: undefined as LobeChatDatabase | undefin
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: () => boundary.db }));
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn(function () {
-    return { getFileAccessUrl: async () => 'https://storage.example/file' };
+    return {
+      getFileBrowserUrl: async () => 'https://storage.example/file',
+      getFileBrowserUrls: async (files: { id: string }[]) => files.map((file) => '/f/' + file.id),
+    };
   }),
 }));
 

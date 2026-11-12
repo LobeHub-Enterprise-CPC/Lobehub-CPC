@@ -89,30 +89,40 @@ export const verifyRunReportProcedures = {
           .orderBy(asc(verifyCheckResults.checkItemIndex)),
       ]);
 
-      // Resolve display metadata for each file-backed evidence artifact.
+      const evidenceRows = await pMap(
+        results,
+        async (result) => ({
+          ...result,
+          evidence: await ctx.serverDB
+            .select()
+            .from(verifyEvidence)
+            .where(eq(verifyEvidence.checkResultId, result.id))
+            .orderBy(asc(verifyEvidence.createdAt)),
+        }),
+        { concurrency: EVIDENCE_LOAD_CONCURRENCY },
+      );
       const resolveFileMeta = createEvidenceFileResolver(
         ctx.serverDB,
         run.userId,
         run.workspaceId ?? undefined,
-      );
-
-      const resultsWithEvidence = await pMap(
-        results,
-        async (r) => {
-          const evidence = await ctx.serverDB
-            .select()
-            .from(verifyEvidence)
-            .where(eq(verifyEvidence.checkResultId, r.id))
-            .orderBy(asc(verifyEvidence.createdAt));
-          return {
-            ...r,
-            evidence: await pMap(
-              evidence,
-              async (e) => ({ ...e, ...(await resolveFileMeta(e.fileId)) }),
-              { concurrency: EVIDENCE_LOAD_CONCURRENCY },
+        [
+          ...new Set(
+            evidenceRows.flatMap((row) =>
+              row.evidence.flatMap((item) => (item.fileId ? [item.fileId] : [])),
             ),
-          };
-        },
+          ),
+        ],
+      );
+      const resultsWithEvidence = await pMap(
+        evidenceRows,
+        async (row) => ({
+          ...row,
+          evidence: await pMap(
+            row.evidence,
+            async (item) => ({ ...item, ...(await resolveFileMeta(item.fileId)) }),
+            { concurrency: EVIDENCE_LOAD_CONCURRENCY },
+          ),
+        }),
         { concurrency: EVIDENCE_LOAD_CONCURRENCY },
       );
       return { isOwner, report: report ?? null, results: resultsWithEvidence, run };
