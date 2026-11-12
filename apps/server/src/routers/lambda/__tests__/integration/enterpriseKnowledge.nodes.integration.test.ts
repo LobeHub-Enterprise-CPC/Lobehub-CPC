@@ -325,32 +325,40 @@ describe('enterprise node boundaries through real directory rows', () => {
       caller.getNodeAccess({ knowledgeBaseId: w.entA, nodeId: w.entBFile }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
-  it('keeps authored page policies on the document and guards its backing file', async () => {
-    const doc = await new DocumentService(db, w.owner).createDocument({
-      title: 'Page with backing file',
-      content: 'private authored content',
-      editorData: {},
-      fileType: 'custom/document',
-      knowledgeBaseId: w.entA,
-    });
-    policy.nodes.set(doc.id, null);
-    await expect(resolveItemsScope(ctx(), [doc.id], 'view')).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-    });
-    await expect(resolveEnterpriseContentScopes(ctx(), [doc.fileId!])).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-    });
-    const caller = enterpriseKnowledgeRouter.createCaller(context(w.owner) as never);
-    policy.get.mockResolvedValue({
-      mode: 'custom',
-      grants: [],
-      version: 1,
-      inheritedFromNodeId: null,
-    });
-    expect(await caller.getNodeAccess({ knowledgeBaseId: w.entA, nodeId: doc.id })).toMatchObject({
-      node: { id: doc.id, kind: 'document' },
-    });
-  });
+  it.each([
+    ['custom/document', 'private authored content', {}],
+    ['custom/html', '<p>private authored content</p>', undefined],
+  ] as const)(
+    'keeps authored %s page policies on the document and guards its backing file',
+    async (fileType, content, editorData) => {
+      const doc = await new DocumentService(db, w.owner).createDocument({
+        title: `Page with backing file (${fileType})`,
+        content,
+        editorData,
+        fileType,
+        knowledgeBaseId: w.entA,
+      });
+      policy.nodes.set(doc.id, null);
+      await expect(resolveItemsScope(ctx(), [doc.id], 'view')).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      await expect(resolveEnterpriseContentScopes(ctx(), [doc.fileId!])).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      const caller = enterpriseKnowledgeRouter.createCaller(context(w.owner) as never);
+      policy.get.mockResolvedValue({
+        mode: 'custom',
+        grants: [],
+        version: 1,
+        inheritedFromNodeId: null,
+      });
+      expect(await caller.getNodeAccess({ knowledgeBaseId: w.entA, nodeId: doc.id })).toMatchObject(
+        {
+          node: { id: doc.id, kind: 'document' },
+        },
+      );
+    },
+  );
   it('filters both retrieval paths before topK without counting hidden files as skipped libraries', async () => {
     const hidden = await createDoc(db, {
       title: 'needle hidden',

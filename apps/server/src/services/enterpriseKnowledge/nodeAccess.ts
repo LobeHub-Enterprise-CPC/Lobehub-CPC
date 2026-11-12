@@ -139,9 +139,9 @@ export const loadEnterpriseNodes = async (
     );
   const pageByFile = new Map(
     documentRows
-      .filter(
-        (row) => row.fileId && row.fileType === 'custom/document' && row.sourceType !== 'file',
-      )
+      // Every page authored in the library (markdown, HTML, ...) owns its backing file; only
+      // parsed mirrors (`sourceType: 'file'`) follow the file instead.
+      .filter((row) => row.fileId && row.sourceType !== 'file')
       .map((row) => [row.fileId, row.id]),
   );
   return [
