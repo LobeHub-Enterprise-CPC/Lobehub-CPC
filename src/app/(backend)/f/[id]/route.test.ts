@@ -1,5 +1,6 @@
 // @vitest-environment node
 import type { LobeChatDatabase } from '@lobechat/database';
+import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileModel } from '@/database/models/file';
@@ -60,7 +61,7 @@ describe('file proxy route', () => {
   });
 
   it('should redirect to a cached presigned preview URL instead of a public full file URL', async () => {
-    const response = await GET(new Request('https://lobehub.com/f/file-id'), {
+    const response = await GET(new NextRequest('https://lobehub.com/f/file-id'), {
       params: Promise.resolve({ id: 'file-id' }),
     });
 
@@ -75,7 +76,7 @@ describe('file proxy route', () => {
   });
 
   it('should redirect download requests to a content-disposition attachment URL', async () => {
-    const response = await GET(new Request('https://lobehub.com/f/file-id?download=1'), {
+    const response = await GET(new NextRequest('https://lobehub.com/f/file-id?download=1'), {
       params: Promise.resolve({ id: 'file-id' }),
     });
 

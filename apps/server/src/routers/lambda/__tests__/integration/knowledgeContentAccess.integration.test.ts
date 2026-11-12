@@ -1,6 +1,7 @@
 // @vitest-environment node
 import * as business from '@lobechat/business-knowledge';
 import { getTestDB } from '@lobechat/database/test-utils';
+import { NextRequest } from 'next/server';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GET } from '@/app/(backend)/f/[id]/route';
@@ -55,7 +56,7 @@ const caller = (userId?: string, workspaceId?: string) =>
 const contents = (userId: string, ids: string[], workspaceId?: string) =>
   caller(userId, workspaceId).getFileContents({ fileIds: ids });
 const proxy = (id: string, download = false) =>
-  GET(new Request(`https://app.example/f/${id}${download ? '?download=1' : ''}`), {
+  GET(new NextRequest(`https://app.example/f/${id}${download ? '?download=1' : ''}`), {
     params: Promise.resolve({ id }),
   });
 
@@ -71,7 +72,12 @@ const enablePolicy = () => {
       enterprise: true,
       access:
         userId === owner || (userId === viewer && knowledgeBaseId === 'content-kb-a')
-          ? { knowledgeBaseId, ownerId: owner, level: userId === owner ? 'owner' : 'view' }
+          ? {
+              hasNodePolicies: false,
+              knowledgeBaseId,
+              level: userId === owner ? 'owner' : 'view',
+              ownerId: owner,
+            }
           : null,
     }),
   );
@@ -407,7 +413,12 @@ describe('knowledge content read boundaries', () => {
     enablePolicy();
     vi.mocked(business.resolveEnterpriseKbAccess).mockResolvedValue({
       enterprise: true,
-      access: { knowledgeBaseId: 'content-kb-a', ownerId: outsider, level: 'view' },
+      access: {
+        hasNodePolicies: false,
+        knowledgeBaseId: 'content-kb-a',
+        level: 'view',
+        ownerId: outsider,
+      },
     });
     await expect(contents(viewer, ['docs_content_a'])).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(boundary.sign).not.toHaveBeenCalled();

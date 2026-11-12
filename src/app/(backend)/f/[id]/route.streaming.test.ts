@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type * as ContentAccess from '@/server/services/enterpriseKnowledge/contentAccess';
@@ -41,7 +42,7 @@ vi.mock('@/server/services/file', () => ({
 
 const request = (range?: string, download = false) =>
   GET(
-    new Request(`https://app.test/f/file-1${download ? '?download=1' : ''}`, {
+    new NextRequest(`https://app.test/f/file-1${download ? '?download=1' : ''}`, {
       headers: range === undefined ? {} : { Range: range },
     }),
     { params: Promise.resolve({ id: 'file-1' }) },
@@ -68,6 +69,21 @@ describe('enterprise file bytes', () => {
     });
     mocks.preview.mockResolvedValue('https://storage.test/preview');
     mocks.download.mockResolvedValue('https://storage.test/download');
+  });
+
+  it('authorizes a request wrapped by the tenant gate proxy without rebuilding it', async () => {
+    // The tenant gate hands handlers a Proxy over NextRequest; NextRequest cannot be
+    // reconstructed from it, so the route must pass the request through unchanged.
+    const original = new NextRequest('https://app.test/orgs/acme/f/file-1');
+    const wrapped = new Proxy(original, {
+      get: (target, key) => {
+        const value = Reflect.get(target, key, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const response = await GET(wrapped, { params: Promise.resolve({ id: 'file-1' }) });
+    expect(response.status).toBe(200);
+    expect(mocks.identity).toHaveBeenCalledWith(wrapped);
   });
 
   it('streams bytes with private sandboxed headers and no storage URL', async () => {

@@ -1,5 +1,5 @@
 import debug from 'debug';
-import { NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
 
 import { FileModel } from '@/database/models/file';
 import { getServerDB } from '@/database/server';
@@ -31,7 +31,7 @@ type Params = Promise<{ id: string }>;
  * every previously-shared `/f/:id` link. Distribution-managed enterprise
  * content requires the current authenticated caller's library access.
  */
-const handleGet = async (req: Request, segmentData: { params: Params }) => {
+const handleGet = async (req: NextRequest, segmentData: { params: Params }) => {
   try {
     const params = await segmentData.params;
     const { id } = params;
@@ -60,7 +60,7 @@ const handleGet = async (req: Request, segmentData: { params: Params }) => {
       ]);
       enterprise = scopes.has(id);
       if (enterprise) {
-        const reader = resolveManagedContentReader(await createLambdaContext(new NextRequest(req)));
+        const reader = resolveManagedContentReader(await createLambdaContext(req));
         if (!reader)
           return new Response('File not found', {
             headers: { 'Cache-Control': 'private, no-store' },

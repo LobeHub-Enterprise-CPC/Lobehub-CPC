@@ -1,6 +1,7 @@
 // @vitest-environment node
 import type { LobeChatDatabase } from '@lobechat/database';
 import { getTestDB } from '@lobechat/database/test-utils';
+import { NextRequest } from 'next/server';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -51,7 +52,7 @@ vi.mock('@/server/services/file', () => ({
   }),
 }));
 const request = (id: string, download = false) =>
-  GET(new Request(`https://app.test/f/${id}${download ? '?download=1' : ''}`), {
+  GET(new NextRequest(`https://app.test/f/${id}${download ? '?download=1' : ''}`), {
     params: Promise.resolve({ id }),
   });
 
