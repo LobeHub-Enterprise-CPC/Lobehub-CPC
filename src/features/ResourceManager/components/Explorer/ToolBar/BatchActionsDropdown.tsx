@@ -12,6 +12,10 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import RepoIcon from '@/components/LibIcon';
+import {
+  confirmContentMove,
+  selectContentMoveTarget,
+} from '@/features/EnterpriseKnowledge/confirmContentMove';
 import { useLibrarySelectionPermission } from '@/features/EnterpriseKnowledge/useLibrarySelectionPermission';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
@@ -86,7 +90,8 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
         : 'public'
       : null;
     const availableKnowledgeBases = knowledgeBases.filter((kb) => {
-      if (kb.id === libraryId || kb.enterprise || enterprise) return false;
+      if (kb.id === libraryId || enterprise) return false;
+      if (kb.enterprise) return !activeWorkspaceId;
       if (targetKbVisibility) return kb.visibility === targetKbVisibility;
       return true;
     });
@@ -97,6 +102,16 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
       key: `add-to-kb-${kb.id}`,
       label: <span style={{ marginLeft: 8 }}>{kb.name}</span>,
       onClick: async () => {
+        if (kb.enterprise) {
+          await selectContentMoveTarget({
+            count: selectCount,
+            direction: 'in',
+            knowledgeBaseId: kb.id,
+            libraryName: kb.name,
+            getIds: resolveSelectedResourceIds,
+          });
+          return;
+        }
         try {
           const effectiveSelectedIds = await resolveSelectedResourceIds();
           await addFilesToKnowledgeBase(kb.id, effectiveSelectedIds);
@@ -113,7 +128,22 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
       },
     }));
 
-    if (libraryId && !enterprise) {
+    if (libraryId && enterprise) {
+      items.push({
+        disabled: selectCount === 0,
+        icon: <Icon icon={BookMinusIcon} />,
+        key: 'moveToMyResources',
+        label: t('enterprise.moveOut.action', { ns: 'knowledgeBase' }),
+        onClick: () =>
+          confirmContentMove({
+            count: selectCount,
+            direction: 'out',
+            knowledgeBaseId: libraryId,
+            libraryName: knowledgeBases.find((kb) => kb.id === libraryId)?.name ?? '',
+            getIds: resolveSelectedResourceIds,
+          }),
+      });
+    } else if (libraryId) {
       items.push({
         disabled: selectCount === 0,
         icon: <Icon icon={BookMinusIcon} />,

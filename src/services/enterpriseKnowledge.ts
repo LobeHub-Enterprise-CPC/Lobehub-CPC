@@ -41,6 +41,10 @@ export interface NodeAccessEstimate extends EnterpriseKbEstimate {
   pathOnly?: { principalId: string; principalType: 'department' | 'user' }[];
 }
 class EnterpriseKnowledgeService {
+  moveIn = (params: { ids: string[]; knowledgeBaseId: string; parentId?: string | null }) =>
+    lambdaClient.enterpriseKnowledge.moveIn.mutate(params);
+  moveOut = (params: { ids: string[]; knowledgeBaseId: string; parentId?: string | null }) =>
+    lambdaClient.enterpriseKnowledge.moveOut.mutate(params);
   resolveLevel = (params: NodeLevelParams): Promise<{ level: EnterpriseNodeLevel }> =>
     lambdaClient.enterpriseKnowledge.resolveLevel.query(params);
   getNodeAccess = (params: NodeAccessParams): Promise<NodeAccessView> =>

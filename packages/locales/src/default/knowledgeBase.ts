@@ -101,4 +101,26 @@ export default {
   'tab.files': 'Files',
   'tab.settings': 'Settings',
   'tab.testing': 'Recall Testing',
+  'enterprise.event.moved_in': 'Content moved in',
+  'enterprise.event.moved_out': 'Content moved out',
+  'enterprise.move.eventDetail': 'Items ({{count}}): {{names}}',
+  'enterprise.move.failed': 'Content was not moved. Check your connection and try again.',
+  'enterprise.move.processing':
+    'Some files are still being processed. Wait for processing to finish and try again.',
+  'enterprise.move.refreshFailed': 'Content was moved. Refresh the list to see the result.',
+  'enterprise.moveIn.action': 'Move to library',
+  'enterprise.moveIn.confirm':
+    '"{{name}}" is a shared knowledge base. After moving, these {{count}} items will be owned by the knowledge base owner and visible to other members according to the permissions of that location. The originals in your resources will be deleted.',
+  'enterprise.moveIn.success': 'Moved to library',
+  'enterprise.moveIn.title': 'Move into "{{name}}"?',
+  'enterprise.moveOut.action': 'Move to my resources',
+  'enterprise.moveOut.confirm':
+    'These {{count}} items belong to the shared knowledge base "{{name}}" and are currently owned by its owner. After moving, you get a personal copy that you own; the originals go to the knowledge base trash and other members can no longer see them in the library.',
+  'enterprise.moveOut.success': 'Moved to my resources',
+  'enterprise.moveOut.title': 'Move to my resources?',
+  'enterprise.move.loadFailed': 'Could not load folders. Try again.',
+  'enterprise.move.destinationReadOnly': 'This location is read-only. Choose an editable folder.',
+  'enterprise.moveIn.confirmAction': 'Move in',
+  'enterprise.moveOut.confirmAction': 'Move out',
+  'enterprise.moveIn.destinationTitle': 'Choose a location in "{{name}}"',
 };

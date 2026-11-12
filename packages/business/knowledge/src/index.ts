@@ -19,7 +19,13 @@ export type EnterpriseKbPrincipalType = 'department' | 'user';
  */
 export type EnterpriseKbAccessLevel = EnterpriseKbLevel | 'path';
 export type EnterpriseKbEventAction =
-  'access_updated' | 'created' | 'deleted' | 'node_access_updated' | 'transferred';
+  | 'access_updated'
+  | 'created'
+  | 'deleted'
+  | 'moved_in'
+  | 'moved_out'
+  | 'node_access_updated'
+  | 'transferred';
 
 export type EnterpriseKbErrorCode =
   'INVALID_PRINCIPAL' | 'NOT_ENABLED' | 'NOT_ENTERPRISE' | 'STALE_VERSION';
@@ -80,16 +86,16 @@ export interface EnterpriseKbAccessState {
 }
 
 export interface EnterpriseKbEstimate {
-  /**
-   * Item estimates only: submitted principals that hold nothing on the item's parent, so they
-   * will also see the path down to the item.
-   */
-  pathOnly?: { principalId: string; principalType: EnterpriseKbPrincipalType }[];
   /** Members that would move from `edit` to `view`. */
   downgraded: number;
   edit: number;
   /** Members that have access today and would have none. */
   lost: number;
+  /**
+   * Item estimates only: submitted principals that hold nothing on the item's parent, so they
+   * will also see the path down to the item.
+   */
+  pathOnly?: { principalId: string; principalType: EnterpriseKbPrincipalType }[];
   /** Distinct members with access, the owner excluded. */
   total: number;
   view: number;
@@ -224,6 +230,24 @@ export const listEnterpriseKbEvents = async (
   _db: unknown,
   _params: { knowledgeBaseId: string; limit?: number },
 ): Promise<EnterpriseKbEvent[]> => disabled();
+
+/** One content move event, in the same transaction as copying and deleting the originals. */
+export interface EnterpriseKbContentMoveItem {
+  kind: 'document' | 'file' | 'folder';
+  name: string;
+  sourceId: string;
+  targetId: string;
+}
+
+export const recordEnterpriseKbContentMove = async (
+  _db: unknown,
+  _params: {
+    actor: EnterpriseKbActor;
+    direction: 'in' | 'out';
+    items: EnterpriseKbContentMoveItem[];
+    knowledgeBaseId: string;
+  },
+): Promise<void> => disabled();
 
 /** Remembers who uploaded or created an item (file id or document id). */
 export const recordEnterpriseKbItemUploaders = async (
