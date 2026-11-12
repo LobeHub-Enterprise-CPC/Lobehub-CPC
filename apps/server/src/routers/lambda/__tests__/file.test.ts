@@ -10,7 +10,6 @@ import { FileSource } from '@/types/files';
 import { TransferErrorCode } from '@/types/transferError';
 
 const buildMockFileAccessUrl = ({ id }: { id: string }) => `https://lobehub.com/f/${id}`;
-
 const routerMocks = vi.hoisted(() => {
   const transactionClient = {};
 
@@ -63,8 +62,8 @@ function createCallerWithCtx(partialCtx: any = {}) {
 
   const fileService = {
     getFileContent: vi.fn().mockResolvedValue(''),
-    getFileAccessUrl: vi.fn(async (file: { id: string }) => buildMockFileAccessUrl(file)),
-    getFullFileUrl: vi.fn().mockResolvedValue('full-url'),
+    getFileBrowserUrl: vi.fn(async (file: { id: string }) => buildMockFileAccessUrl(file)),
+    getFileBrowserUrls: vi.fn(async (files: { id: string }[]) => files.map(buildMockFileAccessUrl)),
     getFileMetadata: vi.fn().mockResolvedValue({ contentLength: 2048, contentType: 'text/plain' }),
     deleteFile: vi.fn().mockResolvedValue(undefined),
     deleteFiles: vi.fn().mockResolvedValue(undefined),
@@ -228,7 +227,6 @@ vi.mock('@/database/models/knowledgeBase', () => ({
   }),
 }));
 
-const mockFileServiceGetFullFileUrl = vi.fn();
 const mockFileServiceGetFileContent = vi.fn();
 const mockFileServiceGetFileAccessUrl = vi.fn();
 const mockFileServiceGetFileMetadata = vi.fn();
@@ -243,9 +241,10 @@ vi.mock('@/server/services/file', () => ({
       deleteFile: mockFileServiceDeleteFile,
       uploadFromBuffer: mockUploadFromBuffer,
       deleteFiles: vi.fn(),
-      getFileAccessUrl: mockFileServiceGetFileAccessUrl,
+      getFileBrowserUrl: mockFileServiceGetFileAccessUrl,
+      getFileBrowserUrls: (files: { id: string }[]) =>
+        Promise.all(files.map((file) => mockFileServiceGetFileAccessUrl(file))),
       getFileContent: mockFileServiceGetFileContent,
-      getFullFileUrl: mockFileServiceGetFullFileUrl,
       getFileMetadata: mockFileServiceGetFileMetadata,
     };
   }),
@@ -1026,11 +1025,10 @@ describe('fileRouter', () => {
 
     it('should return the storage URL instead of the /f/:id proxy', async () => {
       mockFileModelFindById.mockResolvedValue(mockFile);
-      mockFileServiceGetFullFileUrl.mockResolvedValue('https://s3.example.com/test-url?sig=1');
+      mockFileServiceGetFileAccessUrl.mockResolvedValue('https://s3.example.com/test-url?sig=1');
 
       const result = await caller.getReadableUrl({ id: 'test-id' });
 
-      expect(mockFileServiceGetFullFileUrl).toHaveBeenCalledWith('test-url');
       expect(result.url).toBe('https://s3.example.com/test-url?sig=1');
     });
   });
@@ -1136,7 +1134,6 @@ describe('fileRouter', () => {
       mockAsyncTaskFindByIds
         .mockResolvedValueOnce([{ error: null, id: 'chunk-1', status: AsyncTaskStatus.Success }])
         .mockResolvedValueOnce([{ error: null, id: 'emb-1', status: AsyncTaskStatus.Success }]);
-      mockFileServiceGetFullFileUrl.mockResolvedValue('https://example.com/test-url');
 
       const result = await caller.getKnowledgeItems({});
 

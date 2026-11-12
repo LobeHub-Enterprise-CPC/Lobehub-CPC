@@ -244,7 +244,7 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
             size: item.size,
             sourceType: 'file',
             updatedAt: item.updatedAt,
-            url: await fileService.getFileAccessUrl(item),
+            url: await fileService.getFileBrowserUrl(item),
           };
         },
         getKnowledgeItems: async ({ category, limit, offset, q, showFilesInKnowledgeBase }) => {
@@ -262,6 +262,11 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
           );
           const hasMore = items.length > limit;
           const slice = hasMore ? items.slice(0, limit) : items;
+          const fileRows = slice.filter(
+            (item) => item.sourceType === 'file' || (item.fileId && item.enterpriseAccess),
+          );
+          const urls = await fileService.getFileBrowserUrls(fileRows);
+          const urlById = new Map(fileRows.map((item, index) => [item.id, urls[index]]));
           return {
             hasMore,
             items: await Promise.all(
@@ -275,8 +280,8 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
                 sourceType: item.sourceType,
                 updatedAt: item.updatedAt,
                 url:
-                  item.sourceType === 'file'
-                    ? await fileService.getFileAccessUrl(item)
+                  item.sourceType === 'file' || (item.fileId && item.enterpriseAccess)
+                    ? urlById.get(item.id)!
                     : item.url || '',
               })),
             ),

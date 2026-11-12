@@ -48,7 +48,7 @@ vi.mock('@/database/models/file', () => ({
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn(function () {
     return {
-      getFileAccessUrl: vi.fn(async ({ id }: { id: string }) => `https://lobehub.com/f/${id}`),
+      getFileBrowserUrl: vi.fn(async ({ id }: { id: string }) => `https://lobehub.com/f/${id}`),
       getFileMetadata: mocks.getFileMetadata,
     };
   }),

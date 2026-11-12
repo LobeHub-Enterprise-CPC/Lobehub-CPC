@@ -1,5 +1,6 @@
 import type { FtsSearchDatabaseResult } from '@/database/repositories/ftsSearch';
 import { KnowledgeRepo } from '@/database/repositories/knowledge';
+import { getFileProxyUrl } from '@/server/services/file';
 
 import {
   type EnterpriseAccessCtx,
@@ -77,7 +78,7 @@ export const searchEnterpriseKnowledge = async (
             knowledgeBaseId: kb.id,
             name: row.name,
             size: row.size,
-            url: `/f/${row.id}`,
+            url: getFileProxyUrl(row.fileId ?? row.id),
           });
         else if (type === 'folder')
           results.push({ ...base, type, knowledgeBaseId: kb.id, slug: row.slug ?? null });

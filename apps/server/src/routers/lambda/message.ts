@@ -24,6 +24,7 @@ import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
 import { createFtsSearchRepo } from '@/server/services/ftsSearch';
 import { type MessageBatchOperation, MessageService } from '@/server/services/message';
+import { resolveMessageFileUrlsInBatch } from '@/server/services/message/resolveMessageFileUrls';
 
 import {
   assertCanUseConversationTargets,
@@ -535,11 +536,9 @@ export const messageRouter = router({
         wsId,
       );
       await assertCanUseConversationTargets(guardCtx({ ...ctx, userId: ctx.userId }), [resolved]);
-      const messages = await messageModel.query(
-        { ...queryParams, ...resolved },
-        {
-          postProcessUrl: (path, file) => fileService.getFileAccessUrl({ id: file.id, url: path }),
-        },
+      const messages = await resolveMessageFileUrlsInBatch(
+        await messageModel.query({ ...queryParams, ...resolved }),
+        (files) => fileService.getFileBrowserUrls(files),
       );
 
       // Only the caller knows whether this list is going to be rendered or fed

@@ -67,7 +67,8 @@ vi.mock('@lobechat/business-knowledge', async (original) => {
 vi.mock('@/server/services/file', () => ({
   FileService: class {
     deleteFiles = vi.fn();
-    getFileAccessUrl = async ({ id }: { id: string }) => `/f/${id}`;
+    getFileBrowserUrl = async ({ id }: { id: string }) => `/f/${id}`;
+    getFileBrowserUrls = async (files: { id: string }[]) => files.map((file) => '/f/' + file.id);
   },
 }));
 let db: LobeChatDatabase;

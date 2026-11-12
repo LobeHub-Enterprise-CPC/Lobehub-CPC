@@ -82,6 +82,8 @@ export const knowledgeRouter = router({
     );
 
     // Combine all items with their metadata
+    const fileUrls = await ctx.fileService.getFileBrowserUrls(fileItems);
+    const urlById = new Map(fileItems.map((item, index) => [item.id, fileUrls[index]]));
     const resultItems = [] as any[];
     for (const item of knowledgeItems) {
       if (item.sourceType === 'file') {
@@ -101,12 +103,15 @@ export const knowledgeRouter = router({
           embeddingError: embeddingTask?.error ?? null,
           embeddingStatus: embeddingTask?.status as AsyncTaskStatus,
           finishEmbedding: embeddingTask?.status === AsyncTaskStatus.Success,
-          url: item.url ? await ctx.fileService.getFileAccessUrl(item) : undefined,
+          url: item.url ? urlById.get(item.id) : undefined,
         } as FileListItem);
       } else {
         // Document item - no chunk processing needed, includes editorData
         const documentItem = {
           ...item,
+          ...(item.fileId && item.enterpriseAccess
+            ? { url: await ctx.fileService.getFileBrowserUrl(item) }
+            : {}),
           chunkCount: null,
           chunkingError: null,
           chunkingStatus: null,

@@ -121,6 +121,9 @@ export const knowledgeItemsRouter = router({
     const fileItems = filteredItems.filter((item) => item.sourceType === 'file');
     const statusMap = await getKnowledgeItemStatusMap(ctx, fileItems);
 
+    const fileUrls = await ctx.fileService.getFileBrowserUrls(fileItems);
+    const urlById = new Map(fileItems.map((item, index) => [item.id, fileUrls[index]]));
+
     // Resolve file access URLs and raw Markdown previews with bounded concurrency:
     // each item may perform Redis/S3 I/O, so serial work is slow while an unbounded
     // Promise.all lets a caller fan out arbitrary object-storage reads.
@@ -178,7 +181,7 @@ export const knowledgeItemsRouter = router({
             sourceType: item.sourceType,
             updatedAt: item.updatedAt,
             uploader: item.uploader,
-            url: await ctx.fileService.getFileAccessUrl(item),
+            url: urlById.get(item.id)!,
             userId: item.userId,
             visibility: item.visibility,
           } as FileListItem;
@@ -205,7 +208,10 @@ export const knowledgeItemsRouter = router({
           sourceType: item.sourceType,
           updatedAt: item.updatedAt,
           uploader: item.uploader,
-          url: item.url ?? '',
+          url:
+            item.fileId && item.enterpriseAccess
+              ? await ctx.fileService.getFileBrowserUrl(item)
+              : (item.url ?? ''),
           userId: item.userId,
           visibility: item.visibility,
         } as FileListItem;

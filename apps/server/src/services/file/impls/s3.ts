@@ -62,6 +62,14 @@ export class S3StaticFileImpl implements FileServiceImpl {
       : this.s3.getFileContent(key, byteLength);
   }
 
+  public async getFileStream(
+    key: string,
+    range?: string,
+    signal?: AbortSignal,
+  ): Promise<ReadableStream<Uint8Array>> {
+    return this.s3.getFileStream(await this.getStorageKeyFromUrl(key), range, signal);
+  }
+
   async getFileByteArray(key: string): Promise<Uint8Array> {
     return this.s3.getFileByteArray(key);
   }
@@ -75,7 +83,7 @@ export class S3StaticFileImpl implements FileServiceImpl {
   }
 
   async getFileMetadata(key: string): Promise<{ contentLength: number; contentType?: string }> {
-    return this.s3.getFileMetadata(key);
+    return this.s3.getFileMetadata(await this.getStorageKeyFromUrl(key));
   }
 
   async createPreSignedUrlForPreview(key: string, expiresIn?: number): Promise<string> {

@@ -436,7 +436,7 @@ export const documentRouter = router({
       if (
         !doc?.source ||
         (doc.sourceType !== 'file' && !doc.fileId) ||
-        /^https?:\/\//i.test(doc.source)
+        (/^https?:\/\//i.test(doc.source) && !ctx.enterpriseScope.enterprise)
       )
         return doc;
       const fileService = new FileService(
@@ -446,7 +446,7 @@ export const documentRouter = router({
       );
       return {
         ...doc,
-        source: await fileService.getFileAccessUrl({
+        source: await fileService.getFileBrowserUrl({
           fileId: doc.fileId ?? undefined,
           id: doc.id,
           url: doc.source,

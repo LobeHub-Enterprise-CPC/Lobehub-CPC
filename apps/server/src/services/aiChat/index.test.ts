@@ -40,7 +40,7 @@ describe('AiChatService', () => {
 
     expect(mockQueryMessages).toHaveBeenCalledWith(
       { agentId: 'agent-1', groupId: 'group-1', includeTopic: true, sessionId: 's1' },
-      expect.objectContaining({ postProcessUrl: expect.any(Function) }),
+      expect.any(Object),
     );
     expect(mockQueryTopics).toHaveBeenCalledWith({
       agentId: 'agent-1',
@@ -89,11 +89,11 @@ describe('AiChatService', () => {
     // topicFilter must not leak into messageModel.query
     expect(mockQueryMessages).toHaveBeenCalledWith(
       expect.not.objectContaining({ topicFilter: expect.anything() }),
-      expect.objectContaining({ postProcessUrl: expect.any(Function) }),
+      expect.any(Object),
     );
     expect(mockQueryMessages).toHaveBeenCalledWith(
       expect.not.objectContaining({ topicPageSize: 20 }),
-      expect.objectContaining({ postProcessUrl: expect.any(Function) }),
+      expect.any(Object),
     );
   });
 

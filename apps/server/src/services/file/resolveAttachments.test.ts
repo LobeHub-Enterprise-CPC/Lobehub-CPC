@@ -27,7 +27,11 @@ vi.mock('@/server/services/document', () => ({
 
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn().mockImplementation(function () {
-    return { getFullFileUrl: mocks.getFullFileUrl };
+    return {
+      getFullFileUrl: mocks.getFullFileUrl,
+      getFileBrowserUrls: (files: { url: string }[]) =>
+        Promise.all(files.map((file) => mocks.getFullFileUrl(file.url))),
+    };
   }),
   getFileProxyUrl: (fileId: string) => `https://app.lobehub.com/f/${fileId}`,
 }));

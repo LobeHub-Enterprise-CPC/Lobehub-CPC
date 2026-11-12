@@ -13,6 +13,7 @@ vi.mock('@/server/services/file', () => ({
       deleteFile: vi.fn().mockResolvedValue(undefined),
       deleteFiles: vi.fn().mockResolvedValue(undefined),
       getFileAccessUrl: vi.fn().mockResolvedValue('mock-url'),
+      getFileBrowserUrls: vi.fn(async (files: unknown[]) => files.map(() => 'mock-url')),
       getFullFileUrl: vi.fn().mockResolvedValue('mock-url'),
     };
   }),

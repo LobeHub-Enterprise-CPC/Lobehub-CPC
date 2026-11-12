@@ -6,6 +6,7 @@ import { MessageModel } from '@/database/models/message';
 import { TopicShareModel } from '@/database/models/topicShare';
 import type { LobeChatDatabase } from '@/database/type';
 import { FileService } from '@/server/services/file';
+import { resolveMessageFileUrlsInBatch } from '@/server/services/message/resolveMessageFileUrls';
 
 import {
   assertCanUseConversationTargets,
@@ -135,16 +136,20 @@ export const readMessagesByCursor = async (
     { db: ctx.serverDB, userId: ctx.userId, workspaceId: wsId },
     [resolved],
   );
-  const page = await messageModel.queryTopicMessagesByCursor(
-    { ...queryParams, ...resolved, direction, topicId },
-    {
-      postProcessUrl: (path, file) => fileService.getFileAccessUrl({ id: file.id, url: path }),
-    },
+  const page = await messageModel.queryTopicMessagesByCursor({
+    ...queryParams,
+    ...resolved,
+    direction,
+    topicId,
+  });
+
+  const messages = await resolveMessageFileUrlsInBatch(page.messages, (files) =>
+    fileService.getFileBrowserUrls(files),
   );
 
   // Same rule as `getMessages`: only the caller knows whether this page is
   // rendered or fed to a model, so projection is opt-in per read.
   return projectToolPayloads
-    ? { ...page, direction, messages: projectToolViewModels(page.messages) }
-    : { ...page, direction };
+    ? { ...page, direction, messages: projectToolViewModels(messages) }
+    : { ...page, direction, messages };
 };

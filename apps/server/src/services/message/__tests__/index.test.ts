@@ -40,7 +40,7 @@ describe('MessageService', () => {
       create: vi.fn(),
       deleteMessage: vi.fn(),
       deleteMessages: vi.fn(),
-      query: vi.fn(),
+      query: vi.fn().mockResolvedValue([]),
       update: vi.fn(),
       updateMessagePlugin: vi.fn(),
       updateMessageRAG: vi.fn(),
@@ -68,7 +68,9 @@ describe('MessageService', () => {
 
   describe('prepareUiMessages', () => {
     it('derives nested UI views without changing raw model data', async () => {
-      mockFileService.getFileAccessUrl = vi.fn(async (file) => `/proxy/${file.id}`);
+      mockFileService.getFileBrowserUrls = vi.fn(async (files) =>
+        files.map((file) => `/proxy/${file.id}`),
+      );
       const tool = {
         content: 'FULL TOOL RESULT',
         id: 'tool',
@@ -106,8 +108,9 @@ describe('MessageService', () => {
         expect(nested.fileList![0].url).toBe('');
       }
       expect(raw).toEqual(before);
-      expect(mockFileService.getFileAccessUrl).not.toHaveBeenCalledWith(
-        expect.objectContaining({ id: 'hidden' }),
+      expect(mockFileService.getFileBrowserUrls).toHaveBeenCalledTimes(1);
+      expect(mockFileService.getFileBrowserUrls).not.toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ id: 'hidden' })]),
       );
       expect(mockMessageModel.query).not.toHaveBeenCalled();
     });
@@ -551,9 +554,7 @@ describe('MessageService', () => {
           threadId: undefined,
           topicId: undefined,
         },
-        expect.objectContaining({
-          postProcessUrl: expect.any(Function),
-        }),
+        expect.objectContaining({}),
       );
       expect(result).toEqual({
         id: 'msg-1',
@@ -586,9 +587,7 @@ describe('MessageService', () => {
           threadId: undefined,
           topicId: 'topic-1',
         },
-        expect.objectContaining({
-          postProcessUrl: expect.any(Function),
-        }),
+        expect.objectContaining({}),
       );
       expect(result.id).toBe('msg-1');
       expect(result.messages).toEqual(mockMessages);
@@ -621,9 +620,7 @@ describe('MessageService', () => {
           threadId: 'thread-1',
           topicId: 'topic-1',
         },
-        expect.objectContaining({
-          postProcessUrl: expect.any(Function),
-        }),
+        expect.objectContaining({}),
       );
       expect(result.id).toBe('msg-1');
       expect(result.messages).toEqual(mockMessages);

@@ -7,6 +7,7 @@ import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { withTenantRequest } from '@/server/modules/Tenant/gate';
 import { resolveEnterpriseContentScopes } from '@/server/services/enterpriseKnowledge/contentAccess';
 import { FileService } from '@/server/services/file';
+import { createEnterpriseFileResponse } from '@/server/services/file/enterpriseProxy';
 
 const log = debug('lobe-file:proxy');
 
@@ -18,8 +19,8 @@ type Params = Promise<{ id: string }>;
  *
  * Features:
  * - Query database to get file record (without userId filter for public access)
- * - Generate a temporary S3 presigned preview URL
- * - Return 302 redirect
+ * - Stream enterprise bytes after authorizing every request
+ * - Redirect ordinary files to their existing temporary storage URLs
  *
  * Non-enterprise links remain public by id. The proxy URL is
  * embedded in bare `<img>` tags, download links, and links shared to AI — none
@@ -49,21 +50,32 @@ const handleGet = async (req: Request, segmentData: { params: Params }) => {
 
     // Classify with the owner's scope, then authorize the actual request. No
     // storage URL may be created before the enterprise policy has passed.
+    let enterprise = false;
     try {
       const scopes = await resolveEnterpriseContentScopes({ serverDB: db, userId: file.userId }, [
         id,
       ]);
-      if (scopes.has(id)) {
+      enterprise = scopes.has(id);
+      if (enterprise) {
         const identity = await createLambdaContext(new NextRequest(req));
-        if (!identity.userId) return new Response('File not found', { status: 404 });
+        if (!identity.userId)
+          return new Response('File not found', {
+            headers: { 'Cache-Control': 'private, no-store' },
+            status: 404,
+          });
         await resolveEnterpriseContentScopes({ serverDB: db, userId: identity.userId }, [id]);
       }
     } catch {
-      return new Response('File not found', { status: 404 });
+      return new Response('File not found', {
+        headers: { 'Cache-Control': 'private, no-store' },
+        status: 404,
+      });
     }
 
     // Create file service with file owner's userId
     const fileService = new FileService(db, file.userId);
+
+    if (enterprise) return await createEnterpriseFileResponse(req, file, fileService);
 
     const isDownload = new URL(req.url).searchParams.get('download') === '1';
     const redirectUrl = isDownload

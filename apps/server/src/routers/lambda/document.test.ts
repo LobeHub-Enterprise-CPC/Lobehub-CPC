@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   findDocumentById: vi.fn(),
   findOwnOperationById: vi.fn(),
   getDocumentById: vi.fn(),
-  getFileAccessUrl: vi.fn(),
+  getFileBrowserUrl: vi.fn(),
   registerDocument: vi.fn(),
   updateDocument: vi.fn(),
 }));
@@ -46,7 +46,7 @@ vi.mock('@/server/services/document', () => ({
 }));
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn().mockImplementation(function () {
-    return { getFileAccessUrl: mocks.getFileAccessUrl };
+    return { getFileBrowserUrl: mocks.getFileBrowserUrl };
   }),
 }));
 vi.mock('./_helpers/knowledgeBaseAccess', () => ({
@@ -59,7 +59,7 @@ const caller = async () => createCaller(await createContextInner({ userId: 'user
 describe('document source URL resolution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getFileAccessUrl.mockReset();
+    mocks.getFileBrowserUrl.mockReset();
   });
 
   it('reads a text notebook without treating its origin label as an S3 object', async () => {
@@ -71,9 +71,9 @@ describe('document source URL resolution', () => {
       content: 'Report',
     };
     mocks.getDocumentById.mockResolvedValue(doc);
-    mocks.getFileAccessUrl.mockRejectedValue(new Error('Storage is unavailable'));
+    mocks.getFileBrowserUrl.mockRejectedValue(new Error('Storage is unavailable'));
     await expect((await caller()).getDocumentById({ id: 'doc-1' })).resolves.toEqual(doc);
-    expect(mocks.getFileAccessUrl).not.toHaveBeenCalled();
+    expect(mocks.getFileBrowserUrl).not.toHaveBeenCalled();
   });
 
   it('still resolves a stored file source', async () => {
@@ -83,11 +83,11 @@ describe('document source URL resolution', () => {
       sourceType: 'file',
       fileId: 'file-1',
     });
-    mocks.getFileAccessUrl.mockResolvedValue('https://storage.example/signed.pdf');
+    mocks.getFileBrowserUrl.mockResolvedValue('https://storage.example/signed.pdf');
     await expect((await caller()).getDocumentById({ id: 'doc-1' })).resolves.toEqual(
       expect.objectContaining({ source: 'https://storage.example/signed.pdf' }),
     );
-    expect(mocks.getFileAccessUrl).toHaveBeenCalledWith({
+    expect(mocks.getFileBrowserUrl).toHaveBeenCalledWith({
       id: 'doc-1',
       fileId: 'file-1',
       url: 'files/report.pdf',
@@ -98,7 +98,7 @@ describe('document source URL resolution', () => {
     const doc = { id: 'doc-1', source: 'https://example.com/report', sourceType: 'web' };
     mocks.getDocumentById.mockResolvedValue(doc);
     await expect((await caller()).getDocumentById({ id: 'doc-1' })).resolves.toEqual(doc);
-    expect(mocks.getFileAccessUrl).not.toHaveBeenCalled();
+    expect(mocks.getFileBrowserUrl).not.toHaveBeenCalled();
   });
 });
 

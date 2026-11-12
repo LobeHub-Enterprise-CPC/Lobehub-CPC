@@ -11,6 +11,13 @@ interface MessageFile {
 export const resolveMessageFileUrls = async (
   messages: UIChatMessage[],
   resolveUrl: (file: MessageFile) => Promise<string>,
+): Promise<UIChatMessage[]> =>
+  resolveMessageFileUrlsInBatch(messages, (files) => pMap(files, resolveUrl, { concurrency: 10 }));
+
+/** Browser URL classification runs once across all messages and nested attachments. */
+export const resolveMessageFileUrlsInBatch = async (
+  messages: UIChatMessage[],
+  resolveUrls: (files: MessageFile[]) => Promise<string[]>,
 ): Promise<UIChatMessage[]> => {
   const pendingFiles: MessageFile[] = [];
   const cloneFiles = <T extends MessageFile>(files: T[]) =>
@@ -35,14 +42,10 @@ export const resolveMessageFileUrls = async (
     }));
 
   const resolved = cloneMessages(messages);
-  // One shared limit across the entire tree: per-list limits would multiply
-  // concurrency across messages, attachment kinds, and nested groups.
-  await pMap(
-    pendingFiles,
-    async (file) => {
-      file.url = await resolveUrl(file);
-    },
-    { concurrency: 10 },
-  );
+  if (pendingFiles.length === 0) return resolved;
+  const urls = await resolveUrls(pendingFiles);
+  pendingFiles.forEach((file, index) => {
+    file.url = urls[index];
+  });
   return resolved;
 };
