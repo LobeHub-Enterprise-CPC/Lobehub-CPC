@@ -19,6 +19,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileS3, S3 } from './index';
 
 // Mock AWS SDK
+const enterpriseKnowledge = vi.hoisted(() => ({ enabled: false }));
+vi.mock('@lobechat/business-knowledge', async (original) => ({
+  ...(await original<Record<string, unknown>>()),
+  isEnterpriseKnowledgeEnabled: () => enterpriseKnowledge.enabled,
+}));
+
 vi.mock('@aws-sdk/client-s3');
 
 // Every object belongs to tenant `tenant-1`: the module stores it under `t/tenant-1/`.
@@ -505,6 +511,19 @@ describe('FileS3', () => {
         headers: { 'x-amz-acl': 'public-read' },
         url: 'https://presigned-url.example.com',
       });
+    });
+
+    it('never signs public-read when enterprise knowledge bases are enabled', async () => {
+      // Public-read objects bypass every application-level read check (the
+      // authenticated /f proxy, library revocation), so S3_SET_ACL cannot apply.
+      enterpriseKnowledge.enabled = true;
+      try {
+        const result = await new FileS3().createPreSignedUpload('member-upload.md');
+        expect(PutObjectCommand).toHaveBeenCalledWith(expect.objectContaining({ ACL: undefined }));
+        expect(result.headers).toBeUndefined();
+      } finally {
+        enterpriseKnowledge.enabled = false;
+      }
     });
 
     it('signs a private upload without the public-read ACL even when the bucket sets one', async () => {

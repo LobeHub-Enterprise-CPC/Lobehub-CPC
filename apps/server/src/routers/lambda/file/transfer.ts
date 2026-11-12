@@ -5,6 +5,7 @@ import { businessFileTransferStorageCheck } from '@/business/server/lambda-route
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { DOCUMENT_TRANSFER_FOREIGN_ROWS } from '@/database/models/document';
 import { router } from '@/libs/trpc/lambda';
+import { assertSubtreeHasNoEnterpriseContent } from '@/server/services/enterpriseKnowledge';
 import { assertCanPerformResourceAction } from '@/server/services/resourcePermission';
 import { hasWorkspaceScopedPermission } from '@/server/services/workspacePermission';
 import { TransferErrorCode } from '@/types/transferError';
@@ -29,6 +30,8 @@ export const transferRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.entityType === 'folder' || input.entityType === 'document')
+        await assertSubtreeHasNoEnterpriseContent(ctx, input.id);
       if (input.targetWorkspaceId === (ctx.workspaceId ?? null)) {
         throw new TRPCError({
           cause: { data: { code: TransferErrorCode.SameWorkspace } },
@@ -135,6 +138,8 @@ export const transferRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.entityType === 'folder' || input.entityType === 'document')
+        await assertSubtreeHasNoEnterpriseContent(ctx, input.id);
       if (input.targetWorkspaceId) {
         const canWriteTarget = await hasWorkspaceScopedPermission({
           action: 'FILE_UPLOAD',

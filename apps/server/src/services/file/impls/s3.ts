@@ -9,6 +9,7 @@ import { fileEnv } from '@/envs/file';
 import { getRedisConfig } from '@/envs/redis';
 import { initializeRedis, isRedisEnabled } from '@/server/modules/Redis';
 import { FileS3 } from '@/server/modules/S3';
+import { publicReadObjects } from '@/server/modules/S3/publicRead';
 import { logicalObjectKey, tenantObjectKey } from '@/server/modules/S3/tenantKey';
 import { findSlugEndpoint } from '@/server/modules/Tenant/endpoints';
 
@@ -194,7 +195,7 @@ export class S3StaticFileImpl implements FileServiceImpl {
     // If bucket is not set public read, or S3_PUBLIC_DOMAIN is not configured,
     // reuse the same presigned preview URL briefly so repeated chat turns keep
     // stable media URLs and can reuse provider-side prefix caches.
-    const publicUrlBase = fileEnv.S3_SET_ACL ? fileEnv.S3_PUBLIC_DOMAIN : undefined;
+    const publicUrlBase = publicReadObjects() ? fileEnv.S3_PUBLIC_DOMAIN : undefined;
     if (!publicUrlBase) {
       return await this.getCachedPreSignedUrlForPreview(key, expiresIn);
     }

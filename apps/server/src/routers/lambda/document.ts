@@ -20,7 +20,10 @@ import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { DocumentService } from '@/server/services/document';
 import { resolveDocumentEditorData } from '@/server/services/document/editorData';
 import { canViewDocumentContent, getDocumentForViewer } from '@/server/services/documentAccess';
-import { itemsBelongToKnowledgeBase } from '@/server/services/enterpriseKnowledge';
+import {
+  assertSubtreeHasNoEnterpriseContent,
+  itemsBelongToKnowledgeBase,
+} from '@/server/services/enterpriseKnowledge';
 import { createEnterpriseDocuments } from '@/server/services/enterpriseKnowledge/createDocuments';
 import { trashEnterpriseItems } from '@/server/services/enterpriseKnowledge/trash';
 import { FileService } from '@/server/services/file';
@@ -701,6 +704,7 @@ export const documentRouter = router({
           code: 'NOT_FOUND',
           message: 'Document not found',
         });
+      await assertSubtreeHasNoEnterpriseContent(ctx, input.documentId);
 
       if (ctx.workspaceId) {
         await assertCanPerformResourceAction({
@@ -950,6 +954,7 @@ export const documentRouter = router({
           code: 'NOT_FOUND',
           message: 'Document not found',
         });
+      await assertSubtreeHasNoEnterpriseContent(ctx, input.documentId);
 
       if (input.targetWorkspaceId) {
         const canWriteTarget = await hasWorkspaceScopedPermission({

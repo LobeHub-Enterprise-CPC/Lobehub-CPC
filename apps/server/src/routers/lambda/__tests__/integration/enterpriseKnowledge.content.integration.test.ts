@@ -516,6 +516,41 @@ describe('enterprise knowledge content boundaries', () => {
     );
   });
 
+  it('refuses moving or copying an ordinary folder whose subtree holds enterprise content', async () => {
+    // Ordinary file F under personal folder P, then filed into the enterprise
+    // library: moving or copying P would carry F out of enterprise policy.
+    const folder = await createDoc(testDB, {
+      fileType: 'custom/folder',
+      title: 'personal-folder',
+      userId: w.owner,
+    });
+    const anchored = await createKbFile(testDB, {
+      name: 'anchored.txt',
+      parentId: folder,
+      userId: w.owner,
+    });
+    await testDB
+      .insert(knowledgeBaseFiles)
+      .values({ fileId: anchored, knowledgeBaseId: w.entA, userId: w.owner });
+
+    const c = caller(w.owner);
+    for (const attempt of [
+      c.file.transferEntity({ entityType: 'folder', id: folder, targetWorkspaceId: 'ws-1' }),
+      c.file.copyEntityToWorkspace({ entityType: 'folder', id: folder, targetWorkspaceId: 'ws-1' }),
+      c.doc.transferDocument({ documentId: folder, targetWorkspaceId: 'ws-1' }),
+      c.doc.copyDocumentToWorkspace({ documentId: folder, targetWorkspaceId: 'ws-1' }),
+    ]) {
+      const error = await attempt.then(
+        () => undefined,
+        (reason: { code?: string; message?: string }) => reason,
+      );
+      expect(error?.code).toBe('FORBIDDEN');
+      expect(error?.message).toMatch(/contains enterprise knowledge content/);
+    }
+    const [file] = await testDB.select().from(files).where(eq(files.id, anchored));
+    expect(file.workspaceId).toBeNull();
+  });
+
   it('refuses the runtime filing enterprise content into an ordinary library', async () => {
     const runtime = knowledgeBaseRuntime.factory({
       serverDB: testDB,

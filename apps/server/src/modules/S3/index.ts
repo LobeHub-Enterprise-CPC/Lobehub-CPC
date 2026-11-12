@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { fileEnv } from '@/envs/file';
 import { YEAR } from '@/utils/units';
 
+import { publicReadObjects } from './publicRead';
 import { tenantObjectKey } from './tenantKey';
 
 export const fileSchema = z.object({
@@ -420,7 +421,7 @@ export class FileS3 extends S3 {
       forcePathStyle: fileEnv.S3_ENABLE_PATH_STYLE,
       internalEndpoint: fileEnv.S3_INTERNAL_ENDPOINT,
       region: fileEnv.S3_REGION,
-      setAcl: fileEnv.S3_SET_ACL,
+      setAcl: publicReadObjects(),
     });
   }
 }
