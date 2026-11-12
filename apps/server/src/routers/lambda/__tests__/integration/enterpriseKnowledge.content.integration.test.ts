@@ -5,6 +5,7 @@ import {
   asyncTasks,
   documents,
   files,
+  globalFiles,
   knowledgeBaseFiles,
   trashItems,
 } from '@lobechat/database/schemas';
@@ -483,6 +484,40 @@ describe('enterprise knowledge content boundaries', () => {
     } as any);
     const [row] = await testDB.select().from(files).where(eq(files.id, personalUpload.id));
     expect(row.userId).toBe(w.viewer);
+  });
+
+  it('refuses registering an unmanaged alias of an enterprise storage object', async () => {
+    await testDB
+      .insert(globalFiles)
+      .values({
+        creator: w.owner,
+        fileType: 'text/plain',
+        hashId: 'ent-hash',
+        size: 10,
+        url: 'files/a.txt',
+      });
+    await testDB.update(files).set({ fileHash: 'ent-hash' }).where(eq(files.id, w.entAFile));
+    const c = caller(w.viewer);
+    // The hash dedup must not hand out the enterprise object key.
+    await expect(c.file.checkFileHash({ hash: 'ent-hash' })).resolves.toEqual({ isExist: false });
+    const before = await testDB
+      .select({ id: files.id })
+      .from(files)
+      .where(eq(files.userId, w.viewer));
+    for (const alias of [
+      { hash: 'ent-hash', url: 'files/a.txt' },
+      { hash: 'other-hash', url: 'files/a.txt' },
+    ]) {
+      const error = await c.file
+        .createFile({ ...alias, fileType: 'text/plain', name: 'copy.txt', size: 10 })
+        .catch((e: unknown) => e);
+      expect(error).toMatchObject({ code: 'FORBIDDEN' });
+    }
+    const after = await testDB
+      .select({ id: files.id })
+      .from(files)
+      .where(eq(files.userId, w.viewer));
+    expect(after).toEqual(before);
   });
 
   it('rolls back enterprise rows when actual-uploader recording fails', async () => {
