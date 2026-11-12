@@ -14,17 +14,23 @@ import { chunkRouter } from '../../chunk';
 const boundary = vi.hoisted(() => ({
   db: undefined as LobeChatDatabase | undefined,
   identity: undefined as string | undefined,
+  credential: {} as Record<string, unknown>,
   sign: vi.fn(async () => 'https://storage.example/temporary'),
 }));
 
 vi.mock('@/database/core/db-adaptor', () => ({ getServerDB: () => boundary.db }));
 vi.mock('@/database/server', () => ({ getServerDB: () => boundary.db }));
 vi.mock('@/libs/trpc/lambda/context', () => ({
-  createLambdaContext: vi.fn(async () => ({ userId: boundary.identity })),
+  createLambdaContext: vi.fn(async () => ({ userId: boundary.identity, ...boundary.credential })),
 }));
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn(function () {
-    return { createCachedPreSignedUrlForPreview: boundary.sign, createDownloadUrl: boundary.sign };
+    return {
+      createCachedPreSignedUrlForPreview: boundary.sign,
+      createDownloadUrl: boundary.sign,
+      getFileMetadata: async () => ({ contentLength: 5, contentType: 'text/plain' }),
+      getFileStream: async () => new Response('bytes').body,
+    };
   }),
 }));
 vi.mock('@lobechat/business-knowledge', async (original) => ({
@@ -173,6 +179,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  boundary.credential = {};
   boundary.identity = undefined;
   vi.mocked(business.isEnterpriseKnowledgeEnabled).mockReturnValue(false);
 });
@@ -328,7 +335,25 @@ describe('knowledge content read boundaries', () => {
   it('allows authorized enterprise preview and keeps non-enterprise anonymous links working when policies are enabled', async () => {
     enablePolicy();
     boundary.identity = viewer;
-    expect((await proxy('file_content_a')).status).toBe(302);
+    const enterprise = await proxy('file_content_a');
+    // Managed bytes are streamed after authorization; no reusable storage URL is issued.
+    expect(enterprise.status).toBe(200);
+    expect(await enterprise.text()).toBe('bytes');
+    expect(boundary.sign).not.toHaveBeenCalled();
+    boundary.identity = undefined;
+    expect((await proxy('file_content_personal')).status).toBe(302);
+  });
+
+  it('refuses operation-scoped tokens and API keys without file read scope at the file proxy', async () => {
+    enablePolicy();
+    boundary.identity = viewer;
+    boundary.credential = { oidcAuth: { purpose: 'hetero-operation', sub: viewer } };
+    expect((await proxy('file_content_a')).status).toBe(404);
+    boundary.credential = { apiKeyScopes: ['agent:read'] };
+    expect((await proxy('file_content_a')).status).toBe(404);
+    boundary.credential = { apiKeyScopes: ['file:read'] };
+    expect((await proxy('file_content_a')).status).not.toBe(404);
+    boundary.credential = { oidcAuth: { purpose: 'hetero-operation', sub: viewer } };
     boundary.identity = undefined;
     expect((await proxy('file_content_personal')).status).toBe(302);
   });
