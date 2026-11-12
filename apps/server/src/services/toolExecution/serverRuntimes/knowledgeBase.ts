@@ -9,6 +9,7 @@ import { ProjectModel } from '@/database/models/project';
 import { KnowledgeRepo } from '@/database/repositories/knowledge';
 import { DocumentService } from '@/server/services/document';
 import {
+  assertEnterpriseContentStaysInLibrary,
   assertNotEnterpriseKnowledgeBase,
   itemsBelongToKnowledgeBase,
   mergeEnterpriseKnowledgeBases,
@@ -108,6 +109,10 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
             );
           }
           await resolveItemsScope(accessCtx, ids, 'edit');
+          await assertEnterpriseContentStaysInLibrary(accessCtx, ids, {
+            enterprise: false,
+            knowledgeBaseId,
+          });
           try {
             return await knowledgeBaseModel.addFilesToKnowledgeBase(knowledgeBaseId, ids);
           } catch (e: any) {

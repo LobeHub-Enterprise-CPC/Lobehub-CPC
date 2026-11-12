@@ -95,7 +95,8 @@ export class EnterpriseKbContentService {
     });
     if (!reservation) throw invalidRequest('上传预约失败，请重试。');
     try {
-      const signed = await service.createPreSignedUpload(key);
+      // Never public-read: enterprise bytes are served only through the authenticated proxy.
+      const signed = await service.createPreSignedUpload(key, { private: true });
       return { uploadUrl: signed.url, method: 'PUT' as const, headers: signed.headers ?? {}, key };
     } catch (error) {
       // No credentials were issued, so drop only this fresh reservation; no object exists yet.
