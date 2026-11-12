@@ -76,10 +76,15 @@ export const confirmContentMove = (params: {
         useResourceManagerStore.getState().clearSelectAllState();
         const parentId = useFileStore.getState().queryParams?.parentId ?? '';
         // A moved folder disappears from the source tree and every persisted child cache.
-        await useTreeStore.getState().dropNodes(ids, parentId);
-        useTreeStore.getState().forgetLibrary(params.knowledgeBaseId);
+        const tree = useTreeStore.getState();
+        await tree.dropNodes(ids, parentId);
+        // Only cached trees of other libraries go stale. `forgetLibrary` would reset the open
+        // tree, and nothing re-initialises it while the route stays on the same library.
+        const touched = [params.knowledgeBaseId];
         if (params.direction === 'out' && params.targetKnowledgeBaseId)
-          useTreeStore.getState().forgetLibrary(params.targetKnowledgeBaseId);
+          touched.push(params.targetKnowledgeBaseId);
+        const openLibraryId = useTreeStore.getState().knowledgeBaseId;
+        for (const id of touched) if (id !== openLibraryId) tree.forgetLibrary(id);
         await Promise.all([
           useFileStore.getState().refreshFileList(),
           useKnowledgeBaseStore.getState().refreshKnowledgeBaseList(),
