@@ -127,6 +127,27 @@ describe('enterprise ownership-change confirmation', () => {
     expect(mocks.confirm).toHaveBeenCalledOnce();
     expect(mocks.moveIn).not.toHaveBeenCalled();
   });
+  it('lets the member pick a folder in their own resources before confirming a move out', async () => {
+    await selectContentMoveTarget({
+      direction: 'out',
+      count: 2,
+      knowledgeBaseId: 'kb_1',
+      libraryName: '研发规范',
+      getIds: async () => ['file_1', 'docs_2'],
+    });
+    const picker = mocks.picker.mock.calls[0][0];
+    // null = personal resources, not the enterprise library the menu was opened from.
+    expect(picker.knowledgeBaseId).toBeNull();
+    expect(picker.title).toBe('选择「我的资源」中的位置');
+    expect(mocks.confirm).not.toHaveBeenCalled();
+    picker.onMove('docs_personal');
+    await mocks.confirm.mock.calls[0][0].onOk();
+    expect(mocks.moveOut).toHaveBeenCalledWith({
+      ids: ['file_1', 'docs_2'],
+      knowledgeBaseId: 'kb_1',
+      parentId: 'docs_personal',
+    });
+  });
   it('shows the English ownership change and original destination before confirming', async () => {
     await i18next.changeLanguage('en-US');
     confirmContentMove({

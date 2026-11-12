@@ -12,10 +12,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import RepoIcon from '@/components/LibIcon';
-import {
-  confirmContentMove,
-  selectContentMoveTarget,
-} from '@/features/EnterpriseKnowledge/confirmContentMove';
+import { selectContentMoveTarget } from '@/features/EnterpriseKnowledge/confirmContentMove';
 import { useLibrarySelectionPermission } from '@/features/EnterpriseKnowledge/useLibrarySelectionPermission';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
@@ -135,7 +132,7 @@ const BatchActionsDropdown = memo<BatchActionsDropdownProps>(({ selectCount, onA
         key: 'moveToMyResources',
         label: t('enterprise.moveOut.action', { ns: 'knowledgeBase' }),
         onClick: () =>
-          confirmContentMove({
+          void selectContentMoveTarget({
             count: selectCount,
             direction: 'out',
             knowledgeBaseId: libraryId,

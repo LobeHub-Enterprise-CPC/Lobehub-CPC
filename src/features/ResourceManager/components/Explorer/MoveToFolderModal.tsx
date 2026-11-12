@@ -24,8 +24,9 @@ import { loadMoveTargetFolders } from './loadMoveTargetFolders';
 
 interface MoveToFolderModalContentProps {
   fileId?: string;
-  knowledgeBaseId?: string;
-  /** Reuse the existing folder picker for controlled enterprise move-in destinations. */
+  /** `undefined` follows the current library; `null` picks from the member's own resources. */
+  knowledgeBaseId?: string | null;
+  /** Reuse the existing folder picker for controlled enterprise move destinations. */
   onMove?: (parentId: string | null) => void;
   title?: string;
 }
@@ -62,7 +63,7 @@ const MoveToFolderModalContent = memo<MoveToFolderModalContentProps>(
       setLoading(true);
       setLoadError(undefined);
       try {
-        setFolders(await loadMoveTargetFolders(knowledgeBaseId, null));
+        setFolders(await loadMoveTargetFolders(knowledgeBaseId ?? undefined, null));
       } catch (error) {
         console.error('Failed to load folders:', error);
         setLoadError(error);
@@ -80,7 +81,10 @@ const MoveToFolderModalContent = memo<MoveToFolderModalContentProps>(
         if (loadedFolders.has(folderId)) return;
 
         try {
-          const sortedChildren = await loadMoveTargetFolders(knowledgeBaseId, folderId);
+          const sortedChildren = await loadMoveTargetFolders(
+            knowledgeBaseId ?? undefined,
+            folderId,
+          );
 
           setFolders((prevFolders) => {
             const updateFolder = (folders: FolderTreeItem[]): FolderTreeItem[] => {
@@ -111,7 +115,10 @@ const MoveToFolderModalContent = memo<MoveToFolderModalContentProps>(
     const reloadFolderChildren = useCallback(
       async (folderId: string) => {
         try {
-          const sortedChildren = await loadMoveTargetFolders(knowledgeBaseId, folderId);
+          const sortedChildren = await loadMoveTargetFolders(
+            knowledgeBaseId ?? undefined,
+            folderId,
+          );
 
           setFolders((prevFolders) => {
             const updateFolder = (folders: FolderTreeItem[]): FolderTreeItem[] => {
@@ -161,7 +168,7 @@ const MoveToFolderModalContent = memo<MoveToFolderModalContentProps>(
         const newFolderId = await createFolder(
           t('pageList.untitled', { ns: 'file' }),
           selectedFolderId ?? undefined, // Parent ID (root if none selected)
-          knowledgeBaseId,
+          knowledgeBaseId ?? undefined,
         );
 
         // Refresh tree to show the new folder

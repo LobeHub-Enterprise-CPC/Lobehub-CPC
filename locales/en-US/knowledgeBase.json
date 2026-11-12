@@ -71,6 +71,7 @@
   "enterprise.moveOut.action": "Move to my resources",
   "enterprise.moveOut.confirm": "These {{count}} items belong to the shared knowledge base \"{{name}}\" and are currently owned by its owner. After moving, you get a personal copy that you own; the originals go to the knowledge base trash and other members can no longer see them in the library.",
   "enterprise.moveOut.confirmAction": "Move out",
+  "enterprise.moveOut.destinationTitle": "Choose a location in My resources",
   "enterprise.moveOut.success": "Moved to my resources",
   "enterprise.moveOut.title": "Move to my resources?",
   "enterprise.noEvents": "No changes yet",

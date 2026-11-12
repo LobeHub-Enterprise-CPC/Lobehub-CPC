@@ -71,6 +71,7 @@
   "enterprise.moveOut.action": "移到我的资源",
   "enterprise.moveOut.confirm": "这 {{count}} 项内容属于共享知识库「{{name}}」，目前归知识库负责人所有。移出后你会得到一份归你所有的个人副本，库中的原件将移入知识库回收站，其他成员不再能在库中看到。",
   "enterprise.moveOut.confirmAction": "移出",
+  "enterprise.moveOut.destinationTitle": "选择「我的资源」中的位置",
   "enterprise.moveOut.success": "已移到我的资源",
   "enterprise.moveOut.title": "移到我的资源？",
   "enterprise.noEvents": "暂无变更记录",

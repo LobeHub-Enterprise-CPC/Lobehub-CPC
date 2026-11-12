@@ -23,10 +23,7 @@ import { shallow } from 'zustand/shallow';
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import RepoIcon from '@/components/LibIcon';
-import {
-  confirmContentMove,
-  selectContentMoveTarget,
-} from '@/features/EnterpriseKnowledge/confirmContentMove';
+import { selectContentMoveTarget } from '@/features/EnterpriseKnowledge/confirmContentMove';
 import { useLibraryPermission } from '@/features/EnterpriseKnowledge/useLibraryPermission';
 import { useSendToMessengerMenuItem } from '@/features/Messenger/PushResourceModal/useSendToMessengerMenuItem';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
@@ -302,7 +299,7 @@ export const useFileItemDropdown = ({
                 label: t('enterprise.moveOut.action', { ns: 'knowledgeBase' }),
                 onClick: ({ domEvent }) => {
                   domEvent.stopPropagation();
-                  confirmContentMove({
+                  void selectContentMoveTarget({
                     count: 1,
                     direction: 'out',
                     getIds: async () => [id],

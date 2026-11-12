@@ -72,16 +72,19 @@ export const confirmContentMove = (params: {
   });
 };
 
-/** Root grants do not describe child grants: choose a destination before confirming the move. */
+/**
+ * Choose the destination before confirming: a folder in the library for a move in (root grants
+ * do not describe child grants), a folder in the member's own resources for a move out.
+ */
 export const selectContentMoveTarget = async (params: Parameters<typeof confirmContentMove>[0]) => {
   const { openMoveToFolderModal } =
     await import('@/features/ResourceManager/components/Explorer/MoveToFolderModal');
   return openMoveToFolderModal({
-    knowledgeBaseId: params.knowledgeBaseId,
-    title: t('enterprise.moveIn.destinationTitle', {
-      ns: 'knowledgeBase',
-      name: params.libraryName,
-    }),
+    knowledgeBaseId: params.direction === 'in' ? params.knowledgeBaseId : null,
+    title:
+      params.direction === 'in'
+        ? t('enterprise.moveIn.destinationTitle', { ns: 'knowledgeBase', name: params.libraryName })
+        : t('enterprise.moveOut.destinationTitle', { ns: 'knowledgeBase' }),
     onMove: (parentId) => confirmContentMove({ ...params, parentId }),
   });
 };

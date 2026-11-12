@@ -122,5 +122,6 @@ export default {
   'enterprise.move.destinationReadOnly': 'This location is read-only. Choose an editable folder.',
   'enterprise.moveIn.confirmAction': 'Move in',
   'enterprise.moveOut.confirmAction': 'Move out',
+  'enterprise.moveOut.destinationTitle': 'Choose a location in My resources',
   'enterprise.moveIn.destinationTitle': 'Choose a location in "{{name}}"',
 };
