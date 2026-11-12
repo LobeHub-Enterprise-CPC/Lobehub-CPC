@@ -87,24 +87,27 @@ export const readMessagesByCursor = async (
     const messageModel = new MessageModel(ctx.serverDB, share.ownerId, shareWorkspaceId);
     const fileService = new FileService(ctx.serverDB, share.ownerId, shareWorkspaceId);
 
-    const page = await messageModel.queryTopicMessagesByCursor(
-      {
-        ...queryParams,
-        direction,
-        // The share record already names the topic's group, so a share link
-        // reads with only its id.
-        groupId: queryParams.groupId === undefined ? share.groupId : queryParams.groupId,
-        // Force skipWorks: Work summaries join LIVE task/version state, so serving
-        // them here would leak post-share mutations to anonymous visitors.
-        skipWorks: true,
-        topicId: share.topicId,
-      },
-      {
-        postProcessUrl: (path, file) => fileService.getFileAccessUrl({ id: file.id, url: path }),
-      },
-    );
+    const page = await messageModel.queryTopicMessagesByCursor({
+      ...queryParams,
+      direction,
+      // The share record already names the topic's group, so a share link
+      // reads with only its id.
+      groupId: queryParams.groupId === undefined ? share.groupId : queryParams.groupId,
+      // Force skipWorks: Work summaries join LIVE task/version state, so serving
+      // them here would leak post-share mutations to anonymous visitors.
+      skipWorks: true,
+      topicId: share.topicId,
+    });
 
-    return { ...page, direction, messages: projectSharedTopicMessages(page.messages) };
+    return {
+      ...page,
+      direction,
+      messages: projectSharedTopicMessages(
+        await resolveMessageFileUrlsInBatch(page.messages, (files) =>
+          fileService.getFileBrowserUrls(files),
+        ),
+      ),
+    };
   }
 
   // Authenticated access - require userId

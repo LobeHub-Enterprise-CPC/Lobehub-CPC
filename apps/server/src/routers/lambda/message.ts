@@ -497,13 +497,13 @@ export const messageRouter = router({
           // share-time snapshot), so serving them here would leak post-share
           // mutations to anonymous visitors. Share pages render no Work chips.
           { ...queryParams, skipWorks: true, topicId: share.topicId },
-          {
-            postProcessUrl: (path, file) =>
-              fileService.getFileAccessUrl({ id: file.id, url: path }),
-          },
         );
 
-        return projectSharedTopicMessages(messages);
+        return projectSharedTopicMessages(
+          await resolveMessageFileUrlsInBatch(messages, (files) =>
+            fileService.getFileBrowserUrls(files),
+          ),
+        );
       }
 
       // Authenticated access - require userId

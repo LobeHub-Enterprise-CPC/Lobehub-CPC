@@ -58,7 +58,7 @@ const TopicModelMock = vi.fn(function () {
 });
 vi.mock('@/database/models/topic', () => ({ TopicModel: TopicModelMock }));
 const mockMessageQuery = vi.fn();
-const mockMessageQueryForVisitor = vi.fn();
+const mockMessageQueryForVisitor = vi.fn(async () => []);
 vi.mock('@/database/models/message', () => ({
   MessageModel: class {
     query = mockMessageQuery;
@@ -73,6 +73,7 @@ vi.mock('@/database/models/document', () => ({ DocumentModel: DocumentModelMock 
 vi.mock('@/server/services/file', () => ({
   FileService: class {
     getFileAccessUrl = vi.fn(async () => 'https://s3/get');
+    getFileBrowserUrls = vi.fn(async (files: { url: string }[]) => files.map((file) => file.url));
   },
 }));
 const { shareChatRouter } = await import('../shareChat');
