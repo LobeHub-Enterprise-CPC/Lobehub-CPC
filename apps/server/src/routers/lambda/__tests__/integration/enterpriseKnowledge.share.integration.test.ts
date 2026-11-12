@@ -61,7 +61,7 @@ describe('enterprise file URLs returned by shared conversations', () => {
       .values({ topicId, userId: w.owner, visibility: 'link' })
       .returning();
     shareId = share.id;
-    const [message] = await db
+    const [message] = (await db
       .insert(messages)
       .values({
         topicId,
@@ -70,7 +70,7 @@ describe('enterprise file URLs returned by shared conversations', () => {
         role: 'user',
         userId: w.owner,
       })
-      .returning();
+      .returning()) as (typeof messages.$inferSelect)[];
     await db.insert(messagesFiles).values(
       [w.entAFile, w.personalFile].map((fileId) => ({
         fileId,
