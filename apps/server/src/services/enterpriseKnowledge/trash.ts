@@ -29,6 +29,13 @@ export const trashEnterpriseItems = async (
     const pending = [...new Set(ids)];
     const visited = new Set<string>();
     const roots: string[] = [];
+    // Collect and authorize the whole live cascade before any row changes, so a child's
+    // policy is judged against its live parent rather than one this cascade just trashed.
+    const cascade: {
+      doc?: typeof documents.$inferSelect;
+      file?: typeof files.$inferSelect;
+      id: string;
+    }[] = [];
     while (pending.length) {
       const id = pending.shift()!;
       if (visited.has(id)) continue;
@@ -77,6 +84,9 @@ export const trashEnterpriseItems = async (
       }
       // A folder edit grant must not cascade into a separately restricted child.
       await resolveKnowledgeBaseScope({ ...ctx, serverDB: db }, scope.knowledgeBaseId, 'edit', id);
+      cascade.push({ doc, file, id });
+    }
+    for (const { doc, file, id } of cascade) {
       const type = doc ? 'document' : 'file';
       const table = doc ? documents : files;
       await db

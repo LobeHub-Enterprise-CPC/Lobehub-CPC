@@ -406,6 +406,24 @@ describe('enterprise node boundaries through real directory rows', () => {
       ).documents,
     ).toEqual([]);
   });
+  it('lets an editor trash an editable nonempty folder but not one with a restricted child', async () => {
+    policy.nodes.set(w.entAFolder, 'edit');
+    policy.nodes.delete(leaf);
+    const scope = await resolveItemsScope(ctx(), [w.entAFolder], 'edit');
+    if (!scope.enterprise) throw new Error('expected enterprise');
+    policy.nodes.set(leaf, 'view');
+    await expect(trashEnterpriseItems(ctx(), scope, [w.entAFolder])).rejects.toBeTruthy();
+    expect((await db.select().from(trashItems).where(eq(trashItems.userId, w.owner))).length).toBe(
+      0,
+    );
+    policy.nodes.delete(leaf);
+    await trashEnterpriseItems(ctx(), scope, [w.entAFolder]);
+    const trashed = await db.select().from(trashItems).where(eq(trashItems.userId, w.owner));
+    expect(new Set(trashed.map((row) => row.resourceId))).toEqual(
+      new Set([w.entAFolder, w.entADoc, leaf]),
+    );
+  });
+
   it('cleans all policies when permanently deleting a folder cascade, retaining them in trash', async () => {
     const scope = await resolveItemsScope(ctx(w.owner), [w.entAFolder], 'edit');
     if (!scope.enterprise) throw new Error('expected enterprise');
