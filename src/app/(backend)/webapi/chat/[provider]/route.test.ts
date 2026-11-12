@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { BRANDING_PROVIDER } from '@lobechat/business-const';
-import { REQUEST_TOPIC_ID_HEADER } from '@lobechat/const';
+import { REQUEST_TOPIC_ID_HEADER, REQUEST_TRIGGER_HEADER } from '@lobechat/const';
 import { type LobeRuntimeAI } from '@lobechat/model-runtime';
 import { ModelRuntime } from '@lobechat/model-runtime';
 import { ChatErrorType } from '@lobechat/types';
@@ -233,8 +233,73 @@ describe('POST handler', () => {
       expect(mockRuntime.chat).not.toHaveBeenCalled();
       expect(mockIsLobeHubModelAvailable).toHaveBeenCalledWith('beta-model', 'chat', {
         getUserEmail: expect.any(Function),
+        trigger: undefined,
+        userId: 'test-user-id',
       });
     });
+
+    it('forwards the request trigger header to the access check', async () => {
+      const mockParams = Promise.resolve({ provider: BRANDING_PROVIDER });
+      request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify({ model: 'system-model' }),
+        headers: { [REQUEST_TRIGGER_HEADER]: 'translate' },
+        method: 'POST',
+      });
+
+      const mockRuntime: LobeRuntimeAI = {
+        baseURL: 'abc',
+        chat: vi.fn().mockResolvedValue({ success: true }),
+      };
+      vi.mocked(initModelRuntimeFromDB).mockResolvedValue(new ModelRuntime(mockRuntime));
+
+      await POST(request as unknown as Request, { params: mockParams });
+
+      expect(mockIsLobeHubModelAvailable).toHaveBeenCalledWith('system-model', 'chat', {
+        getUserEmail: expect.any(Function),
+        trigger: 'translate',
+        userId: 'test-user-id',
+      });
+    });
+
+    it.each([
+      { header: 'topic_title', metadataTrigger: 'topic_title', accessTrigger: 'topic_title' },
+      { header: undefined, metadataTrigger: 'chat', accessTrigger: undefined },
+      { header: 'not-a-real-trigger', metadataTrigger: 'chat', accessTrigger: undefined },
+    ])(
+      'resolves trigger from header $header to metadata $metadataTrigger',
+      async ({ header, metadataTrigger, accessTrigger }) => {
+        const mockParams = Promise.resolve({ provider: BRANDING_PROVIDER });
+        const payload = { model: 'system-model' };
+        request = new Request(new URL('https://test.com'), {
+          body: JSON.stringify(payload),
+          headers: header ? { [REQUEST_TRIGGER_HEADER]: header } : {},
+          method: 'POST',
+        });
+
+        const mockRuntime: LobeRuntimeAI = {
+          baseURL: 'abc',
+          chat: vi.fn().mockResolvedValue({ success: true }),
+        };
+        vi.mocked(initModelRuntimeFromDB).mockResolvedValue(new ModelRuntime(mockRuntime));
+
+        await POST(request as unknown as Request, { params: mockParams });
+
+        // The route-level gate sees only a known enum value …
+        expect(mockIsLobeHubModelAvailable).toHaveBeenCalledWith('system-model', 'chat', {
+          getUserEmail: expect.any(Function),
+          trigger: accessTrigger,
+          userId: 'test-user-id',
+        });
+        // … and beforeChat receives the same trigger, so an auxiliary call the
+        // route gate allowed is not re-rejected as a plain `chat`.
+        expect(mockRuntime.chat).toHaveBeenCalledWith(
+          payload,
+          expect.objectContaining({
+            metadata: expect.objectContaining({ trigger: metadataTrigger }),
+          }),
+        );
+      },
+    );
 
     it('should not gate models for a provider other than the branded one', async () => {
       const mockParams = Promise.resolve({ provider: 'test-provider' });

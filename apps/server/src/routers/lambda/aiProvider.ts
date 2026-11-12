@@ -63,25 +63,27 @@ const aiProviderProcedure = wsCompatProcedure.use(serverDatabase).use(async (opt
 });
 
 /**
- * Drops beta-gated LobeHub models the caller isn't authorized for from an
- * `enabledAiModels` list.
+ * Drops LobeHub models the caller cannot use from an `enabledAiModels` list.
  *
- * `getUserScopedAiProviderRuntimeState`'s own `hiddenBuiltinModels` gate (via
- * `getHiddenBuiltinModelsForUser`) is a no-op stub, so `state.enabledAiModels`
- * — the field the chat model picker's `enabledChatModelList` is actually built
- * from client-side (see `resolveUserScopedBuiltinModelState`) — reaches the
- * client unfiltered otherwise. This is a separate data source from the fetched
- * catalog `/webapi/lobehub-model-config` already filters; both need the same
- * gate for a beta model to be fully hidden.
+ * `getUserScopedAiProviderRuntimeState` already removes models hidden by the
+ * business `getHiddenBuiltinModelsForUser` hook, but the runtime state also
+ * carries models merged from the user's own provider rows. Applying the same
+ * tenant/policy gate here keeps `state.enabledAiModels` — the field the chat
+ * model picker's `enabledChatModelList` is built from client-side — consistent
+ * with the catalog `/webapi/lobehub-model-config` and the send-time checks.
  */
 const filterAvailableEnabledAiModels = async (
   enabledAiModels: EnabledAiModel[],
+  userId: string,
   userEmail: string | null | undefined,
 ): Promise<EnabledAiModel[]> => {
   const availability = await Promise.all(
     enabledAiModels.map((model) =>
       model.providerId === BRANDING_PROVIDER
-        ? isLobeHubModelAvailable(model.id, model.type, { userEmail: userEmail ?? undefined })
+        ? isLobeHubModelAvailable(model.id, model.type, {
+            userEmail: userEmail ?? undefined,
+            userId,
+          })
         : true,
     ),
   );
@@ -238,6 +240,7 @@ export const aiProviderRouter = router({
         ...scopedState,
         enabledAiModels: await filterAvailableEnabledAiModels(
           scopedState.enabledAiModels,
+          ctx.userId,
           userEmail,
         ),
         modelReasoningConfigs,
@@ -283,6 +286,7 @@ export const aiProviderRouter = router({
       const enabledModels = (
         await filterAvailableEnabledAiModels(
           state.enabledAiModels.filter((model) => model.providerId === input.id),
+          ctx.userId,
           userEmail,
         )
       ).map(({ abilities, contextWindowTokens, displayName, id, maxOutput, providerId, type }) => ({

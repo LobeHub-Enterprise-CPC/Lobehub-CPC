@@ -17,6 +17,12 @@ vi.mock('@/business/server/aiProvider', () => ({
 vi.mock('@lobechat/business-model-bank/model-config', () => ({
   isLobeHubModelAvailable: mockIsLobeHubModelAvailable,
 }));
+// The enterprise workspace replaces @lobechat/business-config with tenant
+// settings that default `provider_settings` off outside a tenant. These tests
+// exercise the upstream write routes, so let the env/default flag path decide.
+vi.mock('@lobechat/business-config/tenant-settings', () => ({
+  loadTenantSettings: async () => undefined,
+}));
 vi.mock('@/database/models/aiModel');
 vi.mock('@/database/models/user');
 vi.mock('@/database/repositories/aiInfra');
@@ -189,9 +195,11 @@ describe('aiModelRouter', () => {
     expect(result).toEqual([{ id: 'model-1', type: 'chat' }]);
     expect(mockIsLobeHubModelAvailable).toHaveBeenCalledWith('model-1', 'chat', {
       userEmail: 'user@example.com',
+      userId: 'test-user',
     });
     expect(mockIsLobeHubModelAvailable).toHaveBeenCalledWith('model-2-beta', 'chat', {
       userEmail: 'user@example.com',
+      userId: 'test-user',
     });
   });
 

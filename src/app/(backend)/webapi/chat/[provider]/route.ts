@@ -1,6 +1,6 @@
 import { BRANDING_PROVIDER } from '@lobechat/business-const';
 import { isLobeHubModelAvailable } from '@lobechat/business-model-bank/model-config';
-import { REQUEST_TOPIC_ID_HEADER } from '@lobechat/const';
+import { REQUEST_TOPIC_ID_HEADER, REQUEST_TRIGGER_HEADER } from '@lobechat/const';
 import { type ChatCompletionErrorPayload } from '@lobechat/model-runtime';
 import { AGENT_RUNTIME_ERROR_SET } from '@lobechat/model-runtime';
 import { ChatErrorType, RequestTrigger } from '@lobechat/types';
@@ -40,7 +40,19 @@ const handlePost = checkAuth(async (req: Request, { params, userId, serverDB }) 
 
       const data = (await req.json()) as ChatStreamPayload;
 
-      // Same gate createImage/createVideo already apply for beta-gated LobeHub
+      // The same header the client uses to label auxiliary calls (title
+      // summary, translation, context compression). Only a known enum value is
+      // forwarded: an arbitrary string must not become a way to claim a system
+      // trigger. Absent/unknown headers keep the plain chat default.
+      const triggerHeader = req.headers.get(REQUEST_TRIGGER_HEADER);
+      const triggerValues: string[] = Object.values(RequestTrigger);
+      const requestedTrigger =
+        triggerHeader && triggerValues.includes(triggerHeader)
+          ? (triggerHeader as RequestTrigger)
+          : undefined;
+      const resolvedTrigger = requestedTrigger ?? RequestTrigger.Chat;
+
+      // Same tenant/policy gate createImage/createVideo apply for LobeHub
       // models (see isLobeHubModelAvailable) — text chat was the one invocation
       // path that never checked it, so a model hidden from the picker could still
       // be reached by sending its id directly.
@@ -48,6 +60,8 @@ const handlePost = checkAuth(async (req: Request, { params, userId, serverDB }) 
         provider === BRANDING_PROVIDER &&
         !(await isLobeHubModelAvailable(data.model, 'chat', {
           getUserEmail: async () => (await UserModel.findById(serverDB, userId))?.email,
+          trigger: requestedTrigger,
+          userId,
         }))
       ) {
         return createErrorResponse(ChatErrorType.LobeHubModelDeprecated, {
@@ -75,7 +89,7 @@ const handlePost = checkAuth(async (req: Request, { params, userId, serverDB }) 
           provider,
           sessionId: tracePayload?.sessionId,
           topicId: req.headers.get(REQUEST_TOPIC_ID_HEADER) ?? tracePayload?.topicId,
-          trigger: RequestTrigger.Chat,
+          trigger: resolvedTrigger,
         },
         signal: req.signal,
       });

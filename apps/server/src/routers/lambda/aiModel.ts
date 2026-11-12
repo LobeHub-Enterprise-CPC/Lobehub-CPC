@@ -199,15 +199,17 @@ export const aiModelRouter = router({
         (scopedOptions) => ctx.aiInfraRepos.getAiProviderModelList(input.id, scopedOptions),
       );
 
-      // Beta-gated LobeHub models (see isLobeHubModelAvailable) must not appear
-      // in an ungranted user's picker at all — not just be blocked at send time,
-      // the way createImage/createVideo already gate on the same function. Scoped
-      // to the branded provider only; every other provider's list is untouched.
+      // LobeHub models the user cannot use — tenant switch off, policy denied,
+      // or Ops added without a tenant settings row — must not appear in the
+      // picker at all. Scoped to the branded provider only; every other
+      // provider's list is untouched.
       if (input.id !== BRANDING_PROVIDER) return models;
 
       const userEmail = (await UserModel.findById(ctx.serverDB, ctx.userId))?.email;
       const availability = await Promise.all(
-        models.map((model) => isLobeHubModelAvailable(model.id, model.type, { userEmail })),
+        models.map((model) =>
+          isLobeHubModelAvailable(model.id, model.type, { userEmail, userId: ctx.userId }),
+        ),
       );
 
       return models.filter((_, index) => availability[index]);

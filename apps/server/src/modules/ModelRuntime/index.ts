@@ -616,6 +616,7 @@ const isServerDefaultModelAvailable = (model: string, access: ServerDefaultModel
     getUserEmail: access.userId
       ? async () => (await UserModel.findById(await getServerDB(), access.userId!))?.email
       : undefined,
+    userId: access.userId,
   });
 };
 
