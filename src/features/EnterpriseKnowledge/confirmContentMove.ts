@@ -3,12 +3,22 @@ import type { ItemType } from '@lobehub/ui';
 import { confirmModal, toast } from '@lobehub/ui';
 import { t } from 'i18next';
 
+import { ENTERPRISE_CONTENT_MOVE_MAX_ITEMS } from '@/const/enterpriseKnowledge';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { enterpriseKnowledgeService } from '@/services/enterpriseKnowledge';
 import { useFileStore } from '@/store/file';
 import { useKnowledgeBaseStore } from '@/store/library';
 import { useTreeStore } from '@/store/tree';
 import { isTrpcErrorCode } from '@/utils/trpcError';
+
+/** The server rejects larger batches outright, so explain the cap instead of a generic failure. */
+const rejectOversizedMove = (count: number) => {
+  if (count <= ENTERPRISE_CONTENT_MOVE_MAX_ITEMS) return false;
+  toast.error(
+    t('enterprise.move.tooMany', { ns: 'knowledgeBase', max: ENTERPRISE_CONTENT_MOVE_MAX_ITEMS }),
+  );
+  return true;
+};
 
 /** Both single and batch menus share the same confirmation, failure feedback and reconciliation. */
 export const confirmContentMove = (params: {
@@ -23,6 +33,7 @@ export const confirmContentMove = (params: {
   targetLabel?: string;
 }) => {
   const key = params.direction === 'in' ? 'moveIn' : 'moveOut';
+  if (rejectOversizedMove(params.count)) return;
   confirmModal({
     cancelText: t('cancel', { ns: 'common' }),
     title: t(`enterprise.${key}.title`, { ns: 'knowledgeBase', name: params.libraryName }),
@@ -43,6 +54,8 @@ export const confirmContentMove = (params: {
       let ids: string[];
       try {
         ids = await params.getIds();
+        // A cross-page selection resolves to every match, which may exceed the displayed count.
+        if (rejectOversizedMove(ids.length)) return;
         const input = { ids, knowledgeBaseId: params.knowledgeBaseId, parentId: params.parentId };
         if (params.direction === 'in') await enterpriseKnowledgeService.moveIn(input);
         else
@@ -101,6 +114,7 @@ export const confirmContentMove = (params: {
  * Choose a location inside the selected library before confirming; resource-root moves skip the picker.
  */
 export const selectContentMoveTarget = async (params: Parameters<typeof confirmContentMove>[0]) => {
+  if (rejectOversizedMove(params.count)) return;
   if (params.direction === 'out' && !params.targetKnowledgeBaseId)
     return confirmContentMove({ ...params, parentId: null });
   const { openMoveToFolderModal } =

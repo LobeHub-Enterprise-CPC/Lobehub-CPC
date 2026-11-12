@@ -13,6 +13,7 @@ import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
+import { ENTERPRISE_CONTENT_MOVE_MAX_ITEMS } from '@/const/enterpriseKnowledge';
 import type { LobeChatDatabase } from '@/database/type';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
@@ -34,7 +35,7 @@ const grant = z.object({
 const libraryInput = z.object({ knowledgeBaseId: z.string().min(1) });
 const nodeInput = libraryInput.extend({ nodeId: z.string().min(1) });
 const contentMoveInput = libraryInput.extend({
-  ids: z.array(z.string().min(1)).min(1).max(1000),
+  ids: z.array(z.string().min(1)).min(1).max(ENTERPRISE_CONTENT_MOVE_MAX_ITEMS),
   parentId: z.string().min(1).nullable().optional(),
 });
 const nodeChange = nodeInput.extend({

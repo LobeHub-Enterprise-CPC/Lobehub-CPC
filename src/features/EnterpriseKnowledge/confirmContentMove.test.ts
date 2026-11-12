@@ -72,6 +72,35 @@ describe('enterprise ownership-change confirmation', () => {
     mocks.moveOut.mockResolvedValue({ items: [] });
     mocks.tree.knowledgeBaseId = null;
   });
+  it.each(['in', 'out'] as const)(
+    'explains the batch cap instead of opening the picker for move %s of 1,001 items',
+    async (direction) => {
+      await selectContentMoveTarget({
+        direction,
+        count: 1001,
+        knowledgeBaseId: 'kb_1',
+        libraryName: '研发规范',
+        targetKnowledgeBaseId: 'kb_personal',
+        getIds: async () => [],
+      });
+      expect(mocks.picker).not.toHaveBeenCalled();
+      expect(mocks.confirm).not.toHaveBeenCalled();
+      expect(mocks.error).toHaveBeenCalledWith('一次最多移动 1000 项，请减少选择后重试。');
+    },
+  );
+  it('stops before the request when a cross-page selection resolves past the cap', async () => {
+    const ids = Array.from({ length: 1001 }, (_, i) => `file_${i}`);
+    confirmContentMove({
+      direction: 'out',
+      count: 1000,
+      knowledgeBaseId: 'kb_1',
+      libraryName: '研发规范',
+      getIds: async () => ids,
+    });
+    await mocks.confirm.mock.calls[0][0].onOk();
+    expect(mocks.moveOut).not.toHaveBeenCalled();
+    expect(mocks.error).toHaveBeenCalledWith('一次最多移动 1000 项，请减少选择后重试。');
+  });
   it.each([
     ['out from the open library', 'out', 'kb_1', ['kb_personal']],
     ['in while another library is open', 'in', 'kb_personal', ['kb_1']],
