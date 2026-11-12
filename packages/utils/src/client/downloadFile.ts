@@ -9,7 +9,9 @@ export const downloadFile = async (
       // Avoid image disk cache which can cause incorrect CORS headers
       cache: 'no-store',
 
-      credentials: 'omit',
+      // Same-origin links (the authenticated `/f/:id` proxy) need the session;
+      // cross-origin storage URLs stay credential-free so wildcard CORS still works.
+      credentials: 'same-origin',
 
       mode: 'cors',
     });
@@ -35,7 +37,7 @@ export const downloadFile = async (
     link.remove();
     window.URL.revokeObjectURL(blobUrl);
   } catch (error) {
-    console.log('Download failed:', error);
+    console.warn('Download failed:', error);
 
     // Fallback: open in new tab if enabled
     if (fallbackToOpen) {
