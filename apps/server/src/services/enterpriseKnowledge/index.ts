@@ -11,6 +11,7 @@ import type { EnterpriseKnowledgeBaseInfo, KnowledgeBaseItem } from '@lobechat/t
 import { TRPCError } from '@trpc/server';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 
+import type { DocumentModel } from '@/database/models/document';
 import { KnowledgeBaseModel } from '@/database/models/knowledgeBase';
 import { documents, files, knowledgeBaseFiles, knowledgeBases, users } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
@@ -213,6 +214,21 @@ export const assertEnterpriseContentStaysInLibrary = async (
       : !target.enterprise;
     if (leaves) throw forbidden(message);
   }
+};
+
+/**
+ * Moving or copying a folder/document carries its whole subtree and anchored
+ * files. Refuse when any of them belongs to an enterprise knowledge base, however
+ * it got under an ordinary ancestor. Classification failure refuses.
+ */
+export const assertSubtreeHasNoEnterpriseContent = async (
+  ctx: EnterpriseAccessCtx & { documentModel: Pick<DocumentModel, 'listSubtreeContentIds'> },
+  rootId: string,
+): Promise<void> => {
+  if (ctx.workspaceId || !isEnterpriseKnowledgeEnabled()) return;
+  const ids = await ctx.documentModel.listSubtreeContentIds(rootId);
+  if ((await classifyEnterpriseContentIds(ctx, ids)).size > 0)
+    throw forbidden('This folder or document contains enterprise knowledge content');
 };
 
 interface ItemMembership {

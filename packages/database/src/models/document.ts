@@ -573,6 +573,32 @@ export class DocumentModel {
     return collected;
   };
 
+  /**
+   * Ids of every document in the subtree plus the files anchored to them or
+   * mirrored by them — what a subtree transfer or copy would carry along.
+   */
+  listSubtreeContentIds = async (rootId: string): Promise<string[]> => {
+    const subtree = await this.collectSubtree(rootId);
+    if (subtree.length === 0) return [];
+    const ids = subtree.map((doc) => doc.id);
+    const anchored = await this.db
+      .select({ id: files.id })
+      .from(files)
+      .where(
+        and(
+          buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, files),
+          inArray(files.parentId, ids),
+        ),
+      );
+    return [
+      ...new Set([
+        ...ids,
+        ...subtree.flatMap((doc) => (doc.fileId ? [doc.fileId] : [])),
+        ...anchored.map((file) => file.id),
+      ]),
+    ];
+  };
+
   countFileUsageInSubtree = async (
     rootId: string,
     runner: LobeChatDatabase = this.db,
