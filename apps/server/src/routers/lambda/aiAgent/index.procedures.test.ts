@@ -43,7 +43,7 @@ function expected(): Array<[name: string, type: 'mutation' | 'query', middleware
     ['heteroFinish', 'mutation', 8],
     ['heteroIngest', 'mutation', 8],
     ['interruptTask', 'mutation', 14],
-    ['issueGatewayUserToken', 'query', 12],
+    ['issueGatewayUserToken', 'query', 13],
     ['listClientLlmWaits', 'query', 13],
     ['processHumanIntervention', 'mutation', 14],
     ['refreshGatewayToken', 'query', 13],

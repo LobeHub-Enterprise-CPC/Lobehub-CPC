@@ -18,7 +18,6 @@ const mockGatewayMode = ({
   protocolV2?: boolean;
 }) => {
   vi.spyOn(serverConfigStore, 'getServerConfigStoreState').mockReturnValue({
-    featureFlags: { enableGatewayMux: protocolV2 },
     serverConfig: {
       ...(protocolV2 && { agentGatewayProtocol: 2 }),
       ...(gatewayMode && { agentGatewayUrl: 'https://gateway.test', enableGatewayMode: true }),
@@ -40,7 +39,7 @@ describe('readConversationMessages', () => {
 
     expect(getMessages).toHaveBeenCalledWith({
       agentId: 'agent-1',
-      projectToolPayloads: false,
+      projectToolPayloads: true,
       topicId: 'topic-1',
     });
   });
@@ -81,7 +80,7 @@ describe('readConversationMessageListPage', () => {
 
     expect(getPage).toHaveBeenCalledWith({
       agentId: 'agent-1',
-      projectToolPayloads: false,
+      projectToolPayloads: true,
       topicId: 'topic-1',
     });
   });
