@@ -1882,8 +1882,38 @@
           "then": {
             "required": [
               "operationId",
-              "toolCallId"
-            ]
+              "toolCallId",
+              "data"
+            ],
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "identifier": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "apiName": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "arguments": {
+                    "type": "string"
+                  },
+                  "executionTimeoutMs": {
+                    "type": "number",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "identifier",
+                  "apiName",
+                  "arguments",
+                  "executionTimeoutMs"
+                ],
+                "additionalProperties": true
+              }
+            }
           }
         },
         {
@@ -2327,7 +2357,9 @@
           "type": "string",
           "minLength": 1
         },
-        "pending": {},
+        "pending": {
+          "type": "boolean"
+        },
         "operationId": {
           "type": "string",
           "minLength": 1

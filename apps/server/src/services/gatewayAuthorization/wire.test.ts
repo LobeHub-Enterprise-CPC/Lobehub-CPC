@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { parseGatewayWire } from './wire';
 
-describe.each(['token-claims', 'authorize', 'lifecycle', 'ws-auth'])(
+describe.each(['token-claims', 'authorize', 'lifecycle', 'ws-auth', 'mux', 'dispatch'])(
   'v2 %s wire fixtures',
   (name) => {
     it('accepts and rejects all normative wire examples', async () => {
