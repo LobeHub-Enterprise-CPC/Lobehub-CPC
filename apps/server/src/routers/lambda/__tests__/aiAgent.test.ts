@@ -647,16 +647,21 @@ describe('AI Agent Router Integration Tests', () => {
     // caller's identity only — no topic / running-operation precondition like
     // `refreshGatewayToken`, because the hub authorizes each `subscribe`
     // against the op's registered owner instead.
-    it('rejects user-level MUX tickets', async () => {
-      mockSignUserJWT.mockResolvedValue('user-hub-jwt');
+    it('rejects a caller without a verified request source', async () => {
       const caller = aiAgentRouter.createCaller(createTestContext());
-
-      await expect(caller.issueGatewayUserToken()).rejects.toMatchObject({
-        code: 'NOT_IMPLEMENTED',
-        message: 'MUX_UNSUPPORTED',
-      });
-      expect(mockSignUserJWT).not.toHaveBeenCalled();
+      await expect(caller.issueGatewayUserToken({ clientId: 'tab' })).rejects.toThrow(
+        'SOURCE_UNVERIFIABLE',
+      );
     });
+    it.each([{}, { clientId: '' }, { clientId: 'x'.repeat(129) }])(
+      'rejects invalid client input %j',
+      async (input) => {
+        const caller = aiAgentRouter.createCaller(createTestContext());
+        await expect(
+          caller.issueGatewayUserToken(input as { clientId: string }),
+        ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      },
+    );
   });
 
   describe('execAgent workspace use guard', () => {

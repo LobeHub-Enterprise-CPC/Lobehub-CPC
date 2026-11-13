@@ -382,6 +382,7 @@ export class GatewayMuxClient {
 
   private readonly gatewayUrl: string;
   private readonly getToken: () => Promise<string>;
+  private readonly createWebSocket: (url: string) => WebSocket;
   private readonly clientId: string;
   private readonly autoReconnect: boolean;
   private readonly heartbeatIntervalMs: number;
@@ -391,6 +392,7 @@ export class GatewayMuxClient {
   constructor(options: GatewayMuxClientOptions) {
     this.gatewayUrl = options.gatewayUrl;
     this.getToken = options.getToken;
+    this.createWebSocket = options.createWebSocket ?? ((url) => new WebSocket(url));
     this.clientId = options.clientId ?? randomClientId();
     this.autoReconnect = options.autoReconnect ?? true;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL;
@@ -583,7 +585,7 @@ export class GatewayMuxClient {
     this.connectInFlight = false;
 
     try {
-      const ws = new WebSocket(this.buildWsUrl(token));
+      const ws = this.createWebSocket(this.buildWsUrl(token));
       ws.onmessage = this.handleMessage;
       ws.onclose = this.handleClose;
       ws.onerror = this.handleError;

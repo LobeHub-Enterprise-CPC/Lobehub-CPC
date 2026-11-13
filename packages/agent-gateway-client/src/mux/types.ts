@@ -176,6 +176,7 @@ export interface GatewayMuxClientOptions {
   autoReconnect?: boolean;
   /** Stable id for this tab; the hub tags the connection with it. Random when omitted. */
   clientId?: string;
+  createWebSocket?: (url: string) => WebSocket;
   /** Gateway URL base (e.g. https://gateway.lobehub.com); the client appends `/v2/ws`. */
   gatewayUrl: string;
   /** Called before EVERY connect attempt; must return a fresh user JWT. */

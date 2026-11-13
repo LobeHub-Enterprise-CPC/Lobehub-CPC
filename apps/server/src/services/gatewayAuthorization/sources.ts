@@ -32,6 +32,7 @@ export const assertGatewaySource = async (
   source: GatewayAuthorizationSource,
   resource: {
     operationId?: string;
+    userTicket?: boolean;
     principal: GatewayPrincipal;
     enroller?: boolean;
     execute?: boolean;
@@ -97,13 +98,21 @@ export const assertGatewaySource = async (
       const full = row.scopes === null || row.scopes.includes('*');
       if (
         !full &&
-        (!resource.operationId || resource.execute || !hasApiKeyScope(row.scopes, 'chat:read'))
+        ((!resource.operationId && !resource.userTicket) ||
+          resource.enroller ||
+          resource.execute ||
+          !hasApiKeyScope(row.scopes, 'chat:read'))
       )
         throw new GatewayAuthorizationError('FORBIDDEN', 403);
       if (
         source.workspaceId &&
         !resource.operationId &&
-        (resource.principal.kind !== 'workspace' || resource.principal.id !== source.workspaceId)
+        (resource.userTicket
+          ? !(await hasActiveWorkspaceMembership(database, {
+              userId: source.subject,
+              workspaceId: source.workspaceId,
+            }))
+          : resource.principal.kind !== 'workspace' || resource.principal.id !== source.workspaceId)
       )
         throw new GatewayAuthorizationError('FORBIDDEN', 403);
       expiresAt = row.expiresAt?.getTime() ?? expiresAt;
@@ -245,4 +254,39 @@ export const assertGatewaySource = async (
       throw new GatewayAuthorizationError('RESOURCE_NOT_FOUND', 404);
   }
   return expiresAt;
+};
+
+/** Resolve retained operations without exposing whether a foreign resource exists. */
+export const assertGatewaySubscription = async (
+  subject: string,
+  operationId: string | undefined,
+  acceptedVersion: number,
+  source: GatewayAuthorizationSource,
+): Promise<number> => {
+  const database = await getServerDB();
+  const [row] = operationId
+    ? await database
+        .select({
+          userId: agentOperations.userId,
+          workspaceId: agentOperations.workspaceId,
+          metadata: agentOperations.metadata,
+        })
+        .from(agentOperations)
+        .where(eq(agentOperations.id, operationId))
+        .limit(1)
+    : [];
+  if (
+    !row ||
+    row.metadata?.tenantId !== requireTenantScope().tenantId ||
+    row.metadata?.sourceAcceptedVersion !== acceptedVersion ||
+    (row.userId !== subject && row.metadata?.streamOwnerUserId !== subject) ||
+    (source.kind === 'apiKey' && source.workspaceId && row.workspaceId !== source.workspaceId) ||
+    (row.workspaceId &&
+      !(await hasActiveWorkspaceMembership(database, {
+        userId: subject,
+        workspaceId: row.workspaceId,
+      })))
+  )
+    throw new GatewayAuthorizationError('RESOURCE_NOT_FOUND', 404);
+  return row.metadata.sourceAcceptedVersion;
 };

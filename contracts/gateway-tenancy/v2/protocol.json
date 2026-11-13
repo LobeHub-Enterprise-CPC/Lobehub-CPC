@@ -1,5 +1,5 @@
 {
-  "contractVersion": 1,
+  "contractVersion": 2,
   "tenancyPrefix": "/tenant/v1",
   "jwt": {
     "issuer": "urn:lobehub:gateway-session",
@@ -33,10 +33,11 @@
       "single-operation-stream-replay",
       "agent-confirmation-input-client-tool",
       "desktop-message-api",
-      "tenant-admin-history"
+      "tenant-admin-history",
+      "agent-mux",
+      "platform-online"
     ],
     "disabled": {
-      "mux": "MUX_UNSUPPORTED",
       "llm-relay": "LLM_RELAY_UNSUPPORTED",
       "tunnel": "TUNNEL_UNSUPPORTED",
       "device-metrics": "DEVICE_METRICS_UNSUPPORTED",
@@ -64,7 +65,8 @@
     "connect",
     "renew",
     "dispatch",
-    "result"
+    "result",
+    "subscribe"
   ],
   "attemptOutcomes": [
     "cancelledBeforeDispatch",
@@ -282,6 +284,28 @@
       "path": "/tenant/v1/api/admin/reset-failure-count",
       "authority": "admin",
       "executionVersion": false
+    },
+    {
+      "service": "agent",
+      "method": "GET",
+      "path": "/tenant/v1/v2/ws",
+      "authority": "ticket",
+      "executionVersion": false,
+      "upgrade": "websocket",
+      "ticketKind": "user",
+      "optionalQuery": {
+        "clientId": "identity hint; must equal signed connection_id"
+      }
+    },
+    {
+      "service": "agent",
+      "method": "GET",
+      "path": "/tenant/v1/api/platform/online",
+      "authority": "admin",
+      "tenantScoped": false,
+      "executionVersion": false,
+      "responseSchema": "platformOnline",
+      "requestSchema": "platformOnlineRequest"
     }
   ],
   "errors": {
@@ -525,12 +549,6 @@
     {
       "service": "agent",
       "method": "WS",
-      "path": "/tenant/v1/v2/ws",
-      "code": "MUX_UNSUPPORTED"
-    },
-    {
-      "service": "agent",
-      "method": "WS",
       "path": "/tenant/v1/admin/ws",
       "code": "ADMIN_OBSERVER_UNSUPPORTED"
     },
@@ -590,10 +608,16 @@
       "system_info_response",
       "rpc_response",
       "message_api_response",
-      "agent_run_ack"
+      "agent_run_ack",
+      "subscribe",
+      "unsubscribe",
+      "interrupt",
+      "ready",
+      "subscribe_failed",
+      "op_lifecycle",
+      "error"
     ],
     "disabled": {
-      "subscribe": "MUX_UNSUPPORTED",
       "llm_execute": "LLM_RELAY_UNSUPPORTED",
       "llm-execute": "LLM_RELAY_UNSUPPORTED",
       "llm-cancel": "LLM_RELAY_UNSUPPORTED",
@@ -602,6 +626,91 @@
       "device_metrics": "DEVICE_METRICS_UNSUPPORTED",
       "device_metrics_ack": "DEVICE_METRICS_UNSUPPORTED"
     },
-    "note": "Only listed control/executable messages are supported. Existing agent_event payload types remain governed by the pinned upstream event schema; they cannot smuggle an executable command. Dispatch fields use dispatchCommand/dispatchResponse. Unlisted executable/control messages fail closed."
+    "note": "Only listed control/executable messages are supported. Existing agent_event payload types remain governed by the pinned upstream event schema; they cannot smuggle an executable command. Dispatch fields use dispatchCommand/dispatchResponse. Unlisted executable/control messages fail closed.",
+    "muxOnlyStreamEventTypes": [
+      "message_patch"
+    ],
+    "commandDelivery": {
+      "routes": [
+        "/tenant/v1/ws",
+        "/tenant/v1/v2/ws"
+      ],
+      "pointToPoint": true,
+      "buffered": false,
+      "replayed": false
+    }
+  },
+  "mux": {
+    "wireTenancyProtocol": 1,
+    "streamProtocol": 2,
+    "firstFrameTimeoutMs": 3000,
+    "routeTicketKinds": {
+      "/tenant/v1/ws": "operation",
+      "/tenant/v1/v2/ws": "user"
+    },
+    "subscribeAuthorization": {
+      "action": "subscribe",
+      "requestedRoles": "agent:observe plus agent:respond when held, plus agent:execute only when executor=true and held; every requested role must be within ticket capabilities",
+      "ownership": "operation owner or stream owner in the same tenant; status does not matter",
+      "source": "recheck original authorization source as connect (FR-GW-02)",
+      "versionEquality": [
+        "response.sourceAcceptedVersion",
+        "ticket.accepted_version",
+        "trustedInit.sourceAcceptedVersion"
+      ],
+      "denialReason": "forbidden",
+      "denialCauses": [
+        "unknown-operation",
+        "foreign-tenant",
+        "not-owner",
+        "version-mismatch"
+      ],
+      "outage": {
+        "frame": "error",
+        "code": "GATEWAY_AUTHORITY_UNAVAILABLE",
+        "retryable": true
+      }
+    },
+    "executorUniqueness": "one live executor across both routes; mux contention grants without execute; same connection resubscribe retains execute",
+    "settlement": "unsubscribe or close ends operation roles and settles claimed unsettled attempts as executionUnknown",
+    "stamping": "all gateway frames: tenancyProtocol, tenantId, connectionGeneration; authorized operation frames additionally sourceAcceptedVersion; unauthorized subscribe_failed/error omit version; heartbeat_ack uses ticket accepted version"
+  },
+  "onlinePresence": {
+    "tenantStats": {
+      "required": [
+        "onlineUsers",
+        "onlineClients"
+      ],
+      "optional": [
+        "connections.v1",
+        "connections.v2"
+      ]
+    },
+    "counting": "distinct users with a live agent socket per tenant across both routes; distinct live client connections",
+    "platform": {
+      "requiredHeaders": {
+        "Authorization": "Bearer <ADMIN_TOKEN>",
+        "X-LobeHub-Gateway-Tenancy": "1"
+      },
+      "forbiddenHeaders": {
+        "X-LobeHub-Tenant-Id": "TENANT_INVALID"
+      },
+      "serviceTokenError": "FORBIDDEN",
+      "responseHeaders": {
+        "X-LobeHub-Gateway-Tenancy": "1"
+      },
+      "tenantHeaderEcho": false,
+      "createsTenantState": false,
+      "callsWork": false,
+      "tenantOrder": "tenantId ascending",
+      "include": "only tenants with a live socket",
+      "totals": "sums over tenant list; tenants equals list length"
+    }
+  },
+  "snapshot": {
+    "formatVersion": 3,
+    "layout": "one tenancy state file mapping tenant to immutable operation owner principal/sourceAcceptedVersion, plus one lower-gateway admin store file per tenant with path-safe encoded tenant id",
+    "migration": "formatVersion 2 refused at startup; offline explicit idempotent command, original untouched, backup plus sha256",
+    "persistsTicketsOrTokens": false
   }
 }

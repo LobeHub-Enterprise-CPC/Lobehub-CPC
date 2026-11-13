@@ -1,5 +1,5 @@
 {
-  "contractVersion": 1,
+  "contractVersion": 2,
   "cases": [
     {
       "id": "auth-success-valid",
@@ -600,6 +600,392 @@
       "expected": {
         "accepted": false,
         "code": "UNAUTHORIZED"
+      }
+    },
+    {
+      "id": "mux-user-handshake",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "route": "/tenant/v1/v2/ws",
+        "ticketClaims": {
+          "iss": "urn:lobehub:gateway-session",
+          "aud": "urn:lobehub:gateway:agent",
+          "purpose": "gateway-connect",
+          "tid": "tenant-A",
+          "sub": "user-shared",
+          "principal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "capabilities": [
+            "agent:observe",
+            "agent:respond",
+            "agent:execute"
+          ],
+          "authorization_id": "auth-agent-A",
+          "accepted_version": 7,
+          "jti": "ticket-A",
+          "iat": 1900000000,
+          "exp": 1900000300,
+          "connection_id": "tab-1"
+        },
+        "firstFrameAtMs": 2999,
+        "expectedFrames": [
+          {
+            "type": "auth_success",
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "principal": {
+              "kind": "user",
+              "id": "user-shared"
+            },
+            "audience": "urn:lobehub:gateway:agent",
+            "roles": [
+              "agent:observe",
+              "agent:respond"
+            ],
+            "acceptedVersion": 7,
+            "connectionGeneration": 3,
+            "ticketExpiresAt": 1900000300000,
+            "authRecordExpiresAt": 1900000240000,
+            "leaseExpiresAt": 1900000030000
+          },
+          {
+            "type": "ready",
+            "protocol": 2,
+            "connectionId": "tab-1",
+            "userId": "user-shared",
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "connectionGeneration": 3
+          }
+        ]
+      }
+    },
+    {
+      "id": "operation-ticket-on-mux",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "route": "/tenant/v1/v2/ws",
+        "ticketClaims": {
+          "iss": "urn:lobehub:gateway-session",
+          "aud": "urn:lobehub:gateway:agent",
+          "purpose": "gateway-connect",
+          "tid": "tenant-A",
+          "sub": "user-shared",
+          "principal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "operation_id": "operation-shared",
+          "capabilities": [
+            "agent:observe"
+          ],
+          "authorization_id": "auth-agent-A",
+          "accepted_version": 7,
+          "jti": "ticket-A",
+          "iat": 1900000000,
+          "exp": 1900000300
+        },
+        "expectedFrame": {
+          "type": "auth_failed",
+          "tenancyProtocol": 1,
+          "code": "UNAUTHORIZED",
+          "message": "Authentication required"
+        },
+        "closeCode": 1008
+      }
+    },
+    {
+      "id": "user-ticket-on-single",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "route": "/tenant/v1/ws",
+        "ticketClaims": {
+          "iss": "urn:lobehub:gateway-session",
+          "aud": "urn:lobehub:gateway:agent",
+          "purpose": "gateway-connect",
+          "tid": "tenant-A",
+          "sub": "user-shared",
+          "principal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "capabilities": [
+            "agent:observe",
+            "agent:respond",
+            "agent:execute"
+          ],
+          "authorization_id": "auth-agent-A",
+          "accepted_version": 7,
+          "jti": "ticket-A",
+          "iat": 1900000000,
+          "exp": 1900000300,
+          "connection_id": "tab-1"
+        },
+        "expectedFrame": {
+          "type": "auth_failed",
+          "tenancyProtocol": 1,
+          "code": "UNAUTHORIZED",
+          "message": "Authentication required"
+        },
+        "closeCode": 1008
+      }
+    },
+    {
+      "id": "mux-first-frame-timeout",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "route": "/tenant/v1/v2/ws",
+        "firstFrameReceived": false,
+        "elapsedMs": 3000,
+        "closeCode": 1008
+      }
+    },
+    {
+      "id": "mux-client-id-matches",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "route": "/tenant/v1/v2/ws",
+        "ticketClaims": {
+          "iss": "urn:lobehub:gateway-session",
+          "aud": "urn:lobehub:gateway:agent",
+          "purpose": "gateway-connect",
+          "tid": "tenant-A",
+          "sub": "user-shared",
+          "principal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "capabilities": [
+            "agent:observe",
+            "agent:respond",
+            "agent:execute"
+          ],
+          "authorization_id": "auth-agent-A",
+          "accepted_version": 7,
+          "jti": "ticket-A",
+          "iat": 1900000000,
+          "exp": 1900000300,
+          "connection_id": "tab-1"
+        },
+        "firstFrameAtMs": 2999,
+        "expectedFrames": [
+          {
+            "type": "auth_success",
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "principal": {
+              "kind": "user",
+              "id": "user-shared"
+            },
+            "audience": "urn:lobehub:gateway:agent",
+            "roles": [
+              "agent:observe",
+              "agent:respond"
+            ],
+            "acceptedVersion": 7,
+            "connectionGeneration": 3,
+            "ticketExpiresAt": 1900000300000,
+            "authRecordExpiresAt": 1900000240000,
+            "leaseExpiresAt": 1900000030000
+          },
+          {
+            "type": "ready",
+            "protocol": 2,
+            "connectionId": "tab-1",
+            "userId": "user-shared",
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "connectionGeneration": 3
+          }
+        ],
+        "query": {
+          "clientId": "tab-1"
+        }
+      }
+    },
+    {
+      "id": "mux-client-id-mismatch",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "route": "/tenant/v1/v2/ws",
+        "ticketClaims": {
+          "iss": "urn:lobehub:gateway-session",
+          "aud": "urn:lobehub:gateway:agent",
+          "purpose": "gateway-connect",
+          "tid": "tenant-A",
+          "sub": "user-shared",
+          "principal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "capabilities": [
+            "agent:observe",
+            "agent:respond",
+            "agent:execute"
+          ],
+          "authorization_id": "auth-agent-A",
+          "accepted_version": 7,
+          "jti": "ticket-A",
+          "iat": 1900000000,
+          "exp": 1900000300,
+          "connection_id": "tab-1"
+        },
+        "firstFrameAtMs": 2999,
+        "expectedFrames": [
+          {
+            "type": "auth_success",
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "principal": {
+              "kind": "user",
+              "id": "user-shared"
+            },
+            "audience": "urn:lobehub:gateway:agent",
+            "roles": [
+              "agent:observe",
+              "agent:respond"
+            ],
+            "acceptedVersion": 7,
+            "connectionGeneration": 3,
+            "ticketExpiresAt": 1900000300000,
+            "authRecordExpiresAt": 1900000240000,
+            "leaseExpiresAt": 1900000030000
+          },
+          {
+            "type": "ready",
+            "protocol": 2,
+            "connectionId": "tab-1",
+            "userId": "user-shared",
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "connectionGeneration": 3
+          }
+        ],
+        "query": {
+          "clientId": "other"
+        }
+      }
+    },
+    {
+      "id": "mux-renewal-generation",
+      "schema": "authFrame",
+      "validation": "binding",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "ticketKind": "user",
+        "sameAuthorizationId": true,
+        "freshJti": true,
+        "previousConnectionGeneration": 3,
+        "expectedFrames": [
+          {
+            "type": "auth_success",
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "principal": {
+              "kind": "user",
+              "id": "user-shared"
+            },
+            "audience": "urn:lobehub:gateway:agent",
+            "roles": [
+              "agent:observe",
+              "agent:respond"
+            ],
+            "acceptedVersion": 7,
+            "connectionGeneration": 4,
+            "ticketExpiresAt": 1900000300000,
+            "authRecordExpiresAt": 1900000240000,
+            "leaseExpiresAt": 1900000030000
+          }
+        ]
+      }
+    },
+    {
+      "id": "mux-first-frame-not-auth",
+      "schema": "authFrame",
+      "validation": "wire",
+      "input": {
+        "type": "heartbeat",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
       }
     }
   ]

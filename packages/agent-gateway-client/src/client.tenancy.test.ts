@@ -6,9 +6,9 @@ import { AgentStreamClient } from './client';
 
 const fixtures = JSON.parse(
   readFileSync(
-    existsSync('contracts/gateway-tenancy/v1/fixtures/ws-auth.json')
-      ? 'contracts/gateway-tenancy/v1/fixtures/ws-auth.json'
-      : '../../contracts/gateway-tenancy/v1/fixtures/ws-auth.json',
+    existsSync('contracts/gateway-tenancy/v2/fixtures/ws-auth.json')
+      ? 'contracts/gateway-tenancy/v2/fixtures/ws-auth.json'
+      : '../../contracts/gateway-tenancy/v2/fixtures/ws-auth.json',
     'utf8',
   ),
 );

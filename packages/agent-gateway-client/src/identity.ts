@@ -1,6 +1,6 @@
 import { toRecord } from '@lobechat/utils/object';
 
-import protocol from '../../../contracts/gateway-tenancy/v1/protocol.json';
+import protocol from '../../../contracts/gateway-tenancy/v2/protocol.json';
 import type { GatewayIdentityResponse, GatewayPrincipal } from '../../types/src/gateway';
 
 /** Chromium failures where the request itself is invalid, so a retry sends the same thing. */

@@ -44,8 +44,8 @@ export const mintGatewayTicket = async (input: {
   operationId?: string;
   capabilities: GatewayCapability[];
   /**
-   * The socket the ticket is for. Required for the device audience, optional for
-   * agents (a stable id lets a client's reconnect replace its own executor).
+   * The socket the ticket is for. Required for devices and agent user tickets, optional for
+   * operation tickets (a stable id lets a client's reconnect replace its own executor).
    * Signed into the ticket; the gateway never takes it from the URL.
    */
   connectionId?: string;
@@ -57,13 +57,21 @@ export const mintGatewayTicket = async (input: {
   const startedAt = Date.now();
   await assertGatewayVersion(scope.tenantId, scope.acceptedVersion);
   const agent = input.audience === 'urn:lobehub:gateway:agent';
-  if (agent && !input.operationId) throw new GatewayAuthorizationError('MUX_UNSUPPORTED', 501);
+  const userTicket = agent && !input.operationId;
+  if (userTicket && !['session', 'oidc', 'apiKey'].includes(input.source.kind))
+    throw new GatewayAuthorizationError('SOURCE_UNVERIFIABLE');
+  if (
+    userTicket &&
+    (input.principal.kind !== 'user' || input.principal.id !== input.source.subject)
+  )
+    throw new GatewayAuthorizationError('FORBIDDEN', 403);
   const allowed: GatewayCapability[] = agent
     ? ['agent:observe', 'agent:respond', 'agent:execute']
     : ['device:connect', 'device:respond'];
   const { connectionId, deviceId } = input;
   const invalid = agent
     ? deviceId !== undefined ||
+      (userTicket && !isGatewayIdentifier(connectionId, MAX_GATEWAY_CONNECTION_ID_BYTES)) ||
       (connectionId !== undefined &&
         !isGatewayIdentifier(connectionId, MAX_GATEWAY_CONNECTION_ID_BYTES))
     : !isGatewayIdentifier(deviceId, MAX_GATEWAY_DEVICE_ID_BYTES) ||
@@ -84,6 +92,7 @@ export const mintGatewayTicket = async (input: {
   try {
     sourceExpiresAt = await assertGatewaySource(input.source, {
       principal: input.principal,
+      userTicket,
       operationId: input.operationId,
       enroller: !agent,
       execute: capabilities.includes('agent:execute') || capabilities.includes('agent:respond'),

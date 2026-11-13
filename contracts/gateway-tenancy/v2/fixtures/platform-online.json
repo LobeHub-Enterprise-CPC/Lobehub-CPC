@@ -1,0 +1,292 @@
+{
+  "contractVersion": 2,
+  "cases": [
+    {
+      "id": "admin-request-valid",
+      "schema": "platformOnlineRequest",
+      "validation": "wire",
+      "input": {
+        "method": "GET",
+        "path": "/tenant/v1/api/platform/online",
+        "headers": {
+          "Authorization": "Bearer TEST-ONLY-ADMIN",
+          "X-LobeHub-Gateway-Tenancy": "1"
+        }
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "credentialKind": "admin",
+        "responseHeaders": {
+          "X-LobeHub-Gateway-Tenancy": "1"
+        },
+        "createsTenantState": false,
+        "workCalls": 0
+      }
+    },
+    {
+      "id": "online-valid",
+      "schema": "platformOnline",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "generatedAt": 1900000000000,
+        "tenants": [
+          {
+            "tenantId": "tenant-A",
+            "onlineUsers": 1,
+            "onlineClients": 2
+          },
+          {
+            "tenantId": "tenant-B",
+            "onlineUsers": 1,
+            "onlineClients": 1
+          }
+        ],
+        "totals": {
+          "onlineUsers": 2,
+          "onlineClients": 3,
+          "tenants": 2
+        }
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "distinctUsersPerTenant": true,
+        "bothRoutesCounted": true
+      }
+    },
+    {
+      "id": "tenant-header-rejected",
+      "schema": "platformOnlineRequest",
+      "validation": "wire",
+      "input": {
+        "method": "GET",
+        "path": "/tenant/v1/api/platform/online",
+        "headers": {
+          "Authorization": "Bearer TEST-ONLY-ADMIN",
+          "X-LobeHub-Gateway-Tenancy": "1",
+          "X-LobeHub-Tenant-Id": "tenant-A"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "TENANT_INVALID"
+      }
+    },
+    {
+      "id": "service-token-rejected",
+      "schema": "platformOnlineRequest",
+      "validation": "gate",
+      "input": {
+        "method": "GET",
+        "path": "/tenant/v1/api/platform/online",
+        "headers": {
+          "Authorization": "Bearer TEST-ONLY-SERVICE",
+          "X-LobeHub-Gateway-Tenancy": "1"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "FORBIDDEN"
+      },
+      "context": {
+        "credentialKind": "service"
+      }
+    },
+    {
+      "id": "empty-gateway",
+      "schema": "platformOnline",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "generatedAt": 1900000000000,
+        "tenants": [],
+        "totals": {
+          "onlineUsers": 0,
+          "onlineClients": 0,
+          "tenants": 0
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "negative-count",
+      "schema": "platformOnline",
+      "validation": "wire",
+      "input": {
+        "tenancyProtocol": 1,
+        "generatedAt": 1900000000000,
+        "tenants": [
+          {
+            "tenantId": "tenant-A",
+            "onlineUsers": 1,
+            "onlineClients": 2
+          },
+          {
+            "tenantId": "tenant-B",
+            "onlineUsers": 1,
+            "onlineClients": 1
+          }
+        ],
+        "totals": {
+          "onlineUsers": -1,
+          "onlineClients": 3,
+          "tenants": 2
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "totals-mismatch",
+      "schema": "platformOnline",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "generatedAt": 1900000000000,
+        "tenants": [
+          {
+            "tenantId": "tenant-A",
+            "onlineUsers": 1,
+            "onlineClients": 2
+          },
+          {
+            "tenantId": "tenant-B",
+            "onlineUsers": 1,
+            "onlineClients": 1
+          }
+        ],
+        "totals": {
+          "onlineUsers": 9,
+          "onlineClients": 3,
+          "tenants": 2
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      },
+      "context": {
+        "totalsMustEqualSums": true
+      }
+    },
+    {
+      "id": "tenants-unsorted",
+      "schema": "platformOnline",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "generatedAt": 1900000000000,
+        "tenants": [
+          {
+            "tenantId": "tenant-B",
+            "onlineUsers": 1,
+            "onlineClients": 1
+          },
+          {
+            "tenantId": "tenant-A",
+            "onlineUsers": 1,
+            "onlineClients": 2
+          }
+        ],
+        "totals": {
+          "onlineUsers": 2,
+          "onlineClients": 3,
+          "tenants": 2
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      },
+      "context": {
+        "tenantIdAscending": true
+      }
+    },
+    {
+      "id": "tenant-stats-valid",
+      "schema": "tenantOnlineStats",
+      "validation": "wire",
+      "input": {
+        "onlineUsers": 1,
+        "onlineClients": 2,
+        "connections": {
+          "v1": 1,
+          "v2": 1
+        }
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "tenant-stats-negative",
+      "schema": "tenantOnlineStats",
+      "validation": "wire",
+      "input": {
+        "onlineUsers": -1,
+        "onlineClients": 2
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "protocol-header-required",
+      "schema": "platformOnlineRequest",
+      "validation": "wire",
+      "input": {
+        "method": "GET",
+        "path": "/tenant/v1/api/platform/online",
+        "headers": {
+          "Authorization": "Bearer TEST-ONLY-ADMIN"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "GATEWAY_TENANCY_REQUIRED"
+      }
+    },
+    {
+      "id": "offline-tenant-omitted",
+      "schema": "platformOnline",
+      "validation": "binding",
+      "input": {
+        "tenancyProtocol": 1,
+        "generatedAt": 1900000000000,
+        "tenants": [
+          {
+            "tenantId": "tenant-A",
+            "onlineUsers": 0,
+            "onlineClients": 0
+          },
+          {
+            "tenantId": "tenant-B",
+            "onlineUsers": 1,
+            "onlineClients": 1
+          }
+        ],
+        "totals": {
+          "onlineUsers": 2,
+          "onlineClients": 3,
+          "tenants": 2
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      },
+      "context": {
+        "onlyLiveTenants": true
+      }
+    }
+  ]
+}

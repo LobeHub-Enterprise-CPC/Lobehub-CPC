@@ -7,6 +7,7 @@ import { getServerConfigStoreState } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
 
+import tenancyProtocol from '../../../contracts/gateway-tenancy/v2/protocol.json';
 import { subscribeLlmRelayChannel } from './channelSubscription';
 import { getLlmRelayClientId } from './clientId';
 import { LlmRelayExecutor } from './executor';
@@ -30,7 +31,7 @@ const getConfigState = () =>
   (typeof window !== 'undefined' ? window.global_serverConfigStore?.getState() : undefined) ??
   getServerConfigStoreState();
 
-const isLlmRelayEnabled = () => false;
+const isLlmRelayEnabled = () => !('llm-relay' in tenancyProtocol.capabilities.disabled);
 
 /** How long a one-shot call waits for the provider runtime state to load. */
 const PROVIDER_STATE_WAIT_MS = 5000;

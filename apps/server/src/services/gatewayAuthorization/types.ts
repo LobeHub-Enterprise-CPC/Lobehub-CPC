@@ -1,5 +1,6 @@
 import type {
   GatewayAudience,
+  GatewayCapability,
   GatewayDispatchBinding,
   GatewayDispatchResult,
   GatewayExecutionContext,
@@ -74,7 +75,7 @@ export interface GatewayAttemptRecord {
   state: 'prepared' | 'claimed' | GatewayAttemptOutcome;
 }
 export interface GatewayAuthorizeRequest {
-  action: 'connect' | 'renew' | 'dispatch' | 'result';
+  action: 'connect' | 'renew' | 'dispatch' | 'result' | 'subscribe';
   attemptId?: string;
   audience: GatewayAudience;
   authorizationId: string;
@@ -83,6 +84,7 @@ export interface GatewayAuthorizeRequest {
   generation: number;
   operationId?: string;
   requestSeq: number;
+  roles?: GatewayCapability[];
   sourceAcceptedVersion?: number;
   tenancyProtocol: 1;
   tenantId: string;

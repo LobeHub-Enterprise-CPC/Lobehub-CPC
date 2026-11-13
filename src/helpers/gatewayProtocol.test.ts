@@ -16,17 +16,17 @@ afterEach(() => {
 });
 
 describe('canUseGatewayProtocolV2', () => {
-  it('keeps tenancy on v1 even with the upstream capability and rollout', () => {
+  it('allows mux solely with the contract capability and server protocol', () => {
     mockConfig(2, true);
-    expect(canUseGatewayProtocolV2()).toBe(false);
+    expect(canUseGatewayProtocolV2()).toBe(true);
 
     // In the rollout, but this deployment's gateway has no `/v2/ws` at all.
     mockConfig(1, true);
     expect(canUseGatewayProtocolV2()).toBe(false);
 
-    // The gateway has it; this user is not in the rollout yet.
+    // A stale false rollout flag cannot disable a protocol 2 deployment.
     mockConfig(2, false);
-    expect(canUseGatewayProtocolV2()).toBe(false);
+    expect(canUseGatewayProtocolV2()).toBe(true);
   });
 
   it('defaults to v1 when the server said nothing', () => {
@@ -45,6 +45,6 @@ describe('canUseGatewayProtocolV2', () => {
       },
     };
 
-    expect(canUseGatewayProtocolV2()).toBe(false);
+    expect(canUseGatewayProtocolV2()).toBe(true);
   });
 });

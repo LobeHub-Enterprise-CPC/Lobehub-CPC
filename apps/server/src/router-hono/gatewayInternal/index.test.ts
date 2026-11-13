@@ -55,6 +55,40 @@ describe('gateway root authentication and tenant admission', () => {
     serviceTokens: () => ['TEST-ONLY-SERVICE'],
     run: boundaries.run,
   });
+  it('validates subscribe and forbids connect/dispatch-only fields', async () => {
+    const body = {
+      tenancyProtocol: 1,
+      tenantId: 'tenant-A',
+      authorizationId: 'auth',
+      expectedPrincipal: { kind: 'user', id: 'user' },
+      audience: 'urn:lobehub:gateway:agent',
+      action: 'subscribe',
+      generation: 1,
+      requestSeq: 1,
+      operationId: 'op',
+      roles: ['agent:observe'],
+    };
+    boundaries.authorize.mockResolvedValue({ allowed: true });
+    expect(
+      (await app.fetch(request('authorize', { auth: 'TEST-ONLY-SERVICE', body }))).status,
+    ).toBe(200);
+    for (const patch of [
+      { ticket: 'opaque' },
+      { attemptId: 'attempt' },
+      {
+        dispatchBinding: { connectionId: 'tab', connectionGeneration: 1, authorizationId: 'auth' },
+      },
+      { operationId: undefined },
+      { roles: [] },
+      { roles: ['device:respond'] },
+    ]) {
+      const response = await app.fetch(
+        request('authorize', { auth: 'TEST-ONLY-SERVICE', body: { ...body, ...patch } }),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: 'INVALID_GATEWAY_MESSAGE' } });
+    }
+  });
   it.each(['authorize', 'tool-result', 'finalize-abandoned'])(
     'rejects device credentials for agent-only work on %s before executing it',
     async (path) => {

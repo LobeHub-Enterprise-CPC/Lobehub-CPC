@@ -1,7 +1,7 @@
 import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
 import { AgentStreamClient } from '@lobechat/agent-gateway-client';
 
-import { canUseGatewayProtocolV2 } from '@/helpers/gatewayProtocol';
+import { canUseGatewayProtocolV2, isGatewayLlmRelaySupported } from '@/helpers/gatewayProtocol';
 import { aiAgentService } from '@/services/aiAgent';
 import {
   getGatewayMux,
@@ -26,7 +26,7 @@ const subscribeV1 = async (
   channel: string,
   onEvent: (event: AgentStreamEvent) => void,
 ): Promise<OneShotChannelSubscription> => {
-  const { token } = await aiAgentService.issueGatewayUserToken();
+  const { token } = await aiAgentService.issueGatewayUserToken({ clientId: getLlmRelayClientId() });
   const client = new AgentStreamClient({
     clientId: getLlmRelayClientId(),
     gatewayUrl,
@@ -56,6 +56,7 @@ export const subscribeLlmRelayChannel = async (
   channel: string,
   onEvent: (event: AgentStreamEvent) => void,
 ): Promise<OneShotChannelSubscription> => {
+  if (!isGatewayLlmRelaySupported()) throw new Error('LLM_RELAY_UNSUPPORTED');
   const identity = { gatewayUrl };
 
   if (!canUseGatewayProtocolV2() || isGatewayMuxUnavailable(identity)) {

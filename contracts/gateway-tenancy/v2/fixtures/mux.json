@@ -1,0 +1,1131 @@
+{
+  "contractVersion": 2,
+  "cases": [
+    {
+      "id": "ready-valid",
+      "schema": "ready",
+      "validation": "wire",
+      "input": {
+        "type": "ready",
+        "protocol": 2,
+        "connectionId": "tab-1",
+        "userId": "user-shared",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "ready-wrong-envelope-version",
+      "schema": "ready",
+      "validation": "wire",
+      "input": {
+        "type": "ready",
+        "protocol": 2,
+        "connectionId": "tab-1",
+        "userId": "user-shared",
+        "tenancyProtocol": 2,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "subscribe-granted",
+      "schema": "subscribe",
+      "validation": "binding",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "ticketClaims": {
+          "iss": "urn:lobehub:gateway-session",
+          "aud": "urn:lobehub:gateway:agent",
+          "purpose": "gateway-connect",
+          "tid": "tenant-A",
+          "sub": "user-shared",
+          "principal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "capabilities": [
+            "agent:observe",
+            "agent:respond",
+            "agent:execute"
+          ],
+          "authorization_id": "auth-agent-A",
+          "accepted_version": 7,
+          "jti": "ticket-A",
+          "iat": 1900000000,
+          "exp": 1900000300,
+          "connection_id": "tab-1"
+        },
+        "authorizeRequest": {
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "authorizationId": "auth-agent-A",
+          "expectedPrincipal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "audience": "urn:lobehub:gateway:agent",
+          "action": "subscribe",
+          "operationId": "operation-shared",
+          "generation": 3,
+          "requestSeq": 4,
+          "roles": [
+            "agent:observe",
+            "agent:respond",
+            "agent:execute"
+          ]
+        },
+        "authorizeResponse": {
+          "tenantId": "tenant-A",
+          "authorizationId": "auth-agent-A",
+          "principal": {
+            "kind": "user",
+            "id": "user-shared"
+          },
+          "audience": "urn:lobehub:gateway:agent",
+          "action": "subscribe",
+          "operationId": "operation-shared",
+          "acceptedVersion": 7,
+          "ticketExpiresAt": 1900000300000,
+          "authRecordExpiresAt": 1900000240000,
+          "leaseExpiresAt": 1900000030000,
+          "checkedAt": 1900000000000,
+          "generation": 3,
+          "requestSeq": 4,
+          "roles": [
+            "agent:observe",
+            "agent:respond"
+          ],
+          "sourceAcceptedVersion": 7
+        },
+        "trustedInitSourceAcceptedVersion": 7,
+        "expectedFrames": [
+          {
+            "type": "resume_complete",
+            "gap": false,
+            "status": "completed",
+            "pending": [],
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "connectionGeneration": 3,
+            "operationId": "operation-shared",
+            "sourceAcceptedVersion": 7
+          },
+          {
+            "type": "agent_event",
+            "id": "event-2",
+            "event": {
+              "type": "message_patch",
+              "delta": "text"
+            },
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "connectionGeneration": 3,
+            "operationId": "operation-shared",
+            "sourceAcceptedVersion": 7
+          }
+        ],
+        "operationStatus": "completed"
+      }
+    },
+    {
+      "id": "subscribe-missing-operation",
+      "schema": "subscribe",
+      "validation": "wire",
+      "input": {
+        "type": "subscribe",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "subscribe-denied-unknown-operation",
+      "schema": "subscribe",
+      "validation": "binding",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "FORBIDDEN"
+      },
+      "context": {
+        "cause": "unknown-operation",
+        "expectedFrame": {
+          "type": "subscribe_failed",
+          "operationId": "operation-shared",
+          "reason": "forbidden",
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "connectionGeneration": 3
+        },
+        "ticketAcceptedVersion": 7,
+        "trustedInitSourceAcceptedVersion": 7,
+        "sourceValid": true,
+        "operationExists": false,
+        "operationTenantId": "tenant-A",
+        "operationOwnerSubject": "user-shared",
+        "subject": "user-shared",
+        "authorizeSourceAcceptedVersion": 7
+      }
+    },
+    {
+      "id": "subscribe-denied-foreign-tenant",
+      "schema": "subscribe",
+      "validation": "binding",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "FORBIDDEN"
+      },
+      "context": {
+        "cause": "foreign-tenant",
+        "expectedFrame": {
+          "type": "subscribe_failed",
+          "operationId": "operation-shared",
+          "reason": "forbidden",
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "connectionGeneration": 3
+        },
+        "ticketAcceptedVersion": 7,
+        "trustedInitSourceAcceptedVersion": 7,
+        "sourceValid": true,
+        "operationExists": true,
+        "operationTenantId": "tenant-B",
+        "operationOwnerSubject": "user-shared",
+        "subject": "user-shared",
+        "authorizeSourceAcceptedVersion": 7
+      }
+    },
+    {
+      "id": "subscribe-denied-not-owner",
+      "schema": "subscribe",
+      "validation": "binding",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "FORBIDDEN"
+      },
+      "context": {
+        "cause": "not-owner",
+        "expectedFrame": {
+          "type": "subscribe_failed",
+          "operationId": "operation-shared",
+          "reason": "forbidden",
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "connectionGeneration": 3
+        },
+        "ticketAcceptedVersion": 7,
+        "trustedInitSourceAcceptedVersion": 7,
+        "sourceValid": true,
+        "operationExists": true,
+        "operationTenantId": "tenant-A",
+        "operationOwnerSubject": "other",
+        "subject": "user-shared",
+        "authorizeSourceAcceptedVersion": 7
+      }
+    },
+    {
+      "id": "subscribe-denied-version-mismatch",
+      "schema": "subscribe",
+      "validation": "binding",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "FORBIDDEN"
+      },
+      "context": {
+        "cause": "version-mismatch",
+        "expectedFrame": {
+          "type": "subscribe_failed",
+          "operationId": "operation-shared",
+          "reason": "forbidden",
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "connectionGeneration": 3
+        },
+        "ticketAcceptedVersion": 7,
+        "trustedInitSourceAcceptedVersion": 7,
+        "sourceValid": true,
+        "operationExists": true,
+        "operationTenantId": "tenant-A",
+        "operationOwnerSubject": "user-shared",
+        "subject": "user-shared",
+        "authorizeSourceAcceptedVersion": 8
+      }
+    },
+    {
+      "id": "subscribe-failed-valid",
+      "schema": "subscribeFailed",
+      "validation": "wire",
+      "input": {
+        "type": "subscribe_failed",
+        "operationId": "operation-shared",
+        "reason": "forbidden",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "subscribe-failed-leaks-version",
+      "schema": "subscribeFailed",
+      "validation": "wire",
+      "input": {
+        "type": "subscribe_failed",
+        "operationId": "operation-shared",
+        "reason": "forbidden",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3,
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "subscribe-failed-invalid",
+      "schema": "subscribeFailed",
+      "validation": "wire",
+      "input": {
+        "type": "subscribe_failed",
+        "operationId": "operation-shared",
+        "reason": "invalid",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "executor-contention-downgrade",
+      "schema": "subscribe",
+      "validation": "binding",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "otherExecutor": {
+          "route": "/tenant/v1/ws",
+          "connectionId": "other"
+        },
+        "grantedRoles": [
+          "agent:observe",
+          "agent:respond"
+        ],
+        "expectedFrames": [
+          {
+            "type": "resume_complete",
+            "gap": false,
+            "status": "completed",
+            "pending": [],
+            "tenancyProtocol": 1,
+            "tenantId": "tenant-A",
+            "connectionGeneration": 3,
+            "operationId": "operation-shared",
+            "sourceAcceptedVersion": 7
+          }
+        ]
+      }
+    },
+    {
+      "id": "executor-same-connection-resubscribe",
+      "schema": "subscribe",
+      "validation": "binding",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "existingExecutorConnectionId": "tab-1",
+        "currentConnectionId": "tab-1",
+        "grantedRoles": [
+          "agent:observe",
+          "agent:respond",
+          "agent:execute"
+        ]
+      }
+    },
+    {
+      "id": "command-point-to-point",
+      "schema": "dispatchCommand",
+      "validation": "binding",
+      "input": {
+        "type": "tool_execute",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "tool": {
+          "name": "synthetic-noop"
+        }
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "recipientConnectionId": "tab-1",
+        "dispatchBinding": {
+          "connectionId": "tab-1",
+          "connectionGeneration": 3,
+          "authorizationId": "auth-agent-A"
+        },
+        "observerConnectionIds": [
+          "tab-2"
+        ],
+        "observerFrames": [],
+        "buffered": false,
+        "replayed": false
+      }
+    },
+    {
+      "id": "result-wrong-attemptId",
+      "schema": "dispatchResponse",
+      "validation": "binding",
+      "input": {
+        "type": "tool_result",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "wrong-attempt",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "result": {
+          "text": "synthetic result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "ATTEMPT_CONFLICT"
+      },
+      "context": {
+        "pendingCommand": {
+          "type": "tool_execute",
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "sourceAcceptedVersion": 7,
+          "attemptId": "attempt-A-1",
+          "connectionGeneration": 3,
+          "operationId": "operation-shared",
+          "toolCallId": "tool-shared",
+          "tool": {
+            "name": "synthetic-noop"
+          }
+        },
+        "actualConnectionId": "tab-1"
+      }
+    },
+    {
+      "id": "result-wrong-connectionGeneration",
+      "schema": "dispatchResponse",
+      "validation": "binding",
+      "input": {
+        "type": "tool_result",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 2,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "result": {
+          "text": "synthetic result"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "ATTEMPT_CONFLICT"
+      },
+      "context": {
+        "pendingCommand": {
+          "type": "tool_execute",
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "sourceAcceptedVersion": 7,
+          "attemptId": "attempt-A-1",
+          "connectionGeneration": 3,
+          "operationId": "operation-shared",
+          "toolCallId": "tool-shared",
+          "tool": {
+            "name": "synthetic-noop"
+          }
+        },
+        "actualConnectionId": "tab-1"
+      }
+    },
+    {
+      "id": "result-valid",
+      "schema": "dispatchResponse",
+      "validation": "binding",
+      "input": {
+        "type": "tool_result",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "result": {
+          "text": "synthetic result"
+        }
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "pendingCommand": {
+          "type": "tool_execute",
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "sourceAcceptedVersion": 7,
+          "attemptId": "attempt-A-1",
+          "connectionGeneration": 3,
+          "operationId": "operation-shared",
+          "toolCallId": "tool-shared",
+          "tool": {
+            "name": "synthetic-noop"
+          }
+        },
+        "actualConnectionId": "tab-1"
+      }
+    },
+    {
+      "id": "unsubscribe-valid",
+      "schema": "unsubscribe",
+      "validation": "binding",
+      "input": {
+        "type": "unsubscribe",
+        "operationId": "operation-shared"
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "claimedUnsettledAttempts": [
+          "attempt-A-1"
+        ],
+        "expectedOutcome": "executionUnknown",
+        "rolesEnded": true
+      }
+    },
+    {
+      "id": "unsubscribe-missing-operation",
+      "schema": "unsubscribe",
+      "validation": "wire",
+      "input": {
+        "type": "unsubscribe"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "interrupt-valid",
+      "schema": "interrupt",
+      "validation": "binding",
+      "input": {
+        "type": "interrupt",
+        "operationId": "operation-shared"
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "claimedUnsettledAttempts": [
+          "attempt-A-1"
+        ],
+        "expectedOutcome": "interrupted",
+        "rolesEnded": false
+      }
+    },
+    {
+      "id": "interrupt-missing-operation",
+      "schema": "interrupt",
+      "validation": "wire",
+      "input": {
+        "type": "interrupt"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "close-settles-attempts",
+      "schema": "subscribe",
+      "validation": "binding",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "event": "connection-close",
+        "rolesEnded": true,
+        "claimedUnsettledAttempts": [
+          "attempt-A-1"
+        ],
+        "expectedOutcome": "executionUnknown"
+      }
+    },
+    {
+      "id": "subscribe-work-outage",
+      "schema": "subscribe",
+      "validation": "source",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": true,
+        "lastEventId": "event-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "GATEWAY_AUTHORITY_UNAVAILABLE"
+      },
+      "context": {
+        "workAvailable": false,
+        "expectedFrame": {
+          "type": "error",
+          "code": "GATEWAY_AUTHORITY_UNAVAILABLE",
+          "message": "Authority unavailable",
+          "operationId": "operation-shared",
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "connectionGeneration": 3
+        },
+        "subscribeFailedSent": false,
+        "retryable": true
+      }
+    },
+    {
+      "id": "outage-error-valid",
+      "schema": "muxError",
+      "validation": "wire",
+      "input": {
+        "type": "error",
+        "code": "GATEWAY_AUTHORITY_UNAVAILABLE",
+        "message": "Authority unavailable",
+        "operationId": "operation-shared",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "resume-valid",
+      "schema": "resumeComplete",
+      "validation": "wire",
+      "input": {
+        "type": "resume_complete",
+        "gap": false,
+        "status": "completed",
+        "pending": [],
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "resume-missing-stamp",
+      "schema": "resumeComplete",
+      "validation": "wire",
+      "input": {
+        "type": "resume_complete",
+        "gap": false,
+        "status": "completed",
+        "pending": [],
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "message-patch-mux",
+      "schema": "muxStreamFrame",
+      "validation": "binding",
+      "input": {
+        "type": "agent_event",
+        "id": "event-2",
+        "event": {
+          "type": "message_patch",
+          "delta": "text"
+        },
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "route": "/tenant/v1/v2/ws",
+        "subscriptionAuthorized": true
+      }
+    },
+    {
+      "id": "message-patch-single-forbidden",
+      "schema": "muxStreamFrame",
+      "validation": "gate",
+      "input": {
+        "type": "agent_event",
+        "id": "event-2",
+        "event": {
+          "type": "message_patch",
+          "delta": "text"
+        },
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      },
+      "context": {
+        "route": "/tenant/v1/ws",
+        "delivered": false
+      }
+    },
+    {
+      "id": "lifecycle-valid",
+      "schema": "opLifecycle",
+      "validation": "wire",
+      "input": {
+        "type": "op_lifecycle",
+        "status": "completed",
+        "at": 1900000000000,
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "lifecycle-missing-at",
+      "schema": "opLifecycle",
+      "validation": "wire",
+      "input": {
+        "type": "op_lifecycle",
+        "status": "completed",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "error-unknown-code",
+      "schema": "muxError",
+      "validation": "wire",
+      "input": {
+        "type": "error",
+        "code": "SECRET_ERROR",
+        "message": "Authority unavailable",
+        "operationId": "operation-shared",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "subscribe-malformed-denial",
+      "schema": "subscribe",
+      "validation": "wire",
+      "input": {
+        "type": "subscribe",
+        "operationId": "operation-shared",
+        "executor": "yes"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      },
+      "context": {
+        "malformedExecutor": true,
+        "expectedFrame": {
+          "type": "subscribe_failed",
+          "operationId": "operation-shared",
+          "reason": "invalid",
+          "tenancyProtocol": 1,
+          "tenantId": "tenant-A",
+          "connectionGeneration": 3
+        }
+      }
+    },
+    {
+      "id": "single-operation-executor-contention",
+      "schema": "authFrame",
+      "validation": "gate",
+      "input": {
+        "type": "auth",
+        "tenancyProtocol": 1,
+        "tokenType": "jwt",
+        "token": "TEST-ONLY-NOT-A-SIGNED-JWT"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "DEVICE_EXECUTOR_UNAVAILABLE"
+      },
+      "context": {
+        "route": "/tenant/v1/ws",
+        "otherExecutorConnectionId": "tab-2",
+        "currentConnectionId": "tab-1",
+        "ticketKind": "operation"
+      }
+    },
+    {
+      "id": "status_change-stamped",
+      "schema": "muxStreamFrame",
+      "validation": "wire",
+      "input": {
+        "type": "status_change",
+        "id": "event-2",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "session_complete-stamped",
+      "schema": "muxStreamFrame",
+      "validation": "wire",
+      "input": {
+        "type": "session_complete",
+        "id": "event-2",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "ready-missing-generation",
+      "schema": "ready",
+      "validation": "wire",
+      "input": {
+        "type": "ready",
+        "protocol": 2,
+        "connectionId": "tab-1",
+        "userId": "user-shared",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "resumeComplete-missing-generation",
+      "schema": "resumeComplete",
+      "validation": "wire",
+      "input": {
+        "type": "resume_complete",
+        "gap": false,
+        "status": "completed",
+        "pending": [],
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "operation-shared",
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "opLifecycle-missing-generation",
+      "schema": "opLifecycle",
+      "validation": "wire",
+      "input": {
+        "type": "op_lifecycle",
+        "status": "completed",
+        "at": 1900000000000,
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "operationId": "operation-shared",
+        "sourceAcceptedVersion": 7
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "muxError-missing-generation",
+      "schema": "muxError",
+      "validation": "wire",
+      "input": {
+        "type": "error",
+        "code": "GATEWAY_AUTHORITY_UNAVAILABLE",
+        "message": "Authority unavailable",
+        "operationId": "operation-shared",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "heartbeat-valid",
+      "schema": "heartbeat",
+      "validation": "wire",
+      "input": {
+        "type": "heartbeat"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "heartbeat-ack-stamped",
+      "schema": "heartbeatAck",
+      "validation": "wire",
+      "input": {
+        "type": "heartbeat_ack",
+        "sourceAcceptedVersion": 7,
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "heartbeat-ack-missing-ticket-version",
+      "schema": "heartbeatAck",
+      "validation": "wire",
+      "input": {
+        "type": "heartbeat_ack",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "authorized-error-version",
+      "schema": "muxError",
+      "validation": "binding",
+      "input": {
+        "type": "error",
+        "operationId": "operation-shared",
+        "code": "GATEWAY_AUTHORITY_UNAVAILABLE",
+        "message": "Authority unavailable",
+        "sourceAcceptedVersion": 7,
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": true
+      },
+      "context": {
+        "subscriptionAuthorized": true,
+        "operationSourceAcceptedVersion": 7
+      }
+    },
+    {
+      "id": "unauthorized-error-version-leak",
+      "schema": "muxError",
+      "validation": "binding",
+      "input": {
+        "type": "error",
+        "operationId": "operation-shared",
+        "code": "GATEWAY_AUTHORITY_UNAVAILABLE",
+        "message": "Authority unavailable",
+        "sourceAcceptedVersion": 7,
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "connectionGeneration": 3
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      },
+      "context": {
+        "subscriptionAuthorized": false
+      }
+    },
+    {
+      "id": "command-never-replayed",
+      "schema": "dispatchCommand",
+      "validation": "gate",
+      "input": {
+        "type": "tool_execute",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared",
+        "tool": {
+          "name": "synthetic-noop"
+        }
+      },
+      "expected": {
+        "accepted": false,
+        "code": "ATTEMPT_CONFLICT"
+      },
+      "context": {
+        "deliveryMode": "replay",
+        "deliveredFrames": [],
+        "routes": [
+          "/tenant/v1/ws",
+          "/tenant/v1/v2/ws"
+        ]
+      }
+    },
+    {
+      "id": "mux-forbids-device-rpc_response",
+      "schema": "muxClientFrame",
+      "validation": "wire",
+      "input": {
+        "type": "rpc_response",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 3,
+        "requestId": "rpc-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "mux-forbids-device-rpc_request",
+      "schema": "muxServerFrame",
+      "validation": "wire",
+      "input": {
+        "type": "rpc_request",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 3,
+        "requestId": "rpc-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    }
+  ]
+}

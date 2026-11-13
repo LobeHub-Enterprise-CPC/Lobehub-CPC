@@ -51,7 +51,7 @@ vi.mock('./attempts', () => ({ loadGatewayAttempt: vi.fn(), sameBinding: vi.fn()
 
 const fixtures = JSON.parse(
   readFileSync(
-    new URL('../../../../../contracts/gateway-tenancy/v1/fixtures/lifecycle.json', import.meta.url),
+    new URL('../../../../../contracts/gateway-tenancy/v2/fixtures/lifecycle.json', import.meta.url),
     'utf8',
   ),
 ) as { cases: { id: string; input: unknown }[] };

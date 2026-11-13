@@ -82,6 +82,7 @@ import {
   getGatewayMux,
   isGatewayMuxUnavailable,
   markGatewayMuxUnavailable,
+  resolveGatewayMuxIdentity,
 } from './muxRegistry';
 import { flagQueuedMessagesOnRunStart, syncQueuedMessagesFlag } from './queuedMessagesFlag';
 import { isCompletedRuntimeEnd } from './runtimeEndReason';
@@ -338,8 +339,9 @@ export class GatewayActionImpl {
   #attachMuxFallback = (mux: GatewayMuxClient, identity: GatewayMuxIdentity): void => {
     if (this.#fallbackAttachedMuxes.has(mux)) return;
     this.#fallbackAttachedMuxes.add(mux);
+    const muxIdentity = resolveGatewayMuxIdentity(identity);
     mux.on('unavailable', (reason) => {
-      markGatewayMuxUnavailable(identity);
+      markGatewayMuxUnavailable(muxIdentity);
       const affected = [...this.#muxFallbacks.entries()].filter(([, entry]) => entry.mux === mux);
       for (const [operationId] of affected) this.#muxFallbacks.delete(operationId);
       // Telemetry must never be what keeps a run from recovering.
@@ -447,8 +449,6 @@ export class GatewayActionImpl {
       const mux = this.resolveGatewayMux(muxIdentity);
       this.#attachGatewayFeed(mux);
       this.#attachMuxFallback(mux, muxIdentity);
-      // The mux mints its own token via `getToken` on every dial, so `token`
-      // is unused here and `auth_expired` never fires on this client.
       const operationMuxClient = this.createMuxClient(mux, operationId, {
         executor,
         ...(lastEventId && { lastEventId }),
