@@ -42,6 +42,7 @@ import { pickAndInsertAttachments } from '@/features/EditorCanvas/editorAttachme
 import { usePermission } from '@/hooks/usePermission';
 import { goalService } from '@/services/goal';
 import { shinyTextStyles } from '@/styles';
+import { usageAmountPrefix, usageBudgetFromInput, usageBudgetToInput } from '@/utils/usageCredits';
 
 import GoalAgentPill from '../GoalAgentPill';
 import { buildGoalAgents, buildGoalCreateInput, buildReviewedGoalContent } from './goalConfig';
@@ -674,14 +675,21 @@ const CreateGoalContent = memo<CreateGoalContentProps>((props) => {
                   placeholder={t('createGoal.costBudgetPlaceholder')}
                   size={'small'}
                   style={{ width: '100%' }}
-                  value={plan.maxTotalCost}
+                  value={usageBudgetToInput(plan.maxTotalCost)}
                   variant={'filled'}
                   prefix={
-                    <Text fontSize={12} type={'secondary'}>
-                      $
-                    </Text>
+                    usageAmountPrefix() ? (
+                      <Text fontSize={12} type={'secondary'}>
+                        {usageAmountPrefix()}
+                      </Text>
+                    ) : undefined
                   }
-                  onChange={(value) => setPlan((current) => ({ ...current, maxTotalCost: value }))}
+                  onChange={(value) =>
+                    setPlan((current) => ({
+                      ...current,
+                      maxTotalCost: usageBudgetFromInput(value),
+                    }))
+                  }
                 />
                 <Text className={styles.sectionHint} fontSize={12}>
                   {t('createGoal.costBudgetHint')}

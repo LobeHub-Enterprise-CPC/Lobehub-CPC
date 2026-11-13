@@ -30,6 +30,7 @@ import { usePermission } from '@/hooks/usePermission';
 import { useChatStore } from '@/store/chat';
 import { chatPortalSelectors } from '@/store/chat/selectors';
 import { goalSelectors, useGoalStore } from '@/store/goal';
+import { usageAmountPrefix, usageBudgetFromInput, usageBudgetToInput } from '@/utils/usageCredits';
 
 import { costBreakdownColumns, costBreakdownRows } from './costBreakdownRows';
 import Lifecycle from './Lifecycle';
@@ -347,17 +348,17 @@ const BudgetField = memo<{
           placeholder={t('goalProcess.metricDetail.budget.uncapped')}
           size={'small'}
           style={{ width: 120 }}
-          value={draft}
+          value={money ? usageBudgetToInput(draft) : draft}
           variant={'filled'}
           prefix={
-            money ? (
+            money && usageAmountPrefix() ? (
               <Text fontSize={12} type={'secondary'}>
-                $
+                {usageAmountPrefix()}
               </Text>
             ) : undefined
           }
           onBlur={() => void commit()}
-          onChange={setDraft}
+          onChange={(value) => setDraft(money ? usageBudgetFromInput(value) : value)}
           onPressEnter={() => void commit()}
         />
       </Flexbox>

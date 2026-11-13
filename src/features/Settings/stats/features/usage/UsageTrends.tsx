@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { type UsageLog, type UsageRecordItem } from '@/types/usage/usageRecord';
 import { formatNumber } from '@/utils/format';
+import { usageAmount } from '@/utils/usageCredits';
 
 import { type UsageChartProps, type UserDisplayResolver } from '../../types';
 import { GroupBy } from '../../types';
@@ -48,11 +49,11 @@ const groupByType = (
   const formattedData = data.map((log) => {
     const totalObj = {
       day: log.day,
-      total: type === 'spend' ? log.totalSpend : log.totalTokens,
+      total: type === 'spend' ? usageAmount(log.totalSpend) : log.totalTokens,
     };
     const todayCate = new Map<string, number>(cate);
     for (const item of log.records) {
-      const value = type === 'spend' ? item.spend || 0 : item.totalTokens || 0;
+      const value = type === 'spend' ? usageAmount(item.spend || 0) : item.totalTokens || 0;
       const key = categoryLabel(recordKey(item, groupBy), groupBy, resolveUser);
       let displayValue = (todayCate.get(key) || 0) + value;
       if (type === 'spend') {

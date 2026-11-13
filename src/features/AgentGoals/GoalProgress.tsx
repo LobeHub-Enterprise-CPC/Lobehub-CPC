@@ -2,6 +2,8 @@ import { createStaticStyles, cssVar, Flexbox, Text } from '@lobehub/ui';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { formatUsageCostLabel } from '@/utils/usageCostLabel';
+
 /** `3m` · `2.1h` · `1.4d` — the coarse grain a list row can carry. */
 export const formatGoalDuration = (milliseconds: number) => {
   if (!milliseconds || milliseconds <= 0) return '—';
@@ -12,7 +14,8 @@ export const formatGoalDuration = (milliseconds: number) => {
   return `${(hours / 24).toFixed(1)}d`;
 };
 
-export const formatGoalCost = (cost: number) => (cost > 0 ? `$${cost.toFixed(2)}` : '—');
+export const formatGoalCost = (cost: number) =>
+  cost > 0 ? formatUsageCostLabel(cost, (usd) => `$${usd.toFixed(2)}`) : '—';
 
 const styles = createStaticStyles(({ css }) => ({
   acceptance: css`

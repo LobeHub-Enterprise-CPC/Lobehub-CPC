@@ -9,6 +9,7 @@ import { ModelIcon } from '@/components/LobeIcons';
 import { AgentModelBreakdownTableSkeleton } from '@/components/Skeleton/AgentStatistics';
 import { type AgentUsageModelRow } from '@/types/usage/usageRecord';
 import { formatNumber, formatUsageValue } from '@/utils/format';
+import { formatUsageCost } from '@/utils/usageCredits';
 
 interface ModelBreakdownProps {
   isLoading?: boolean;
@@ -53,7 +54,7 @@ const ModelBreakdown = memo<ModelBreakdownProps>(({ rows, isLoading }) => {
       align: 'right',
       dataIndex: 'cost',
       key: 'cost',
-      render: (value: number) => `$${formatNumber(value, 2)}`,
+      render: (value: number) => formatUsageCost(value, (usd) => `$${formatNumber(usd, 2)}`),
       title: t('usageStats.breakdown.cost'),
     },
   ];

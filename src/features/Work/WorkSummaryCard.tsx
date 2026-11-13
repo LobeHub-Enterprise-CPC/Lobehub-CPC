@@ -3,11 +3,12 @@
 import type { WorkSummaryItem } from '@lobechat/types';
 import { formatUsageValue } from '@lobechat/utils';
 import { Center, createStaticStyles, cx, Flexbox, Icon as LobeIcon, Text } from '@lobehub/ui';
-import { CircleDollarSignIcon, CoinsIcon } from 'lucide-react';
+import { BadgeCentIcon, CircleDollarSignIcon, CoinsIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useChatStore } from '@/store/chat';
+import { formatUsageCost, isUsageCreditsEnabled } from '@/utils/usageCredits';
 import { getWorkVersionTotalTokens } from '@/utils/workCumulativeUsage';
 import { formatWorkVersionCost } from '@/utils/workVersionCost';
 
@@ -140,8 +141,11 @@ const WorkSummaryCard = memo<WorkSummaryCardProps>(
     const promptResourceDeleted = useResourceDeletedPrompt();
     const cost = formatWorkVersionCost(item.totalCost);
     const totalTokens = getWorkVersionTotalTokens(item.event.cumulativeUsage);
+    // Beside an icon the amount drops its unit: the `$`, or the credit label.
     const usage = cost
-      ? { icon: CircleDollarSignIcon, value: cost.slice(1) }
+      ? isUsageCreditsEnabled()
+        ? { icon: BadgeCentIcon, value: formatUsageCost(item.totalCost ?? 0, String) }
+        : { icon: CircleDollarSignIcon, value: cost.slice(1) }
       : totalTokens
         ? { icon: CoinsIcon, value: formatUsageValue(totalTokens) }
         : null;

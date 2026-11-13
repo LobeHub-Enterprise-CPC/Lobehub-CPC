@@ -6,6 +6,8 @@ import {
 import { ThreadStatus } from '@lobechat/types';
 import { formatDuration as formatDurationMs, formatElapsedClockTime } from '@lobechat/utils';
 
+import { formatUsageCostLabel } from '@/utils/usageCostLabel';
+
 /**
  * Format duration in milliseconds to human-readable string
  * @param duration Duration in milliseconds
@@ -21,12 +23,14 @@ export const formatDuration = (duration: number | undefined | null): string | nu
 /**
  * Format cost to currency string
  * @param cost Cost value
- * @returns Formatted string like "$0.0001" or "$1.23"
+ * @returns Formatted string like "$0.0001" or "$1.23" — or a credit amount where the
+ * distribution charges in credits
  */
 export const formatCost = (cost: number | undefined | null): string | null => {
   if (!cost) return null;
-  if (cost < 0.01) return `$${cost.toFixed(4)}`;
-  return `$${cost.toFixed(2)}`;
+  return formatUsageCostLabel(cost, (usd) =>
+    usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`,
+  );
 };
 
 /**

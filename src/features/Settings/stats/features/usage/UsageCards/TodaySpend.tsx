@@ -9,6 +9,8 @@ import StatisticCard from '@/components/StatisticCard';
 import TitleWithPercentage from '@/components/StatisticCard/TitleWithPercentage';
 import { type UsageLog } from '@/types/usage/usageRecord';
 import { formatNumber } from '@/utils/format';
+import { usageAmountSuffix } from '@/utils/usageCostLabel';
+import { usageAmount, usageAmountPrefix } from '@/utils/usageCredits';
 
 import { type UsageChartProps } from '../../../types';
 
@@ -24,8 +26,8 @@ const computeSpend = (
   const yesterday = data.find((log) => dayjs.utc(log.day).isYesterday())?.totalSpend ?? 0;
 
   return {
-    today: formatNumber(today),
-    yesterday: formatNumber(yesterday),
+    today: formatNumber(usageAmount(today)),
+    yesterday: formatNumber(usageAmount(yesterday)),
   };
 };
 
@@ -40,7 +42,8 @@ const TodaySpend = memo<UsageChartProps>(({ data, isLoading }) => {
       statistic={{
         description: <Statistic title={t('usage.cards.today.yesterday')} value={yesterday} />,
         precision: 2,
-        prefix: '$',
+        prefix: usageAmountPrefix(),
+        suffix: usageAmountSuffix(),
         value: today,
       }}
       title={

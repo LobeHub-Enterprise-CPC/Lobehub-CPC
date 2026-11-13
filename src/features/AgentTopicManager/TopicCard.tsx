@@ -2,8 +2,9 @@
 
 import { AGENT_CHAT_TOPIC_URL } from '@lobechat/const';
 import { formatPrice, formatTokenNumber } from '@lobechat/utils/format';
+import { formatUsageCost, isUsageCreditsEnabled } from '@lobechat/utils/usageCredits';
 import { Block, Checkbox, createStaticStyles, cssVar, Flexbox, Icon, Tag, Text } from '@lobehub/ui';
-import { CircleDollarSign, FolderIcon, MessageSquare, Star, Zap } from 'lucide-react';
+import { BadgeCent, CircleDollarSign, FolderIcon, MessageSquare, Star, Zap } from 'lucide-react';
 import { memo, type MouseEvent, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -11,6 +12,7 @@ import { getPlatformIcon } from '@/features/AgentChannel/const';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useActivityTime } from '@/hooks/useActivityTime';
 import type { ChatTopic } from '@/types/topic';
+import { formatUsageCostLabel } from '@/utils/usageCostLabel';
 
 import StatusDot from './StatusDot';
 import { useTopicsViewStore } from './store';
@@ -194,9 +196,14 @@ const TopicCard = memo<TopicCardProps>(({ topic, agentId }) => {
             </Flexbox>
           )}
           {cost > 0 && (
-            <Flexbox horizontal align={'center'} gap={3} title={`$${cost.toFixed(4)}`}>
-              <Icon icon={CircleDollarSign} size={11} />
-              {formatPrice(cost, 2)}
+            <Flexbox
+              horizontal
+              align={'center'}
+              gap={3}
+              title={formatUsageCostLabel(cost, (usd) => `$${usd.toFixed(4)}`)}
+            >
+              <Icon icon={isUsageCreditsEnabled() ? BadgeCent : CircleDollarSign} size={11} />
+              {formatUsageCost(cost, (usd) => formatPrice(usd, 2))}
             </Flexbox>
           )}
           <span title={updatedAt.title}>{updatedAt.text}</span>

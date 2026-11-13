@@ -284,6 +284,8 @@ export default {
   'ModelSwitchPanel.meta.price': 'Relative price {{multiplier}}× (1× = $1 per 1M input tokens)',
   'ModelSwitchPanel.meta.price.credits':
     'Relative price {{multiplier}}× (1× = 1M credits per 1M input tokens)',
+  'ModelSwitchPanel.meta.price.usageCredits':
+    'Relative price {{multiplier}}× (1× = {{baseline}} Credits per 1M input tokens)',
   'ModelSwitchPanel.meta.rating':
     '{{dimension}} score {{score}}/100 (relative to the top-rated model)',
   'ModelSwitchPanel.manageProvider': 'Manage Provider',

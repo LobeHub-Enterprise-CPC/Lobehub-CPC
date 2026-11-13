@@ -9,6 +9,7 @@ import InlineTable from '@/components/InlineTable';
 import { ModelIcon } from '@/components/LobeIcons';
 import { type UsageLog, type UsageRecordItem } from '@/types/usage/usageRecord';
 import { formatPrice } from '@/utils/format';
+import { formatUsageCost } from '@/utils/usageCredits';
 
 import { type UsageChartProps } from '../../../../types';
 import { GroupBy } from '../../../../types';
@@ -186,7 +187,7 @@ const ModelTable = memo<UsageChartProps>(({ data, isLoading, groupBy, resolveUse
                     dataIndex: 'spend',
                     key: 'spend',
                     render: (value) => {
-                      return `$${formatPrice(value)}`;
+                      return formatUsageCost(value, (usd) => `$${formatPrice(usd)}`);
                     },
                     title: t('usage.activeModels.table.spend'),
                   },

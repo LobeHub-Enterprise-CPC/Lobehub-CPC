@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import type * as BusinessConstModule from '@lobechat/business-const';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   formatSpan,
@@ -7,6 +8,13 @@ import {
   goalStatusKey,
   summarizeGoalBudget,
 } from './goalPresentation';
+
+// These assertions are about dollar amounts. A distribution that charges in its
+// own credits overrides this slot, so pin the upstream default.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<typeof BusinessConstModule>()),
+  USAGE_CREDITS: undefined,
+}));
 
 describe('goalStatusKey', () => {
   it('maps every lifecycle state to a list-vocabulary key', () => {

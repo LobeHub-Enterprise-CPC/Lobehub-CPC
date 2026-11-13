@@ -8,6 +8,8 @@ import { AgentStatCardsSkeleton } from '@/components/Skeleton/AgentStatistics';
 import StatisticCard from '@/components/StatisticCard';
 import { type AgentUsageStats } from '@/types/usage/usageRecord';
 import { formatNumber, formatUsageValue } from '@/utils/format';
+import { usageAmountSuffix } from '@/utils/usageCostLabel';
+import { usageAmount, usageAmountPrefix } from '@/utils/usageCredits';
 
 interface StatCardsProps {
   isLoading?: boolean;
@@ -35,8 +37,9 @@ const StatCards = memo<StatCardsProps>(({ summary, isLoading, rangeLabel }) => {
         title={t('usageStats.cards.cost') + suffix}
         statistic={{
           precision: 2,
-          prefix: '$',
-          value: formatNumber(summary.totalCost, 2),
+          prefix: usageAmountPrefix(),
+          suffix: usageAmountSuffix(),
+          value: formatNumber(usageAmount(summary.totalCost), 2),
         }}
       />
       <StatisticCard
@@ -49,8 +52,9 @@ const StatCards = memo<StatCardsProps>(({ summary, isLoading, rangeLabel }) => {
             }),
           ),
           precision: 2,
-          prefix: '$',
-          value: formatNumber(summary.cacheSavings, 2),
+          prefix: usageAmountPrefix(),
+          suffix: usageAmountSuffix(),
+          value: formatNumber(usageAmount(summary.cacheSavings), 2),
           valueStyle: { color: cssVar.colorSuccess },
         }}
       />

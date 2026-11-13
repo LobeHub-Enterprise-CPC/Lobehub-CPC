@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useBusinessModelPricing } from '@/business/client/hooks/useBusinessModelPricing';
 import { useBusinessModelRating } from '@/business/client/hooks/useBusinessModelRating';
+import { usageCreditBaseline } from '@/utils/usageCredits';
 
 import { getPrice } from '../../hooks/useModelDetailPanel';
 import { formatPriceMultiplier, getInputPriceMultiplier } from '../../utils';
@@ -83,6 +84,9 @@ export const ModelRowMeta = memo<ModelRowMetaProps>(({ model, provider }) => {
   let priceTooltip: React.ReactNode;
   if (pricing && multiplier !== undefined) {
     const isCreditPricing = provider === BRANDING_PROVIDER;
+    // Set when the distribution charges in its own credits; the × is then
+    // counted against its 1× rate rather than upstream's million-credit one.
+    const usageBaseline = isCreditPricing ? usageCreditBaseline() : undefined;
     const price = getPrice(pricing, isCreditPricing);
     const unitPrefix = isCreditPricing
       ? 'ModelSwitchPanel.detail.pricing.credits'
@@ -90,10 +94,17 @@ export const ModelRowMeta = memo<ModelRowMetaProps>(({ model, provider }) => {
     priceTooltip = (
       <Flexbox gap={2}>
         <span>
-          {t(
-            isCreditPricing ? 'ModelSwitchPanel.meta.price.credits' : 'ModelSwitchPanel.meta.price',
-            { multiplier: formatPriceMultiplier(multiplier) },
-          )}
+          {usageBaseline
+            ? t('ModelSwitchPanel.meta.price.usageCredits', {
+                baseline: usageBaseline,
+                multiplier: formatPriceMultiplier(multiplier),
+              })
+            : t(
+                isCreditPricing
+                  ? 'ModelSwitchPanel.meta.price.credits'
+                  : 'ModelSwitchPanel.meta.price',
+                { multiplier: formatPriceMultiplier(multiplier) },
+              )}
         </span>
         <span>
           {[

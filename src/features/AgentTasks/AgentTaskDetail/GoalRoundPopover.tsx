@@ -4,6 +4,8 @@ import { createStaticStyles, cssVar, Flexbox, Popover, Text } from '@lobehub/ui'
 import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { formatUsageCostLabel } from '@/utils/usageCostLabel';
+
 const styles = createStaticStyles(({ css }) => ({
   label: css`
     font-size: 12px;
@@ -16,7 +18,9 @@ const styles = createStaticStyles(({ css }) => ({
 
 /** Cost is fractions of a cent per round — two decimals would read as "$0.00". */
 export const formatRoundCost = (cost: number): string =>
-  cost > 0 && cost < 0.01 ? `<$0.01` : `$${cost.toFixed(cost < 1 ? 3 : 2)}`;
+  formatUsageCostLabel(cost, (usd) =>
+    usd > 0 && usd < 0.01 ? `<$0.01` : `$${usd.toFixed(usd < 1 ? 3 : 2)}`,
+  );
 
 export const formatTokens = (tokens: number): string =>
   tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
