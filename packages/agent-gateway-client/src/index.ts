@@ -68,6 +68,7 @@ export {
   gatewayTicketClaims,
   strictGatewayUrl,
 } from './tenancy';
+export { createTenancyMuxTransport } from './tenancyMuxSocket';
 export { isSessionTerminalEvent } from './terminalEvent';
 export type {
   AgentInterventionInteractionKind,

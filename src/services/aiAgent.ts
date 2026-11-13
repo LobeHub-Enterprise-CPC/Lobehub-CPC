@@ -319,9 +319,8 @@ class AiAgentService {
     options?: { signal?: AbortSignal },
   ): Promise<ExecAgentResult> {
     // Ask for protocol-v2 delivery — message revisions instead of whole message
-    // snapshots — when this client both understands it and is inside the
-    // rollout. Anything else stays on the pushed snapshots, which is what an
-    // older bundle needs to render the run at all. A caller may still pin it
+    // snapshots — when the deployment advertises protocol 2. Older deployments
+    // retain pushed snapshots. A caller may still pin the protocol
     // (a replay harness asserting v1 delivery).
     const clientProtocol = canUseGatewayProtocolV2() ? CLIENT_PROTOCOL_VERSION : undefined;
     // Inside the `agent_llm_relay` rollout this tab offers to run the LLM calls
@@ -403,8 +402,11 @@ class AiAgentService {
    * socket per user). Not bound to any operation — the mux client calls this
    * before every connect attempt.
    */
-  async issueGatewayUserToken(): Promise<{ token: string }> {
-    return await lambdaClient.aiAgent.issueGatewayUserToken.query();
+  async issueGatewayUserToken(input: {
+    clientId: string;
+    authorizationId?: string;
+  }): Promise<{ token: string }> {
+    return await lambdaClient.aiAgent.issueGatewayUserToken.query(input);
   }
 
   async execSubAgentTask(params: ExecSubAgentTaskParams) {

@@ -104,7 +104,7 @@ beforeEach(() => {
         getState: () => ({
           featureFlags: { enableGatewayMux: true },
           serverConfig: {
-            agentGatewayProtocol: 2,
+            agentGatewayProtocol: 1,
             agentGatewayUrl: 'https://gw.invalid',
             enableGatewayMode: true,
           },
@@ -118,12 +118,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 describe('tenancy gateway capability entries', () => {
-  it('does not construct or dial a mux during browser warmup with stale upstream flags', () => {
+  it('keeps protocol 1 on v1 despite stale upstream flags', () => {
     const { action } = createAction();
     action.warmupGatewayMux();
     expect(action.resolveGatewayMux).not.toHaveBeenCalled();
   });
-  it('does not select mux for operation connection', () => {
+  it('does not select mux for protocol 1 operation connection', () => {
     const { action, client } = createAction();
     action.connectToGateway({
       gatewayUrl: 'https://gw.invalid',

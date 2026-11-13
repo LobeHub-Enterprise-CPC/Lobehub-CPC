@@ -1,11 +1,16 @@
-import { GatewayMuxClient } from '@lobechat/agent-gateway-client';
+import { createTenancyMuxTransport, GatewayMuxClient } from '@lobechat/agent-gateway-client';
+import { getTenantScopeId } from '@lobechat/business-tenant/client';
 
 import { aiAgentService } from '@/services/aiAgent';
 import { getLlmRelayClientId } from '@/services/llmRelay/clientId';
+import { getUserStoreState } from '@/store/user';
+import { userProfileSelectors } from '@/store/user/selectors';
 
 export interface GatewayMuxIdentity {
   /** Gateway URL base (e.g. https://agent-gateway.lobehub.com). */
   gatewayUrl: string;
+  tenantId?: string;
+  userId?: string;
 }
 
 const registry = new Map<string, GatewayMuxClient>();
@@ -19,20 +24,18 @@ const registry = new Map<string, GatewayMuxClient>();
  */
 const unavailableIdentities = new Set<string>();
 
-const identityKey = ({ gatewayUrl }: GatewayMuxIdentity): string => gatewayUrl;
-
-/**
- * `getToken` is invoked before EVERY dial (initial connect, backoff retry,
- * 4401 refresh), so the mux never needs the v1 `auth_expired` → `updateToken`
- * round trip.
- */
-const getToken = async (): Promise<string> => {
-  const { token } = await aiAgentService.issueGatewayUserToken();
-  return token;
+export const resolveGatewayMuxIdentity = (identity: GatewayMuxIdentity) => ({
+  gatewayUrl: identity.gatewayUrl,
+  tenantId: identity.tenantId ?? getTenantScopeId(),
+  userId: identity.userId ?? userProfileSelectors.userId(getUserStoreState()),
+});
+const identityKey = (identity: GatewayMuxIdentity): string => {
+  const { gatewayUrl, tenantId, userId } = resolveGatewayMuxIdentity(identity);
+  return JSON.stringify([gatewayUrl, tenantId, userId]);
 };
 
 /**
- * One `GatewayMuxClient` per gateway URL for
+ * One `GatewayMuxClient` per gateway URL, tenant and user for
  * the lifetime of the page. Every operation on the same identity multiplexes
  * over that single socket (protocol v2). The socket is dialed on app entry by
  * `warmupGatewayMux` (or lazily on the first `subscribe` if that never ran)
@@ -43,14 +46,29 @@ export const getGatewayMux = (identity: GatewayMuxIdentity): GatewayMuxClient =>
   const key = identityKey(identity);
   let mux = registry.get(key);
   if (!mux) {
+    const resolved = resolveGatewayMuxIdentity(identity);
+    const transport = createTenancyMuxTransport({
+      clientId: getLlmRelayClientId(),
+      gatewayUrl: resolved.gatewayUrl,
+      userId: resolved.userId,
+      // Browser scope is a slug, not a signed tenant ID. The ticket pins the
+      // tenant; registry partitioning still follows the document/desktop scope.
+      issueToken: (input) => {
+        const active = resolveGatewayMuxIdentity({ gatewayUrl: identity.gatewayUrl });
+        if (active.tenantId !== resolved.tenantId || active.userId !== resolved.userId)
+          throw new Error('SOURCE_UNVERIFIABLE');
+        return aiAgentService.issueGatewayUserToken(input);
+      },
+    });
     mux = new GatewayMuxClient({
-      // The id this tab declares as its LLM executor, so the hub can hand
-      // `llm_execute` to the tab that started the run.
+      ...transport,
+      // Stable per-tab connection identity.
       clientId: getLlmRelayClientId(),
       gatewayUrl: identity.gatewayUrl,
-      getToken,
       keepAlive: true,
     });
+    transport.bindMux(mux);
+    mux.on('unavailable', () => markGatewayMuxUnavailable(resolved));
     registry.set(key, mux);
   }
   return mux;
