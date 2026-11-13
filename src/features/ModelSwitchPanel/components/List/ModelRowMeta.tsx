@@ -12,7 +12,7 @@ import { getPrice } from '../../hooks/useModelDetailPanel';
 import { formatPriceMultiplier, getInputPriceMultiplier } from '../../utils';
 import {
   META_COLUMN_GAP,
-  PRICE_COLUMN_WIDTH,
+  PRICE_COLUMN_MIN_WIDTH,
   RATING_COLORS,
   RATING_COLUMN_WIDTH,
   RATING_KEYS,
@@ -37,12 +37,13 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   price: css`
     flex: none;
 
-    width: ${PRICE_COLUMN_WIDTH}px;
+    min-width: ${PRICE_COLUMN_MIN_WIDTH}px;
 
     font-size: 12px;
     font-variant-numeric: tabular-nums;
     color: ${cssVar.colorTextSecondary};
     text-align: end;
+    white-space: nowrap;
   `,
 }));
 
@@ -136,7 +137,7 @@ export const ModelRowMeta = memo<ModelRowMetaProps>(({ model, provider }) => {
         )}
       {columns.price &&
         (multiplier === undefined ? (
-          <div style={{ flex: 'none', width: PRICE_COLUMN_WIDTH }} />
+          <div style={{ flex: 'none', minWidth: PRICE_COLUMN_MIN_WIDTH }} />
         ) : (
           <Tooltip title={priceTooltip}>
             <div className={styles.price}>

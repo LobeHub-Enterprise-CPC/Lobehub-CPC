@@ -19,7 +19,12 @@ export const RATING_COLORS: Record<RatingKey, string> = {
 /** Fixed column widths keep bars and multipliers aligned from row to row. */
 export const META_COLUMN_GAP = 8;
 export const RATING_COLUMN_WIDTH = 24;
-export const PRICE_COLUMN_WIDTH = 36;
+/**
+ * Minimum width of the multiplier column. The column grows instead of wrapping:
+ * small multipliers need three decimals (`0.085x`), which no fixed width fits
+ * without a line break. Values stay right-aligned so rows still line up.
+ */
+export const PRICE_COLUMN_MIN_WIDTH = 36;
 
 export interface MetaColumns {
   price: boolean;
