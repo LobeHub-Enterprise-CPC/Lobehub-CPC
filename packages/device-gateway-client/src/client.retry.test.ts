@@ -2,7 +2,7 @@ import type { EventEmitter } from 'node:events';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import protocol from '../../../contracts/gateway-tenancy/v1/protocol.json';
+import protocol from '../../../contracts/gateway-tenancy/v2/protocol.json';
 import { gatewayIdentityHint } from '../../agent-gateway-client/src/tenancy';
 import { deviceConfirmation, deviceTicket } from './__tests__/fixtures';
 import { GatewayClient } from './client';

@@ -17,7 +17,7 @@ vi.mock('@/envs/auth', () => ({
 }));
 vi.mock('@/libs/trpc/utils/tenantBinding', () => ({ isBoundToCurrentTenant: () => true }));
 
-const contractRoot = new URL('../../../contracts/gateway-tenancy/v1/', import.meta.url);
+const contractRoot = new URL('../../../contracts/gateway-tenancy/v2/', import.meta.url);
 const readContract = async (name: string) =>
   JSON.parse(await readFile(new URL(name, contractRoot), 'utf8'));
 let privateKey: CryptoKey;
@@ -37,7 +37,11 @@ const sign = (claims: Record<string, unknown>) =>
 
 describe('gateway ticket purpose isolation at ordinary Work authentication', () => {
   it('verifies the byte-for-byte vendored contract before consuming fixtures', async () => {
-    const manifest = (await readContract('manifest.json')) as { files: Record<string, string> };
+    const manifest = (await readContract('manifest.json')) as {
+      contractVersion: number;
+      files: Record<string, string>;
+    };
+    expect(manifest.contractVersion).toBe(2);
     for (const [file, expected] of Object.entries(manifest.files)) {
       const bytes = await readFile(new URL(file, contractRoot));
       expect(createHash('sha256').update(bytes).digest('hex'), file).toBe(expected);

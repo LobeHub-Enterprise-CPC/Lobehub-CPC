@@ -7,8 +7,8 @@ import { GatewayIdentityRenewal } from './identityRenewal';
 import { gatewayIdentityHint, GatewaySocketAuthority } from './tenancy';
 
 const fixtures = JSON.parse(
-  await readFile('contracts/gateway-tenancy/v1/fixtures/authorize.json', 'utf8').catch(() =>
-    readFile('../../contracts/gateway-tenancy/v1/fixtures/authorize.json', 'utf8'),
+  await readFile('contracts/gateway-tenancy/v2/fixtures/authorize.json', 'utf8').catch(() =>
+    readFile('../../contracts/gateway-tenancy/v2/fixtures/authorize.json', 'utf8'),
   ),
 );
 const renewals: GatewayIdentityRenewal[] = [];

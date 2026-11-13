@@ -1,6 +1,6 @@
 import Ajv2020 from 'ajv/dist/2020';
 
-import schema from '../../../../../contracts/gateway-tenancy/v1/schema.json';
+import schema from '../../../../../contracts/gateway-tenancy/v2/schema.json';
 
 export class GatewayAuthorizationError extends Error {
   constructor(

@@ -1,6 +1,6 @@
 import { buildRemoteUrl } from '@lobechat/utils/remoteUrl';
 
-import protocol from '../../../contracts/gateway-tenancy/v1/protocol.json';
+import protocol from '../../../contracts/gateway-tenancy/v2/protocol.json';
 import type { GatewayIdentityProvider, GatewayIdentityResponse } from '../../types/src/gateway';
 import { gatewayEnrollmentHint, gatewayIdentityHint, gatewayTicketClaims } from './tenancy';
 

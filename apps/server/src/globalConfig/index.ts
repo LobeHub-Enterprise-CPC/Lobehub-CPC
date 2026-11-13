@@ -39,7 +39,11 @@ import { getServerSystemModels } from './systemModels';
  * overrides both guesses, which is what an on-prem business deployment sitting
  * in front of a v1 gateway needs.
  */
-const resolveAgentGatewayProtocol = (): 1 => 1;
+const resolveAgentGatewayProtocol = (): 1 | 2 => {
+  if (appEnv.AGENT_GATEWAY_PROTOCOL === 2) return 2;
+  if (appEnv.AGENT_GATEWAY_PROTOCOL === 1) return 1;
+  return ENABLE_BUSINESS_FEATURES ? 2 : 1;
+};
 
 const getAiProviderSpecificConfig = () => {
   const aiProviderSpecificConfig: Record<string, ProviderSpecificConfig> = {

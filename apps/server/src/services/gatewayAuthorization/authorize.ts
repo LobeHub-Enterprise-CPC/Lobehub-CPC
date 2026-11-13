@@ -6,7 +6,7 @@ import { redisService } from '@/server/services/redis';
 
 import { claimGatewayAttempt, loadGatewayAttempt, sameBinding } from './attempts';
 import { assertGatewayVersion } from './index';
-import { assertGatewaySource } from './sources';
+import { assertGatewaySource, assertGatewaySubscription } from './sources';
 import type { GatewayAuthorizeRequest } from './types';
 import { GatewayAuthorizationError, samePrincipal } from './wire';
 
@@ -20,7 +20,8 @@ export const authorizeGateway = async (input: GatewayAuthorizeRequest) => {
     !record ||
     record.tenantId !== input.tenantId ||
     record.audience !== input.audience ||
-    record.operationId !== input.operationId ||
+    ((input.action === 'connect' || input.action === 'renew' || record.operationId !== undefined) &&
+      record.operationId !== input.operationId) ||
     !samePrincipal(record.principal, input.expectedPrincipal)
   )
     throw new GatewayAuthorizationError('UNAUTHORIZED');
@@ -28,15 +29,31 @@ export const authorizeGateway = async (input: GatewayAuthorizeRequest) => {
     throw new GatewayAuthorizationError('LEASE_EXPIRED');
   let ticketExpiresAt = record.ticketExpiresAt;
   await assertGatewayVersion(input.tenantId, record.acceptedVersion);
+  const userTicket = record.audience === 'urn:lobehub:gateway:agent' && !record.operationId;
   const sourceExpiresAt = await assertGatewaySource(record.source, {
     principal: record.principal,
+    userTicket,
     operationId: record.operationId,
     enroller: record.audience === 'urn:lobehub:gateway:device',
     execute:
       record.capabilities.includes('agent:execute') ||
       record.capabilities.includes('agent:respond'),
   });
-  if (input.action === 'connect' || input.action === 'renew') {
+  let subscriptionVersion: number | undefined;
+  if (input.action === 'subscribe') {
+    if (
+      !userTicket ||
+      !input.roles?.length ||
+      input.roles.some((role) => !record.capabilities.includes(role))
+    )
+      throw new GatewayAuthorizationError('FORBIDDEN', 403);
+    subscriptionVersion = await assertGatewaySubscription(
+      record.userId,
+      input.operationId,
+      record.acceptedVersion,
+      record.source,
+    );
+  } else if (input.action === 'connect' || input.action === 'renew') {
     if (!input.ticket) throw new GatewayAuthorizationError('UNAUTHORIZED');
     const claims = await verifyGatewayJWT(input.ticket, input.audience, input.tenantId);
     if (
@@ -61,6 +78,13 @@ export const authorizeGateway = async (input: GatewayAuthorizeRequest) => {
     if (record.deviceId)
       await assertGatewayDeviceClaim(record.userId, record.principal, record.deviceId);
   } else {
+    if (userTicket)
+      await assertGatewaySubscription(
+        record.userId,
+        input.operationId,
+        record.acceptedVersion,
+        record.source,
+      );
     if (
       !input.attemptId ||
       !input.dispatchBinding ||
@@ -117,6 +141,12 @@ export const authorizeGateway = async (input: GatewayAuthorizeRequest) => {
     checkedAt,
     generation: input.generation,
     requestSeq: input.requestSeq,
+    ...(input.action === 'subscribe'
+      ? {
+          roles: input.roles,
+          sourceAcceptedVersion: subscriptionVersion,
+        }
+      : {}),
     ...(['dispatch', 'result'].includes(input.action)
       ? {
           sourceAcceptedVersion: input.sourceAcceptedVersion,

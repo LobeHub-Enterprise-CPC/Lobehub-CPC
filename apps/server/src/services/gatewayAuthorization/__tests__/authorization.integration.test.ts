@@ -22,6 +22,8 @@ import { getTestDB } from '@/database/core/getTestDB';
 import type { LobeChatDatabase } from '@/database/type';
 import { gatewayOperationPost } from '@/server/modules/AgentRuntime/gatewayHttp';
 import { resetRedisClient } from '@/server/modules/Redis';
+import { createGatewayInternalApp } from '@/server/router-hono/gatewayInternal';
+import { gatewayRelayRouter } from '@/server/routers/lambda/aiAgent/gatewayRelay';
 import { AbandonOperationService } from '@/server/services/agentRuntime/AbandonOperationService';
 import { redisService } from '@/server/services/redis';
 
@@ -37,6 +39,7 @@ import type {
   GatewayCallback,
 } from '../types';
 import { waitForGatewayResult } from '../waiter';
+import { parseGatewayWire } from '../wire';
 import { seedGatewaySourceRows } from './testUtils';
 
 const redisSuite = describe.skipIf(!process.env.GATEWAY_TEST_REDIS_URL);
@@ -60,6 +63,10 @@ vi.mock('../../../../../../packages/openapi/src/middleware/auth', () => ({
     await next();
   },
 }));
+// Runtime execution is outside this identity-only router test; avoid starting its transports.
+vi.mock('@/server/services/agentRuntime', () => ({ AgentRuntimeService: vi.fn() }));
+vi.mock('@/server/services/aiChat', () => ({ AiChatService: vi.fn() }));
+vi.mock('@/server/services/heterogeneousAgent', () => ({ HeterogeneousAgentService: vi.fn() }));
 vi.mock('@/envs/auth', () => ({
   authEnv: {
     get JWKS_KEY() {
@@ -145,7 +152,7 @@ const sourceFixture = async (id: string) => {
   const fixtures = JSON.parse(
     await readFile(
       new URL(
-        '../../../../../../contracts/gateway-tenancy/v1/fixtures/sources.json',
+        '../../../../../../contracts/gateway-tenancy/v2/fixtures/sources.json',
         import.meta.url,
       ),
       'utf8',
@@ -202,17 +209,6 @@ afterAll(async () => {
 });
 
 redisSuite('real source rows and immutable authorization ledger', () => {
-  it('rejects a mux ticket before creating an authorization', async () =>
-    run(async () => {
-      await expect(
-        mintGatewayTicket({
-          audience: 'urn:lobehub:gateway:agent',
-          principal,
-          source: source('session'),
-          capabilities: ['agent:observe'],
-        }),
-      ).rejects.toMatchObject({ code: 'MUX_UNSUPPORTED', status: 501 });
-    }));
   it.each(['session', 'apiKey', 'oidc', 'operation'])(
     'accepts an authorized %s source',
     async (kind) => {
@@ -501,7 +497,7 @@ redisSuite('A2 owning identity renewal with real source records and Redis', () =
     const data = JSON.parse(
       await readFile(
         new URL(
-          '../../../../../../contracts/gateway-tenancy/v1/fixtures/authorize.json',
+          '../../../../../../contracts/gateway-tenancy/v2/fixtures/authorize.json',
           import.meta.url,
         ),
         'utf8',
@@ -825,5 +821,379 @@ redisSuite('atomic Work claim and original attempt result binding', () => {
       await expect(authorizeGateway(request)).rejects.toMatchObject({
         code: 'TENANT_EXECUTION_VERSION_STALE',
       });
+    }));
+});
+
+const mintUser = (kind = 'session', extra: Partial<Parameters<typeof mintGatewayTicket>[0]> = {}) =>
+  mintGatewayTicket({
+    audience: 'urn:lobehub:gateway:agent',
+    source: source(kind),
+    principal,
+    connectionId: 'tab',
+    capabilities: ['agent:observe', 'agent:respond', 'agent:execute'],
+    ...extra,
+  });
+const userRequest = (
+  identity: Awaited<ReturnType<typeof mint>>,
+  input: Partial<GatewayAuthorizeRequest> = {},
+) => connectionRequest(identity, { operationId: undefined, ...input });
+
+redisSuite('v2 user-ticket authorization', () => {
+  it('issues and renews the tRPC user ticket through the actual mint and ledger', async () =>
+    run(async () => {
+      const caller = gatewayRelayRouter.createCaller({
+        userId: subject,
+        gatewaySource: source('session'),
+        jwtPayload: { userId: subject },
+      });
+      await runWithGatewaySource(source('session'), async () => {
+        const { token } = await caller.issueGatewayUserToken({ clientId: 'router-tab' });
+        const claims = decodeJwt(token);
+        parseGatewayWire('tokenClaims', claims);
+        expect(claims).toMatchObject({ sub: subject, principal, connection_id: 'router-tab' });
+        expect(claims.operation_id).toBeUndefined();
+        const renewed = await caller.issueGatewayUserToken({
+          clientId: 'router-tab',
+          authorizationId: String(claims.authorization_id),
+        });
+        expect(decodeJwt(renewed.token).authorization_id).toBe(claims.authorization_id);
+        expect(
+          (
+            await redisService.gatewayAuthorization.getAuthorization(
+              String(claims.authorization_id),
+            )
+          )?.operationId,
+        ).toBeUndefined();
+      });
+      for (const input of [{}, { clientId: '' }, { clientId: 'x'.repeat(129) }])
+        await expect(
+          caller.issueGatewayUserToken(input as { clientId: string }),
+        ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      const unauthenticated = gatewayRelayRouter.createCaller({
+        userId: subject,
+        jwtPayload: { userId: subject },
+      });
+      await expect(unauthenticated.issueGatewayUserToken({ clientId: 'tab' })).rejects.toThrow(
+        'SOURCE_UNVERIFIABLE',
+      );
+    }));
+
+  it.each(['session', 'apiKey', 'oidc'])(
+    'mints and renews a %s user ticket without an operation',
+    async (kind) =>
+      run(async () => {
+        const identity = await mintUser(kind);
+        const claims = decodeJwt(identity.gatewayTicket);
+        expect(parseGatewayWire('tokenClaims', claims)).toBe(claims);
+        expect(claims).toMatchObject({
+          sub: subject,
+          principal,
+          connection_id: 'tab',
+          capabilities: ['agent:observe', 'agent:respond', 'agent:execute'],
+        });
+        expect(claims.operation_id).toBeUndefined();
+        expect(claims.exp! - claims.iat!).toBeLessThanOrEqual(300);
+        expect(
+          (await redisService.gatewayAuthorization.getAuthorization(identity.authorizationId))
+            ?.operationId,
+        ).toBeUndefined();
+        await expect(authorizeGateway(userRequest(identity))).resolves.toMatchObject({
+          authorizationId: identity.authorizationId,
+        });
+        const renewed = await mintUser(kind, { renewAuthorizationId: identity.authorizationId });
+        expect(renewed.authorizationId).toBe(identity.authorizationId);
+        await expect(
+          authorizeGateway(userRequest(renewed, { action: 'renew' })),
+        ).resolves.toMatchObject({ authorizationId: identity.authorizationId });
+        for (const action of ['connect', 'renew'] as const)
+          await expect(
+            authorizeGateway(userRequest(renewed, { action, operationId })),
+          ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+        await expect(
+          mintUser(kind, {
+            connectionId: 'other-tab',
+            renewAuthorizationId: identity.authorizationId,
+          }),
+        ).rejects.toMatchObject({ code: 'SOURCE_UNVERIFIABLE' });
+      }),
+  );
+  it.each([undefined, '', 'x'.repeat(129)])(
+    'rejects invalid user connection id',
+    async (connectionId) =>
+      run(async () => {
+        await expect(mintUser('session', { connectionId })).rejects.toMatchObject({
+          code: 'INVALID_GATEWAY_MESSAGE',
+        });
+      }),
+  );
+  it('refuses background authority for a user ticket', async () =>
+    run(async () => {
+      await expect(mintUser('operation')).rejects.toMatchObject({ code: 'SOURCE_UNVERIFIABLE' });
+    }));
+  it('keeps workspace-key user tickets scoped to their workspace and membership', async () =>
+    run(async () => {
+      const workspaceId = 'mux-workspace';
+      await db.insert(workspaces).values({
+        id: workspaceId,
+        slug: workspaceId,
+        name: 'Mux',
+        primaryOwnerId: subject,
+      });
+      await db.insert(workspaceMembers).values({ workspaceId, userId: subject });
+      await db.update(apiKeys).set({ workspaceId });
+      const identity = await mintUser('apiKey', {
+        source: { kind: 'apiKey', subject, keyId, keyHash, workspaceId },
+      });
+      const request = userRequest(identity, {
+        action: 'subscribe',
+        operationId,
+        roles: ['agent:observe'],
+      });
+      await expect(authorizeGateway(request)).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+      await db.update(agentOperations).set({ workspaceId });
+      await expect(authorizeGateway(request)).resolves.toMatchObject({ operationId });
+      await db.delete(workspaceMembers);
+      await expect(authorizeGateway(userRequest(identity))).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+    }));
+  it('permits a read-scoped key only to observe', async () =>
+    run(async () => {
+      await db.update(apiKeys).set({ scopes: ['chat:read'] });
+      await expect(mintUser('apiKey')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      const identity = await mintUser('apiKey', { capabilities: ['agent:observe'] });
+      await expect(authorizeGateway(userRequest(identity))).resolves.toMatchObject({
+        authorizationId: identity.authorizationId,
+      });
+      await expect(
+        authorizeGateway(
+          userRequest(identity, { action: 'subscribe', operationId, roles: ['agent:execute'] }),
+        ),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    }));
+  it.each(['connect', 'renew', 'subscribe'] as const)(
+    'rechecks sources for user %s',
+    async (action) =>
+      run(async () => {
+        const checks = [
+          async () => {
+            await db.delete(session);
+          },
+          async () => {
+            await db.update(users).set({ banned: true });
+          },
+          async () => {
+            await db.update(apiKeys).set({ expiresAt: new Date(0) });
+          },
+          async () => {
+            state.version = 8;
+          },
+        ];
+        for (let index = 0; index < checks.length; index++) {
+          await seedGatewaySourceRows(db, {
+            tenantId,
+            subject,
+            operationId,
+            sessionId,
+            keyId,
+            keyHash,
+          });
+          state.version = 7;
+          const identity = await mintUser(index === 2 ? 'apiKey' : 'session');
+          await checks[index]();
+          await expect(
+            authorizeGateway(
+              userRequest(identity, {
+                action,
+                ...(action === 'subscribe' ? { operationId, roles: ['agent:observe'] } : {}),
+              }),
+            ),
+          ).rejects.toMatchObject({
+            code: index === 3 ? 'TENANT_EXECUTION_VERSION_STALE' : 'UNAUTHORIZED',
+          });
+        }
+      }),
+  );
+  it('subscribes to retained owner and stream-owner operations with their stored version', async () =>
+    run(async () => {
+      const identity = await mintUser();
+      const request = userRequest(identity, {
+        action: 'subscribe',
+        operationId,
+        roles: ['agent:observe', 'agent:respond'],
+      });
+      await db.update(agentOperations).set({ status: 'done' });
+      await expect(authorizeGateway(request)).resolves.toMatchObject({
+        operationId,
+        roles: request.roles,
+        sourceAcceptedVersion: 7,
+      });
+      await db.insert(users).values({ id: 'other' });
+      await db.update(agentOperations).set({
+        userId: 'other',
+        metadata: { tenantId, sourceAcceptedVersion: 7, streamOwnerUserId: subject },
+      });
+      await expect(authorizeGateway(request)).resolves.toMatchObject({ sourceAcceptedVersion: 7 });
+    }));
+  it('uses byte-identical HTTP denials for absent, foreign, non-owned and stale operations', async () =>
+    run(async () => {
+      const identity = await mintUser();
+      await db.insert(users).values({ id: 'other' });
+      await db.insert(agentOperations).values([
+        {
+          id: 'foreign',
+          userId: subject,
+          status: 'running',
+          metadata: { tenantId: 'tenant-B', sourceAcceptedVersion: 7 },
+        },
+        {
+          id: 'other-op',
+          userId: 'other',
+          status: 'running',
+          metadata: { tenantId, sourceAcceptedVersion: 7 },
+        },
+        {
+          id: 'stale',
+          userId: subject,
+          status: 'running',
+          metadata: { tenantId, sourceAcceptedVersion: 6 },
+        },
+      ]);
+      const app = createGatewayInternalApp({
+        serviceTokens: () => ['test-service'],
+        run: async (_id, fn) => fn(),
+      });
+      const bodies = [];
+      for (const id of ['missing', 'foreign', 'other-op', 'stale']) {
+        const response = await app.request('/api/internal/gateway/authorize', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer test-service',
+            'Content-Type': 'application/json',
+            'X-LobeHub-Gateway-Tenancy': '1',
+            'X-LobeHub-Tenant-Id': tenantId,
+          },
+          body: JSON.stringify(
+            userRequest(identity, {
+              ticket: undefined,
+              action: 'subscribe',
+              operationId: id,
+              roles: ['agent:observe'],
+            }),
+          ),
+        });
+        expect(response.status).toBe(404);
+        bodies.push(await response.text());
+      }
+      expect(new Set(bodies).size).toBe(1);
+      expect(JSON.parse(bodies[0])).toEqual({
+        tenancyProtocol: 1,
+        error: { code: 'RESOURCE_NOT_FOUND', message: 'RESOURCE_NOT_FOUND' },
+      });
+    }));
+  it('rejects subscribe on operation tickets', async () =>
+    run(async () => {
+      await expect(
+        authorizeGateway(
+          connectionRequest(await mint(), { action: 'subscribe', roles: ['agent:observe'] }),
+        ),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    }));
+  it('exchanges a user identity at the HTTP handler and rejects missing connectionId', async () =>
+    run(async () => {
+      state.requestSource = source('session');
+      for (const connectionId of ['tab', undefined]) {
+        const response = await GatewayRoutes.request('/identity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenancyProtocol: 1,
+            audience: 'urn:lobehub:gateway:agent',
+            connectionId,
+          }),
+        });
+        expect(response.status).toBe(connectionId ? 200 : 400);
+        if (connectionId) parseGatewayWire('identityResponse', await response.json());
+      }
+    }));
+  it.each(['operations.tool-execute', 'operations.request-input'] as const)(
+    'requires the command role for user-ticket %s dispatch',
+    async (action) =>
+      run(async () => {
+        const identity = await mintUser('session', { capabilities: ['agent:observe'] });
+        const intent = await createGatewayAttempt({
+          tenantId,
+          sourceAcceptedVersion: 7,
+          source: source('session'),
+          targetPrincipal: principal,
+          action,
+          operationId,
+          toolCallId: 'role-check',
+          resourceId: operationId,
+          attemptExpiresAt: Date.now() + 30_000,
+        });
+        await expect(
+          authorizeGateway(
+            userRequest(identity, {
+              action: 'dispatch',
+              operationId,
+              sourceAcceptedVersion: 7,
+              attemptId: intent.attemptId,
+              dispatchBinding: {
+                authorizationId: identity.authorizationId,
+                connectionId: 'tab',
+                connectionGeneration: 3,
+              },
+            }),
+          ),
+        ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      }),
+  );
+  it('claims and settles only an owned operation with the signed socket binding', async () =>
+    run(async () => {
+      const identity = await mintUser();
+      const intent = await createGatewayAttempt({
+        tenantId,
+        sourceAcceptedVersion: 7,
+        source: source('session'),
+        targetPrincipal: principal,
+        action: 'operations.tool-execute',
+        operationId,
+        toolCallId: 'mux-tool',
+        resourceId: operationId,
+        attemptExpiresAt: Date.now() + 30_000,
+      });
+      const dispatchBinding = {
+        authorizationId: identity.authorizationId,
+        connectionId: 'tab',
+        connectionGeneration: 3,
+      };
+      const request = userRequest(identity, {
+        action: 'dispatch',
+        operationId,
+        attemptId: intent.attemptId,
+        dispatchBinding,
+        sourceAcceptedVersion: 7,
+      });
+      await expect(
+        authorizeGateway({
+          ...request,
+          dispatchBinding: { ...dispatchBinding, connectionId: 'wrong' },
+        }),
+      ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+      await expect(authorizeGateway({ ...request, generation: 4 })).rejects.toMatchObject({
+        code: 'ATTEMPT_CONFLICT',
+      });
+      await authorizeGateway(request);
+      await expect(authorizeGateway(request)).rejects.toMatchObject({ code: 'ATTEMPT_CONFLICT' });
+      await expect(authorizeGateway({ ...request, action: 'result' })).resolves.toMatchObject({
+        attemptId: intent.attemptId,
+      });
+      await db.insert(users).values({ id: 'other' });
+      await db.update(agentOperations).set({ userId: 'other' });
+      for (const action of ['dispatch', 'result'] as const)
+        await expect(authorizeGateway({ ...request, action })).rejects.toMatchObject({
+          code: 'RESOURCE_NOT_FOUND',
+        });
     }));
 });

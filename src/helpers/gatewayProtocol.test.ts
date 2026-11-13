@@ -16,9 +16,9 @@ afterEach(() => {
 });
 
 describe('canUseGatewayProtocolV2', () => {
-  it('keeps tenancy on v1 even with the upstream capability and rollout', () => {
+  it('allows mux with the contract capability and rollout', () => {
     mockConfig(2, true);
-    expect(canUseGatewayProtocolV2()).toBe(false);
+    expect(canUseGatewayProtocolV2()).toBe(true);
 
     // In the rollout, but this deployment's gateway has no `/v2/ws` at all.
     mockConfig(1, true);
@@ -45,6 +45,6 @@ describe('canUseGatewayProtocolV2', () => {
       },
     };
 
-    expect(canUseGatewayProtocolV2()).toBe(false);
+    expect(canUseGatewayProtocolV2()).toBe(true);
   });
 });

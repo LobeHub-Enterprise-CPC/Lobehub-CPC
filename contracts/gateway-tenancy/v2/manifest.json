@@ -1,0 +1,20 @@
+{
+  "contractVersion": 2,
+  "hashAlgorithm": "sha256",
+  "files": {
+    "README.md": "060af9cfc05508b5aa6cd96bdbcca2b471b924feee1366dbfb1af474c10a93c5",
+    "fixtures/authorize.json": "d64f902c30b2e590446b680ea64256a6cc092a265046a42d45b3c20df0e4d233",
+    "fixtures/capabilities.json": "c47a92a24a60b0fdb5e90943765b1351e1344e813c269a0322a4e13b5d911b65",
+    "fixtures/dispatch.json": "cbfafd7bda870b2891e888a51dc1262e682222c15e3053fca1a1a6bf95db9290",
+    "fixtures/errors.json": "945a78d0840691e3f42585866c76437c0087c017848f3b0128dd7b8fcddca0ce",
+    "fixtures/lease.json": "5b8e4377bca499c72580cfdd19077030d1a0fe05f28e46e1560fbfb21f9255c7",
+    "fixtures/lifecycle.json": "73f6cb7240fb8ea13c8dc8ff66bb1ee6eec36bc8bea74dca115d254984b6bd62",
+    "fixtures/mux.json": "b81c84461540f867812563984ad87e3f0fa58b9be8c12f18056c5f912706326b",
+    "fixtures/platform-online.json": "a62ecc6f3d02062a3792fe895207072ff8fbed10c217e258f2b7a8f07cf57790",
+    "fixtures/sources.json": "69ed6f883548ffe413456a34751124ce886125a11ffce1c48d28098628d955a3",
+    "fixtures/token-claims.json": "4eda6c57ff0b7a5f7aa3166fd6e7e420e0913a2672cf3281990dd28251c9d52e",
+    "fixtures/ws-auth.json": "f326e097f18ab6f96078472225bfe0e6816adcb352c10ace008cb089ecd53b0a",
+    "protocol.json": "3848f4e91da3f710f5af97e5ccc8d7ccc0f530dae98cfb00091472511cc68434",
+    "schema.json": "a741defc04ac9f4e4aa4f2c8273bd9e1033c24bd9b97379cfddc4bdfa0e17757"
+  }
+}

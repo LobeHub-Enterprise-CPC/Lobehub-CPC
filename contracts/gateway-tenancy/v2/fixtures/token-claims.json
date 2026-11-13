@@ -1,5 +1,5 @@
 {
-  "contractVersion": 1,
+  "contractVersion": 2,
   "cases": [
     {
       "id": "token-agent-valid",
@@ -824,6 +824,280 @@
       },
       "context": {
         "consumer": "ordinary-work-business-auth"
+      }
+    },
+    {
+      "id": "user-ticket-valid",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [
+          "agent:observe",
+          "agent:respond",
+          "agent:execute"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "tab-1"
+      },
+      "expected": {
+        "accepted": true
+      }
+    },
+    {
+      "id": "user-ticket-missing-connection",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [
+          "agent:observe",
+          "agent:respond",
+          "agent:execute"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "user-ticket-workspace-principal",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "workspace",
+          "id": "workspace-shared"
+        },
+        "capabilities": [
+          "agent:observe",
+          "agent:respond",
+          "agent:execute"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "tab-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "user-ticket-with-device",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [
+          "agent:observe",
+          "agent:respond",
+          "agent:execute"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "tab-1",
+        "device_id": "device-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "user-ticket-empty-capabilities",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "tab-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "user-ticket-foreign-role",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [
+          "device:connect"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "tab-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "user-ticket-duplicate-capabilities",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [
+          "agent:observe",
+          "agent:observe"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "tab-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "user-ticket-overlong-connection",
+      "schema": "tokenClaims",
+      "validation": "wire",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "user-shared"
+        },
+        "capabilities": [
+          "agent:observe",
+          "agent:respond",
+          "agent:execute"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
+      }
+    },
+    {
+      "id": "user-ticket-sub-mismatch",
+      "schema": "tokenClaims",
+      "validation": "binding",
+      "input": {
+        "iss": "urn:lobehub:gateway-session",
+        "aud": "urn:lobehub:gateway:agent",
+        "purpose": "gateway-connect",
+        "tid": "tenant-A",
+        "sub": "user-shared",
+        "principal": {
+          "kind": "user",
+          "id": "other"
+        },
+        "capabilities": [
+          "agent:observe",
+          "agent:respond",
+          "agent:execute"
+        ],
+        "authorization_id": "auth-agent-A",
+        "accepted_version": 7,
+        "jti": "ticket-A",
+        "iat": 1900000000,
+        "exp": 1900000300,
+        "connection_id": "tab-1"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "UNAUTHORIZED"
+      },
+      "context": {
+        "signedSubject": "user-shared"
       }
     }
   ]

@@ -25,7 +25,7 @@ vi.mock('../agentRun', () => ({ spawnHeteroAgentRun }));
 
 const fixture = JSON.parse(
   await readFile(
-    new URL('../../../../../contracts/gateway-tenancy/v1/fixtures/ws-auth.json', import.meta.url),
+    new URL('../../../../../contracts/gateway-tenancy/v2/fixtures/ws-auth.json', import.meta.url),
     'utf8',
   ),
 ).cases.find((c: { id: string }) => c.id === 'auth-success-valid').input;

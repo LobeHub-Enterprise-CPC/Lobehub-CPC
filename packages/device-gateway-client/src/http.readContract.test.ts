@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import protocol from '../../../contracts/gateway-tenancy/v1/protocol.json';
+import protocol from '../../../contracts/gateway-tenancy/v2/protocol.json';
 import { GatewayHttpClient } from './http';
 
 const tenantId = 'tenant-A';

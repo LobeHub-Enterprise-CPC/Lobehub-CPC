@@ -1,6 +1,6 @@
 import { getServerConfigStoreState } from '@/store/serverConfig';
 
-import tenancyProtocol from '../../contracts/gateway-tenancy/v1/protocol.json';
+import tenancyProtocol from '../../contracts/gateway-tenancy/v2/protocol.json';
 
 /**
  * `serverConfig` / `featureFlags`, read the same way the gateway transport does:

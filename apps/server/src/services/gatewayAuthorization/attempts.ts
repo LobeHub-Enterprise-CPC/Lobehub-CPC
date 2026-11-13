@@ -12,7 +12,7 @@ import {
 import { redisService } from '@/server/services/redis';
 
 import { assertGatewayVersion } from './index';
-import { assertGatewaySource } from './sources';
+import { assertGatewaySource, assertGatewaySubscription } from './sources';
 import type {
   GatewayAttemptRecord,
   GatewayAuthorizationSource,
@@ -126,11 +126,24 @@ export const loadGatewayAttempt = async (
     : 'urn:lobehub:gateway:agent';
   if (
     target.audience !== audience ||
-    (audience.endsWith(':agent') && target.operationId !== record.intent.operationId)
+    (audience.endsWith(':agent') &&
+      target.operationId !== undefined &&
+      target.operationId !== record.intent.operationId)
   )
     throw new GatewayAuthorizationError('UNAUTHORIZED');
+  if (audience.endsWith(':agent') && !target.operationId) {
+    await assertGatewaySubscription(
+      target.userId,
+      record.intent.operationId,
+      target.acceptedVersion,
+      target.source,
+    );
+    if (target.connectionId !== binding.connectionId)
+      throw new GatewayAuthorizationError('UNAUTHORIZED');
+  }
   await assertGatewaySource(target.source, {
     principal: target.principal,
+    userTicket: audience.endsWith(':agent') && !target.operationId,
     operationId: target.operationId,
     enroller: target.audience === 'urn:lobehub:gateway:device',
     execute: true,

@@ -1,8 +1,13 @@
+import { isFullAccessApiKey } from '@lobechat/const/apiKeyScope';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { router } from '@/libs/trpc/lambda';
-import { mintOperationGatewayTicket } from '@/server/services/gatewayAuthorization';
+import {
+  mintGatewayTicket,
+  mintOperationGatewayTicket,
+} from '@/server/services/gatewayAuthorization';
+import { requireGatewaySource } from '@/server/services/gatewayAuthorization/context';
 
 import { LlmExecutorSchema } from './execSchemas';
 import { aiAgentProcedure, aiAgentWriteProcedure } from './procedures';
@@ -37,14 +42,25 @@ export const gatewayRelayRouter = router({
     .mutation(async ({ input, ctx }) => {
       return ctx.aiAgentService.releaseSubAgentLlmRelay(input.channel);
     }),
-  /**
-   * Mint the per-USER Gateway JWT for the multiplexed v2 WebSocket. This
-   * deployment only issues operation-bound gateway tickets
-   * (`refreshGatewayToken`), so the multiplexed socket is refused.
-   */
-  issueGatewayUserToken: aiAgentProcedure.query(async (): Promise<{ token: string }> => {
-    throw new TRPCError({ code: 'NOT_IMPLEMENTED', message: 'MUX_UNSUPPORTED' });
-  }),
+  /** Mint a source-bound ticket for the tab's multiplexed socket. */
+  issueGatewayUserToken: aiAgentProcedure
+    .input(
+      z.object({ clientId: z.string().min(1).max(128), authorizationId: z.string().optional() }),
+    )
+    .query(async ({ input, ctx }): Promise<{ token: string }> => {
+      const identity = await mintGatewayTicket({
+        source: requireGatewaySource(ctx.userId),
+        audience: 'urn:lobehub:gateway:agent',
+        principal: { kind: 'user', id: ctx.userId },
+        connectionId: input.clientId,
+        renewAuthorizationId: input.authorizationId,
+        capabilities:
+          ctx.apiKeyScopes !== undefined && !isFullAccessApiKey(ctx.apiKeyScopes)
+            ? ['agent:observe']
+            : ['agent:observe', 'agent:respond', 'agent:execute'],
+      });
+      return { token: identity.gatewayTicket };
+    }),
   /**
    * Refresh Gateway JWT token for an existing operation.
    */
