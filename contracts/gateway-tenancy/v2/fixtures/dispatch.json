@@ -765,12 +765,35 @@
         "connectionGeneration": 3,
         "operationId": "operation-shared",
         "toolCallId": "tool-shared",
-        "tool": {
-          "name": "synthetic-noop"
+        "data": {
+          "identifier": "synthetic-tool",
+          "apiName": "noop",
+          "arguments": "{}",
+          "executionTimeoutMs": 30000,
+          "toolCallId": "tool-shared"
         }
       },
       "expected": {
         "accepted": true
+      }
+    },
+    {
+      "id": "ws-command-tool-execute-missing-data",
+      "schema": "dispatchCommand",
+      "validation": "wire",
+      "input": {
+        "type": "tool_execute",
+        "tenancyProtocol": 1,
+        "tenantId": "tenant-A",
+        "sourceAcceptedVersion": 7,
+        "attemptId": "attempt-A-1",
+        "connectionGeneration": 3,
+        "operationId": "operation-shared",
+        "toolCallId": "tool-shared"
+      },
+      "expected": {
+        "accepted": false,
+        "code": "INVALID_GATEWAY_MESSAGE"
       }
     },
     {
