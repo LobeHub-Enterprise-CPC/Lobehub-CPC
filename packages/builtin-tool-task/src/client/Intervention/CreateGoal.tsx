@@ -2,6 +2,11 @@
 
 import type { BuiltinInterventionProps } from '@lobechat/types';
 import {
+  usageAmountPrefix,
+  usageBudgetFromInput,
+  usageBudgetToInput,
+} from '@lobechat/utils/usageCredits';
+import {
   ReactCodeblockPlugin,
   ReactCodePlugin,
   ReactHRPlugin,
@@ -10,9 +15,17 @@ import {
   ReactTablePlugin,
 } from '@lobehub/editor';
 import { Editor, useEditor } from '@lobehub/editor/react';
-import { Flexbox, Icon } from '@lobehub/ui';
-import { ActionIcon, Button, Input, InputNumber, Text } from '@lobehub/ui';
-import { createStaticStyles, cssVar } from '@lobehub/ui';
+import {
+  ActionIcon,
+  Button,
+  createStaticStyles,
+  cssVar,
+  Flexbox,
+  Icon,
+  Input,
+  InputNumber,
+  Text,
+} from '@lobehub/ui';
 import { ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -326,12 +339,12 @@ const CreateGoalIntervention = memo<BuiltinInterventionProps<CreateGoalParams>>(
               <InputNumber
                 min={0}
                 placeholder={t('builtins.lobe-task.goal.uncapped')}
-                prefix={'$'}
+                prefix={usageAmountPrefix() || undefined}
                 size={'small'}
                 style={{ width: 120 }}
-                value={args.maxTotalCost ?? null}
+                value={usageBudgetToInput(args.maxTotalCost)}
                 variant={'filled'}
-                onChange={(value) => patch({ maxTotalCost: value })}
+                onChange={(value) => patch({ maxTotalCost: usageBudgetFromInput(value) })}
               />
             </Flexbox>
           </Flexbox>

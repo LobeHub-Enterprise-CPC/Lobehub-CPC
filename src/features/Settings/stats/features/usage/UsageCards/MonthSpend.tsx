@@ -8,6 +8,8 @@ import StatisticCard from '@/components/StatisticCard';
 import TitleWithPercentage from '@/components/StatisticCard/TitleWithPercentage';
 import { type UsageLog } from '@/types/usage/usageRecord';
 import { formatNumber } from '@/utils/format';
+import { usageAmountSuffix } from '@/utils/usageCostLabel';
+import { usageAmount, usageAmountPrefix } from '@/utils/usageCredits';
 
 import { type UsageChartProps } from '../../../types';
 
@@ -24,7 +26,7 @@ const computeMonth = (
 
   return {
     calls: formatNumber(calls),
-    spend: formatNumber(spend),
+    spend: formatNumber(usageAmount(spend)),
   };
 };
 
@@ -40,7 +42,8 @@ const MonthSpend = memo<UsageChartProps>(({ data, isLoading }) => {
       statistic={{
         description: <Statistic title={t('usage.cards.month.modelCalls')} value={calls} />,
         precision: 2,
-        prefix: '$',
+        prefix: usageAmountPrefix(),
+        suffix: usageAmountSuffix(),
         value: spend,
       }}
     />

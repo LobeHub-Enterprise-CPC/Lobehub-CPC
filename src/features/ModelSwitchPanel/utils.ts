@@ -1,5 +1,5 @@
 import { USD_TO_CNY } from '@lobechat/const/currency';
-import { getTextInputUnitRate } from '@lobechat/utils';
+import { getTextInputUnitRate, usageCreditMultiplier } from '@lobechat/utils';
 import { type Pricing } from 'model-bank';
 
 import { type ListItem } from './types';
@@ -30,13 +30,17 @@ export const getListItemKey = (item: ListItem): string => {
 /**
  * Input price relative to the $1 / 1M input tokens baseline, so the model list
  * can compare cost at a glance. Tiered pricing uses its first (cheapest) tier.
+ * A distribution that charges in credits sets its own 1× rate instead.
  * Returns `undefined` when the model has no text input price.
  */
 export const getInputPriceMultiplier = (pricing?: Pricing): number | undefined => {
   const rate = getTextInputUnitRate(pricing);
   if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0) return undefined;
 
-  return pricing?.currency === 'CNY' ? rate / USD_TO_CNY : rate;
+  return (
+    usageCreditMultiplier(rate, pricing?.currency) ??
+    (pricing?.currency === 'CNY' ? rate / USD_TO_CNY : rate)
+  );
 };
 
 /** 0.0125 → "0.013", 0.3 → "0.3", 1.25 → "1.25", 15 → "15" */

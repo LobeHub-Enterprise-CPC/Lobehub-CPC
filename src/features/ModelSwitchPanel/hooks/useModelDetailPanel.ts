@@ -34,6 +34,11 @@ import { systemStatusSelectors } from '@/store/global/selectors';
 import type { EnabledProviderWithModels } from '@/types/aiProvider';
 import { formatNumber, formatShortenNumber, formatTokenNumber } from '@/utils/format';
 import { formatPriceByCurrency, getOriginalUnitRateByName, getUnitRateByName } from '@/utils/index';
+import {
+  formatUsageCreditRate,
+  isUsageCreditsEnabled,
+  usageCreditRate,
+} from '@/utils/usageCredits';
 
 import type { PricingMode } from '../types';
 
@@ -56,7 +61,15 @@ interface FormatPricingRateOptions {
   unit?: PricingUnit['unit'];
 }
 
-const formatBrandingCreditRate = (rate: number, unit?: PricingUnit['unit']) => {
+const formatBrandingCreditRate = (
+  rate: number,
+  unit?: PricingUnit['unit'],
+  currency?: ModelPriceCurrency,
+) => {
+  // A distribution's own credits: the directory rate restated at its rate,
+  // whatever currency the directory quotes it in.
+  if (isUsageCreditsEnabled()) return formatUsageCreditRate(usageCreditRate(rate, currency));
+
   if (unit && MILLION_SCALE_UNITS.has(unit)) return `${formatNumber(rate)}M`;
 
   return String(formatShortenNumber(Math.round(rate * BRANDING_CREDIT_UNIT)));
@@ -70,7 +83,7 @@ const formatPricingRate = (
   if (typeof rate !== 'number') return '0';
 
   return options.isCreditPricing
-    ? formatBrandingCreditRate(rate, options.unit)
+    ? formatBrandingCreditRate(rate, options.unit, currency)
     : formatPriceByCurrency(rate, currency);
 };
 
@@ -332,7 +345,7 @@ export const useModelDetailPanel = ({
     const currency = displayPricing.currency as ModelPriceCurrency | undefined;
     if (pricingMode === 'image' && typeof displayPricing.approximatePricePerImage === 'number') {
       const amount = isCreditPricing
-        ? formatBrandingCreditRate(displayPricing.approximatePricePerImage, 'image')
+        ? formatBrandingCreditRate(displayPricing.approximatePricePerImage, 'image', currency)
         : formatPriceByCurrency(displayPricing.approximatePricePerImage, currency);
       return t(
         isCreditPricing
@@ -346,7 +359,7 @@ export const useModelDetailPanel = ({
     }
     if (pricingMode === 'video' && typeof displayPricing.approximatePricePerVideo === 'number') {
       const amount = isCreditPricing
-        ? formatBrandingCreditRate(displayPricing.approximatePricePerVideo)
+        ? formatBrandingCreditRate(displayPricing.approximatePricePerVideo, undefined, currency)
         : formatPriceByCurrency(displayPricing.approximatePricePerVideo, currency);
       return t(
         isCreditPricing

@@ -3,7 +3,7 @@
 import { formatElapsedClockTime } from '@lobechat/utils';
 import { createStaticStyles, cx, Flexbox, Icon, Popover, Tooltip } from '@lobehub/ui';
 import type { LucideIcon } from 'lucide-react';
-import { CircleDollarSignIcon, CoinsIcon, FootprintsIcon } from 'lucide-react';
+import { BadgeCentIcon, CircleDollarSignIcon, CoinsIcon, FootprintsIcon } from 'lucide-react';
 import { Fragment, memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,6 +12,7 @@ import { operationSelectors } from '@/store/chat/selectors';
 import { AI_RUNTIME_OPERATION_TYPES } from '@/store/chat/slices/operation/types';
 import { shinyTextStyles } from '@/styles';
 import { calculateOperationUsageMetrics } from '@/utils/operationUsageMetrics';
+import { formatUsageCost, isUsageCreditsEnabled } from '@/utils/usageCredits';
 
 import { contextSelectors, dataSelectors, useConversationStore } from '../store';
 import { type ActivityKey, resolveOperationActivity } from '../utils/operationActivity';
@@ -210,10 +211,8 @@ const formatTokens = (n: number) => {
   return `${(n / 1_000_000).toFixed(2)}M`;
 };
 
-const formatCost = (cost: number) => {
-  if (cost < 0.01) return cost.toFixed(4);
-  return cost.toFixed(2);
-};
+const formatCost = (cost: number) =>
+  formatUsageCost(cost, (usd) => (usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)));
 
 const normalizeStepCount = (stepCount: unknown) => {
   if (typeof stepCount !== 'number' || !Number.isFinite(stepCount)) return 0;
@@ -362,7 +361,7 @@ const OpStatusTray = memo<OpStatusTrayProps>(({ seamless, topAttached }) => {
       : undefined,
     totalCost > 0
       ? {
-          icon: CircleDollarSignIcon,
+          icon: isUsageCreditsEnabled() ? BadgeCentIcon : CircleDollarSignIcon,
           key: 'cost',
           label: costLabel,
           title: `${costLabel}: ${formatCost(totalCost)}`,

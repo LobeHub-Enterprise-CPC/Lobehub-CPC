@@ -1,6 +1,7 @@
 /**
  * @vitest-environment happy-dom
  */
+import type * as BusinessConstModule from '@lobechat/business-const';
 import { act, renderHook } from '@testing-library/react';
 import type { TFunction } from 'i18next';
 import type { Pricing } from 'model-bank';
@@ -9,6 +10,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnabledProviderWithModels } from '@/types/aiProvider';
 
 import { useModelDetailPanel } from './useModelDetailPanel';
+
+// These assertions are about dollar amounts. A distribution that charges in its
+// own credits overrides this slot, so pin the upstream default.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<typeof BusinessConstModule>()),
+  USAGE_CREDITS: undefined,
+}));
 
 const {
   globalState,

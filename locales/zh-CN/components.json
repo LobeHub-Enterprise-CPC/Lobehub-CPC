@@ -245,6 +245,7 @@
   "ModelSwitchPanel.manageProvider": "管理提供商",
   "ModelSwitchPanel.meta.price": "相对价格 {{multiplier}}×（1× = 每百万输入 token $1）",
   "ModelSwitchPanel.meta.price.credits": "相对价格 {{multiplier}}×（1× = 每百万输入 token 100 万积分）",
+  "ModelSwitchPanel.meta.price.usageCredits": "相对价格 {{multiplier}}×（1× = 每百万输入 token {{baseline}} 积分）",
   "ModelSwitchPanel.meta.rating": "{{dimension}}评分 {{score}}/100（以评分最高的模型为 100）",
   "ModelSwitchPanel.provider": "提供方",
   "ModelSwitchPanel.searchPlaceholder": "搜索模型...",

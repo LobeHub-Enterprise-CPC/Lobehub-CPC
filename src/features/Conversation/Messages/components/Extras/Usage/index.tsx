@@ -6,7 +6,7 @@ import type { ModelPerformance, ModelUsage } from '@lobechat/types';
 import { unwrapServerDefaultHeterogeneousModel } from '@lobechat/types';
 import { Center, createStaticStyles, Flexbox, Icon, Tooltip } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
-import { CircleDollarSignIcon, CoinsIcon } from 'lucide-react';
+import { BadgeCent, CircleDollarSignIcon, CoinsIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -18,6 +18,7 @@ import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { isDev } from '@/utils/env';
 import { formatNumber } from '@/utils/format';
+import { formatUsageCost, isUsageCreditsEnabled } from '@/utils/usageCredits';
 
 import { contextSelectors, useConversationStore } from '../../../../store';
 import TokenDetail from './UsageDetail';
@@ -155,8 +156,8 @@ const Usage = memo<UsageProps>(({ model, usage, performance, provider }) => {
         )}
         {!isShowCredit && !!usage?.cost && usage.cost >= MIN_DISPLAY_COST && (
           <Center horizontal gap={2}>
-            <Icon icon={CircleDollarSignIcon} />
-            {formatCost(usage.cost)}
+            <Icon icon={isUsageCreditsEnabled() ? BadgeCent : CircleDollarSignIcon} />
+            {formatUsageCost(usage.cost, formatCost)}
           </Center>
         )}
       </Center>

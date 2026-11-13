@@ -13,6 +13,11 @@ import NewModelBadge from '@/components/ModelSelect/NewModelBadge';
 import { useIsDark } from '@/hooks/useIsDark';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
+import {
+  formatUsageCreditRate,
+  isUsageCreditsEnabled,
+  usageCreditRate,
+} from '@/utils/usageCredits';
 
 const POPOVER_MAX_WIDTH = 320;
 
@@ -89,23 +94,29 @@ const GenerationModelItem = memo<GenerationModelItemProps>(
       const exactUsd = isVideo ? pricePerVideo : pricePerImage;
       const approxUsd = isVideo ? approximatePricePerVideo : approximatePricePerImage;
 
+      // Upstream credits are a millionth of a dollar; a distribution's own rate replaces that.
+      const toCredits = (usd: number) =>
+        isUsageCreditsEnabled()
+          ? formatUsageCreditRate(usageCreditRate(usd))
+          : numeral(usd * CREDITS_PER_DOLLAR).format('0,0');
+
       if (enableBusinessFeatures && providerId === BRANDING_PROVIDER) {
         if (typeof exactUsd === 'number') {
-          const credits = exactUsd * CREDITS_PER_DOLLAR;
+          const credits = toCredits(exactUsd);
           return t(
             isVideo
               ? 'GenerationModelItem.creditsPerVideoExact'
               : 'GenerationModelItem.creditsPerImageExact',
-            { amount: numeral(credits).format('0,0') },
+            { amount: credits },
           );
         }
         if (typeof approxUsd === 'number') {
-          const credits = approxUsd * CREDITS_PER_DOLLAR;
+          const credits = toCredits(approxUsd);
           return t(
             isVideo
               ? 'GenerationModelItem.creditsPerVideoApproximate'
               : 'GenerationModelItem.creditsPerImageApproximate',
-            { amount: numeral(credits).format('0,0') },
+            { amount: credits },
           );
         }
       } else {

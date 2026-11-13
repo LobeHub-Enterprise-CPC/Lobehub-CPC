@@ -30,5 +30,6 @@ export * from './timing';
 export * from './truncateSurrogateSafe';
 export * from './uriParser';
 export * from './url';
+export * from './usageCredits';
 export * from './uuid';
 export * from './videoToBase64';

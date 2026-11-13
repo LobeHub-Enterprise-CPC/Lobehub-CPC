@@ -1,4 +1,10 @@
-import { getCachedTextInputUnitRate, getWriteCacheInputUnitRate } from '@lobechat/utils';
+import {
+  formatUsageCreditRate,
+  getCachedTextInputUnitRate,
+  getWriteCacheInputUnitRate,
+  isUsageCreditsEnabled,
+  usageCreditRate,
+} from '@lobechat/utils';
 import { createStaticStyles, Flexbox, Icon, Tabs, Tooltip } from '@lobehub/ui';
 import { ArrowDownToDot, ArrowUpFromDot, BookUp2Icon, CircleFadingArrowUp } from 'lucide-react';
 import { type LobeDefaultAiModelListItem } from 'model-bank';
@@ -33,12 +39,44 @@ interface ModelCardProps extends LobeDefaultAiModelListItem {
 }
 
 const ModelCard = memo<ModelCardProps>(({ pricing, id, provider, displayName }) => {
-  const { t } = useTranslation('chat');
+  const { t } = useTranslation(['chat', 'common']);
 
   const isShowCredit = useGlobalStore(systemStatusSelectors.isShowCredit) && !!pricing;
   const updateSystemStatus = useGlobalStore((s) => s.updateSystemStatus);
 
-  const formatPrice = getPrice(pricing || { units: [] });
+  const usdPrice = getPrice(pricing || { units: [] });
+  // A distribution that charges in its own credits quotes its rates in them and
+  // never shows the dollar price behind them.
+  const isUsageCredits = isUsageCreditsEnabled();
+  const quote = (usdPerMillion: number) =>
+    isUsageCredits ? formatUsageCreditRate(usageCreditRate(usdPerMillion)) : usdPerMillion;
+  const formatPrice = {
+    cachedInput: quote(usdPrice.cachedInput),
+    input: quote(usdPrice.input),
+    output: quote(usdPrice.output),
+    writeCacheInput: quote(usdPrice.writeCacheInput),
+  };
+  const rateTitle = (
+    unit: 'cachedInput' | 'cacheWrite' | 'input' | 'output',
+    amount: number | string,
+  ) => {
+    if (isUsageCredits) return t(`usageCredits.rate.${unit}`, { amount, ns: 'common' });
+
+    switch (unit) {
+      case 'cachedInput': {
+        return t('messages.modelCard.pricing.inputCachedTokens', { amount });
+      }
+      case 'cacheWrite': {
+        return t('messages.modelCard.pricing.writeCacheInputTokens', { amount });
+      }
+      case 'input': {
+        return t('messages.modelCard.pricing.inputTokens', { amount });
+      }
+      default: {
+        return t('messages.modelCard.pricing.outputTokens', { amount });
+      }
+    }
+  };
 
   return (
     <Flexbox gap={8}>
@@ -69,8 +107,18 @@ const ModelCard = memo<ModelCardProps>(({ pricing, id, provider, displayName }) 
                 {
                   key: 'credit',
                   label: (
-                    <Tooltip title={t('messages.modelCard.creditTooltip')}>
-                      <span>{t('messages.modelCard.credit')}</span>
+                    <Tooltip
+                      title={
+                        isUsageCredits
+                          ? t('usageCredits.tooltip', { ns: 'common' })
+                          : t('messages.modelCard.creditTooltip')
+                      }
+                    >
+                      <span>
+                        {isUsageCredits
+                          ? t('usageCredits.name', { ns: 'common' })
+                          : t('messages.modelCard.credit')}
+                      </span>
                     </Tooltip>
                   ),
                 },
@@ -88,11 +136,7 @@ const ModelCard = memo<ModelCardProps>(({ pricing, id, provider, displayName }) 
           <Flexbox horizontal align={'center'} className={styles.pricing} gap={8}>
             {t('messages.modelCard.creditPricing')}:
             {getCachedTextInputUnitRate(pricing) && (
-              <Tooltip
-                title={t('messages.modelCard.pricing.inputCachedTokens', {
-                  amount: formatPrice.cachedInput,
-                })}
-              >
+              <Tooltip title={rateTitle('cachedInput', formatPrice.cachedInput)}>
                 <Flexbox horizontal gap={2}>
                   <Icon icon={CircleFadingArrowUp} />
                   {formatPrice.cachedInput}
@@ -100,28 +144,20 @@ const ModelCard = memo<ModelCardProps>(({ pricing, id, provider, displayName }) 
               </Tooltip>
             )}
             {getWriteCacheInputUnitRate(pricing) && (
-              <Tooltip
-                title={t('messages.modelCard.pricing.writeCacheInputTokens', {
-                  amount: formatPrice.writeCacheInput,
-                })}
-              >
+              <Tooltip title={rateTitle('cacheWrite', formatPrice.writeCacheInput)}>
                 <Flexbox horizontal gap={2}>
                   <Icon icon={BookUp2Icon} />
                   {formatPrice.writeCacheInput}
                 </Flexbox>
               </Tooltip>
             )}
-            <Tooltip
-              title={t('messages.modelCard.pricing.inputTokens', { amount: formatPrice.input })}
-            >
+            <Tooltip title={rateTitle('input', formatPrice.input)}>
               <Flexbox horizontal gap={2}>
                 <Icon icon={ArrowUpFromDot} />
                 {formatPrice.input}
               </Flexbox>
             </Tooltip>
-            <Tooltip
-              title={t('messages.modelCard.pricing.outputTokens', { amount: formatPrice.output })}
-            >
+            <Tooltip title={rateTitle('output', formatPrice.output)}>
               <Flexbox horizontal gap={2}>
                 <Icon icon={ArrowDownToDot} />
                 {formatPrice.output}

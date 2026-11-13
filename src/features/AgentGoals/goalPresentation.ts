@@ -2,6 +2,8 @@ import type { GoalStatus } from '@lobechat/const/goal';
 import type { GoalConfig, GoalSpend, TaskStatus } from '@lobechat/types';
 import { formatDuration } from '@lobechat/utils';
 
+import { formatUsageCostLabel } from '@/utils/usageCostLabel';
+
 /** Goal lifecycle state → i18n status key (goal list vocabulary). */
 const goalStatusKeyMap = {
   achieved: 'goalList.status.achieved',
@@ -50,7 +52,8 @@ export const goalStatusToTaskStatus = (goalStatus: GoalStatus): TaskStatus => {
 };
 
 /** `$6.4` — a budget read as money, at the precision a budget is set in. */
-export const formatUsd = (amount: number): string => `$${Math.round(amount * 100) / 100}`;
+export const formatUsd = (amount: number): string =>
+  formatUsageCostLabel(amount, (usd) => `$${Math.round(usd * 100) / 100}`);
 
 /**
  * Spend and budget as ONE metric — they are a fraction, and two neighbouring

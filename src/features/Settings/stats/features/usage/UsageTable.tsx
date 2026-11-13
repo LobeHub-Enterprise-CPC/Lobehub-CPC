@@ -12,6 +12,7 @@ import { useClientDataSWR } from '@/libs/swr';
 import { statsKeys } from '@/libs/swr/keys';
 import { usageService } from '@/services/usage';
 import { formatNumber, formatSpendTime } from '@/utils/format';
+import { formatUsageCost } from '@/utils/usageCredits';
 
 import { type UsageChartProps } from '../../types';
 
@@ -146,8 +147,8 @@ const UsageTable = memo<UsageChartProps>(({ dateStrings }) => {
       align: 'right',
       dataIndex: 'spend',
       key: 'spend',
-      // Kept in dollars, unlike the workspace breakdown's credits column.
-      render: (value) => `$${formatNumber(value, 6)}`,
+      // Dollars unless the distribution charges in its own credits.
+      render: (value) => formatUsageCost(value, (usd) => `$${formatNumber(usd, 6)}`),
       sorter: true,
       title: t('usage.table.spend'),
     },

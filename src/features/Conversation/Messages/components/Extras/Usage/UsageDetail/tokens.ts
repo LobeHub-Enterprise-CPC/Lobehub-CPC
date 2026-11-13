@@ -2,11 +2,22 @@ import { type ModelUsage } from '@lobechat/types';
 import { type LobeDefaultAiModelListItem } from 'model-bank';
 
 import { getAudioInputUnitRate, getAudioOutputUnitRate } from '@/utils/pricing';
+import { isUsageCreditsEnabled, usageCreditRate, usdToUsageCredits } from '@/utils/usageCredits';
 
 import { getPrice } from './pricing';
 
+/**
+ * `pricing` is the USD price per million tokens. Without a distribution rate a
+ * credit is a millionth of a dollar, so tokens × price is already the credit
+ * count; with one, the same cost is restated at that rate and keeps the three
+ * decimals a charge is counted in.
+ */
 const calcCredit = (token: number, pricing?: number) => {
   if (!pricing) return '-';
+
+  if (isUsageCreditsEnabled()) {
+    return Number(((token * usageCreditRate(pricing)) / 1_000_000).toFixed(3));
+  }
 
   return parseInt((token * pricing).toFixed(0));
 };
@@ -72,12 +83,21 @@ export const getDetailsToken = (usage: ModelUsage, modelCard?: LobeDefaultAiMode
     !!inputToolTokens ? calcCredit(inputToolTokens, formatPrice.input) : 0
   ) as number;
 
+  // The rows are re-priced here from the directory's headline rates, which can
+  // differ from the bill (tiered prices, cache-write TTLs). Where the call's
+  // billed cost is known, the total is that cost, not the sum of the rows.
+  const billedCredit =
+    isUsageCreditsEnabled() && typeof usage.cost === 'number'
+      ? usdToUsageCredits(usage.cost)
+      : undefined;
+
   const totalCredit =
+    billedCredit ??
     inputCacheMissCredit +
-    inputCachedCredit +
-    inputWriteCachedCredit +
-    inputToolCredit +
-    totalOutputCredit;
+      inputCachedCredit +
+      inputWriteCachedCredit +
+      inputToolCredit +
+      totalOutputCredit;
 
   return {
     inputAudio: !!usage.inputAudioTokens

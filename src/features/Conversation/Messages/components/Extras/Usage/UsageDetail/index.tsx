@@ -1,5 +1,10 @@
 import { type ModelPerformance, type ModelUsage } from '@lobechat/types';
-import { formatUsageValue } from '@lobechat/utils';
+import {
+  formatUsageCreditRate,
+  formatUsageCredits,
+  formatUsageValue,
+  isUsageCreditsEnabled,
+} from '@lobechat/utils';
 import { Center, cssVar, Divider, Flexbox, Icon, Popover } from '@lobehub/ui';
 import { BadgeCent, CoinsIcon } from 'lucide-react';
 import { memo } from 'react';
@@ -126,16 +131,21 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
       ? detailTokens.totalTokens.credit
       : detailTokens.totalTokens!.token;
 
-  const detailTotal = formatUsageValue(totalCount);
+  // A distribution's credits are fractional; the upstream ones and token counts are whole.
+  const isUsageCredit = isShowCredit && isUsageCreditsEnabled();
+  const formatValue = isUsageCredit ? formatUsageCredits : formatUsageValue;
+
+  const detailTotal = formatValue(totalCount);
   const cacheRate =
     typeof detailTokens.inputCacheRate === 'number'
       ? `${formatNumber(detailTokens.inputCacheRate * 100, 1)}%`
       : undefined;
 
-  const averagePricing = formatNumber(
-    detailTokens.totalTokens!.credit / detailTokens.totalTokens!.token,
-    2,
-  );
+  const creditPerToken = detailTokens.totalTokens!.credit / detailTokens.totalTokens!.token;
+  // Per million tokens for a distribution rate, to read against the price list above it.
+  const averagePricing = isUsageCredit
+    ? formatUsageCreditRate(creditPerToken * 1_000_000)
+    : formatNumber(creditPerToken, 2);
 
   const tps = performance?.tps ? formatNumber(performance.tps, 2) : undefined;
   const ttft = performance?.ttft ? formatNumber(performance.ttft / 1000, 2) : undefined;
@@ -162,7 +172,7 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
                     {t('messages.tokenDetails.inputTitle')}
                   </div>
                 </Flexbox>
-                <TokenProgress showIcon data={inputDetails} />
+                <TokenProgress showIcon data={inputDetails} formatValue={formatValue} />
               </Flexbox>
             )}
             {outputDetails.length > 1 && (
@@ -178,11 +188,11 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
                     {t('messages.tokenDetails.outputTitle')}
                   </div>
                 </Flexbox>
-                <TokenProgress showIcon data={outputDetails} />
+                <TokenProgress showIcon data={outputDetails} formatValue={formatValue} />
               </Flexbox>
             )}
             <Flexbox>
-              <TokenProgress showIcon data={totalDetail} />
+              <TokenProgress showIcon data={totalDetail} formatValue={formatValue} />
               <Divider style={{ marginBlock: 8 }} />
               {cacheRate && (
                 <Flexbox horizontal align={'center'} gap={4} justify={'space-between'}>
@@ -252,6 +262,8 @@ const TokenDetail = memo<TokenDetailProps>(({ usage, performance, model, provide
           key={isShowCredit ? 'credit' : 'token'}
           value={totalCount}
           formatter={(value) => {
+            if (isUsageCredit) return formatUsageCredits(value);
+
             const roundedValue = Math.round(value);
             if (isShortFormat) {
               return (formatShortenNumber(roundedValue) as string).toLowerCase?.();

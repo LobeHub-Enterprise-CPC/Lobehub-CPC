@@ -7,6 +7,9 @@ import { useTranslation } from 'react-i18next';
 
 import { type AgentUsageBucket } from '@/types/usage/usageRecord';
 import { formatNumber, formatTokenNumber } from '@/utils/format';
+import { formatUsageCost } from '@/utils/usageCredits';
+
+const formatSpend = (usd: number) => formatUsageCost(usd, (value) => `$${formatNumber(value, 2)}`);
 
 enum ShowType {
   Spend = 'spend',
@@ -101,7 +104,7 @@ const UsageTrendChart = memo<UsageTrendChartProps>(({ buckets, isLoading }) => {
                           name={String(name ?? '')}
                           value={
                             type === ShowType.Spend
-                              ? `$${formatNumber(value as number, 2)}`
+                              ? formatSpend(value as number)
                               : formatTokenNumber(value as number)
                           }
                         />
@@ -113,7 +116,7 @@ const UsageTrendChart = memo<UsageTrendChartProps>(({ buckets, isLoading }) => {
             );
           }}
           valueFormatter={(num: number) =>
-            type === ShowType.Spend ? `$${formatNumber(num, 2)}` : formatTokenNumber(num)
+            type === ShowType.Spend ? formatSpend(num) : formatTokenNumber(num)
           }
         />
       )}
