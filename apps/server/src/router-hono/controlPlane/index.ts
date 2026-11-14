@@ -10,6 +10,7 @@ import { appEnv } from '@/envs/app';
 import { invalidateEndpointRouting } from '@/server/modules/Tenant/endpointCache';
 import { getTenantLiveResources } from '@/server/modules/Tenant/liveResources';
 import { waitForTenantClaims } from '@/server/modules/Tenant/postgresClaims';
+import { purgeTenantResidue } from '@/server/modules/Tenant/residue';
 import { getTenantRuntime } from '@/server/modules/Tenant/runtime';
 import { isAuthorized, parseControlPlaneToken } from '@/server/services/tenantControlPlane/auth';
 import {
@@ -323,7 +324,10 @@ const getService = () => {
   service ??= new TenantControlPlaneService({
     database: current.database,
     // Unregister retires this process's pools for the tenant; the other processes do it on their heartbeat.
-    destruction: { retirePool: (tenantId) => getTenantRuntime().retire(tenantId) },
+    destruction: {
+      purgeResidue: purgeTenantResidue,
+      retirePool: (tenantId) => getTenantRuntime().retire(tenantId),
+    },
     isRegistrableSlug,
     repository: current.repository,
   });

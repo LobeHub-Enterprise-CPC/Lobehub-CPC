@@ -31,17 +31,20 @@ let repo: MemoryControlPlaneRepository;
 let service: TenantControlPlaneService;
 let db: ReturnType<typeof database>;
 let retirePool: ReturnType<typeof vi.fn>;
+let purgeResidue: ReturnType<typeof vi.fn<(tenantId: string) => Promise<void>>>;
 let clockNow = 0;
 
 /** A service whose drain waits on a fake clock instead of real time. */
 const destructionService = () => {
   retirePool = vi.fn(() => true);
+  purgeResidue = vi.fn(async () => {});
   return new TenantControlPlaneService({
     database: db,
     destruction: {
       clock: () => clockNow,
       drainBudgetMs: 1000,
       drainPollMs: 250,
+      purgeResidue,
       retirePool,
       sleep: async (ms) => {
         clockNow += ms;
@@ -251,6 +254,35 @@ describe('unregister', () => {
     expect(repo.endpointRecords.has(TENANT)).toBe(false);
     // The terminal itself is never removed.
     expect(repo.destructions.get(TENANT)).toMatchObject({ completedAt: NOW.toISOString() });
+  });
+
+  it('removes the residue before completing, and keeps the phase open when that fails', async () => {
+    purgeResidue.mockRejectedValueOnce(new Error('object storage unavailable'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await refused(
+      service.destruction.apply(request('unregister')),
+      'TENANT_DESTRUCTION_FAILED',
+      503,
+    );
+    expect(repo.destructions.get(TENANT)).toMatchObject({ completedAt: null });
+    expect(repo.directory.has(TENANT)).toBe(true);
+
+    await service.destruction.apply(request('unregister'));
+    expect(purgeResidue).toHaveBeenCalledTimes(2);
+    expect(purgeResidue).toHaveBeenLastCalledWith(TENANT);
+    expect(repo.destructions.get(TENANT)).toMatchObject({ completedAt: NOW.toISOString() });
+    // A completed unregister is only replayed: nothing is purged again.
+    await service.destruction.apply(request('unregister'));
+    expect(purgeResidue).toHaveBeenCalledTimes(2);
+  });
+
+  it('never purges for another destruction of the tenant', async () => {
+    await refused(
+      service.destruction.apply(request('unregister', { destroyOperationId: OTHER_OP })),
+      'OPERATION_CONFLICT',
+      409,
+    );
+    expect(purgeResidue).not.toHaveBeenCalled();
   });
 
   it('replays a completed unregister as absent, with the original timestamps and no deletion', async () => {
