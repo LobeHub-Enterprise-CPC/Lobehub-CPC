@@ -6,6 +6,7 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  paginateListObjectsV2,
   paginateListParts,
   PutObjectCommand,
   S3Client,
@@ -19,7 +20,7 @@ import { fileEnv } from '@/envs/file';
 import { YEAR } from '@/utils/units';
 
 import { publicReadObjects } from './publicRead';
-import { tenantObjectKey } from './tenantKey';
+import { tenantObjectKey, tenantObjectRoot } from './tenantKey';
 
 export const fileSchema = z.object({
   Key: z.string(),
@@ -126,6 +127,31 @@ export class S3 {
     }
 
     return results.at(-1)!;
+  }
+
+  /**
+   * Deletes every object under one tenant's root `t/{tenantId}/`, for the tenant's destruction.
+   * Takes the tenant explicitly: it runs outside any tenant scope. Repeating it after a partial
+   * run deletes what is left; returns how many objects it deleted.
+   */
+  public async deleteTenantObjects(tenantId: string): Promise<number> {
+    const Prefix = tenantObjectRoot(tenantId);
+    let deleted = 0;
+    for await (const page of paginateListObjectsV2(
+      { client: this.client, pageSize: DELETE_OBJECTS_MAX_KEYS },
+      { Bucket: this.bucket, Prefix },
+    )) {
+      const keys = (page.Contents ?? []).flatMap((item) =>
+        item.Key?.startsWith(Prefix) ? [{ Key: item.Key }] : [],
+      );
+      if (!keys.length) continue;
+      const result = await this.client.send(
+        new DeleteObjectsCommand({ Bucket: this.bucket, Delete: { Objects: keys, Quiet: true } }),
+      );
+      if (result.Errors?.length) throw new Error('TENANT_OBJECTS_DELETE_FAILED');
+      deleted += keys.length;
+    }
+    return deleted;
   }
 
   public async getFileContent(key: string, byteLength?: number): Promise<string> {

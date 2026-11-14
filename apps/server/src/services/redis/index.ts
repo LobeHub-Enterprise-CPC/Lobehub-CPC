@@ -7,6 +7,7 @@ import { skillTools } from './skillTools';
 import { staleSweepCursor } from './staleSweepCursor';
 import { steerQueue } from './steerQueue';
 import { tenantDiscovery } from './tenantDiscovery';
+import { tenantResidue } from './tenantResidue';
 import { threadStartFence } from './threadStartFence';
 import { userMemoryExtractionLease } from './userMemoryExtractionLease';
 import { workspaceRescan } from './workspaceRescan';
@@ -22,6 +23,7 @@ export const redisService = {
   staleSweepCursor,
   steerQueue,
   tenantDiscovery,
+  tenantResidue,
   threadStartFence,
   userMemoryExtractionLease,
   workspaceRescan,

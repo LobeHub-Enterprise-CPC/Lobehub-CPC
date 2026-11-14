@@ -31,6 +31,11 @@ export interface TenantDestructionOptions {
   drainBudgetMs?: number;
   drainPollMs?: number;
   now?: () => Date;
+  /**
+   * Removes what the tenant keeps outside its database (object storage, Redis). Runs before the
+   * unregister transaction records completion; it must be repeatable.
+   */
+  purgeResidue?: (tenantId: string) => Promise<void>;
   repository: ControlPlaneRepository;
   /** Retires this process's connection pools of the tenant; true when a live route was held. */
   retirePool?: (tenantId: string) => boolean;
@@ -201,11 +206,23 @@ export class TenantDestructionService {
   }
 
   /**
-   * Removes the catalog entries in one transaction that also writes `completedAt`: a crash leaves
-   * `completedAt` null and the same request continues. A completed unregister is only ever replayed.
+   * Removes the tenant's residue, then the catalog entries in one transaction that also writes
+   * `completedAt`: a crash leaves `completedAt` null and the same request continues. A completed
+   * unregister is only ever replayed.
    */
-  private unregister(request: DestructionRequest) {
+  private async unregister(request: DestructionRequest) {
     const { tenantId } = request;
+    // The residue goes first, outside the transaction: a failure (503) leaves completedAt null and
+    // Console repeats the phase. A completed unregister never runs it again.
+    if (this.options.purgeResidue) {
+      const record = await this.repository.readDestruction(tenantId);
+      if (
+        record?.destroyOperationId === request.destroyOperationId &&
+        record.drainResult &&
+        !record.completedAt
+      )
+        await this.options.purgeResidue(tenantId);
+    }
     return this.repository.transaction(
       tenantId,
       async (tx) => {

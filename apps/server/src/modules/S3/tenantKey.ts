@@ -13,7 +13,7 @@ import { requireTenantScope } from '@lobechat/database/tenant';
  */
 export const TENANT_OBJECT_PREFIX = 't';
 
-const tenantObjectRoot = (tenantId: string) => {
+export const tenantObjectRoot = (tenantId: string) => {
   if (!tenantId || tenantId.includes('/')) throw new Error('TENANT_OBJECT_KEY_INVALID');
   return `${TENANT_OBJECT_PREFIX}/${tenantId}/`;
 };

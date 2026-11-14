@@ -20,6 +20,10 @@ callers do not choose a provider, prefix, key, SET options or claim lifetime.
   `{REDIS_PREFIX}:t:{tenantId}:channel:wake` (a dedicated connection each for publish and
   subscribe). Best effort: `wake` never rejects, and the coordinator's 120 s idle backoff covers
   lost signals or no Redis.
+- `tenantResidue.purge`: deletes a destroyed tenant's keys (`*t:{tenantId}:*` across every
+  namespace, cache and agent runtime alike) over a dedicated unprefixed connection; the tenant
+  destruction's unregister phase calls it before recording completion. Rejects without a reachable
+  Redis so the phase is repeated.
 - `userMemoryExtractionLease`: one memory extraction run per user, three hours at most; a run
   that dies without releasing it blocks the user until it lapses. Without Redis every run holds it.
 
