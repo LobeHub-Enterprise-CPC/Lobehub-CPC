@@ -7,9 +7,11 @@ import { ArrowLeft, ArrowRight, Clock } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { hidesNavPanel } from '@/features/NavPanel/hidesNavPanel';
 import ToggleLeftPanelButton from '@/features/NavPanel/ToggleLeftPanelButton';
-import { NAV_RAIL_WIDTH } from '@/features/NavRail/const';
+import { NAV_RAIL_WIDTH } from '@/features/NavRail/constants';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
+import { useActiveLocation } from '@/hooks/useActiveLocation';
 import { electronSystemService } from '@/services/electron/system';
 import { useElectronStore } from '@/store/electron';
 import { useGlobalStore } from '@/store/global';
@@ -70,6 +72,7 @@ const NavigationBar = memo(() => {
   const activeRecentScope = useElectronStore((state) => state.activeRecentScope);
 
   const leftPanelWidth = useNavPanelWidth();
+  const { pathname, search } = useActiveLocation();
 
   useWatchBroadcast('windowFullscreenChanged', ({ isFullScreen }) => {
     if (isMac) setIsWindowFullScreen(isFullScreen);
@@ -128,7 +131,8 @@ const NavigationBar = memo(() => {
   // Tooltip content for the clock button
   const tooltipContent = t('navigation.recentView');
 
-  const isLeftPanelVisible = leftPanelWidth > 0;
+  // Pages that own the navigation slot unmount the panel whatever the preference says.
+  const isLeftPanelVisible = leftPanelWidth > 0 && !hidesNavPanel(pathname, search);
   const macTrafficLightPadding = getMacTrafficLightPadding(isMac, isWindowFullScreen);
   const collapsedWidth =
     (isMac ? MAC_COLLAPSED_NAVIGATION_BAR_WIDTH : COLLAPSED_NAVIGATION_BAR_WIDTH) +

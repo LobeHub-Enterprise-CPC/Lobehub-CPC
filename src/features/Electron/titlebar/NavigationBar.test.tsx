@@ -11,12 +11,17 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   navRailEnabled: false,
   openAllAgentsDrawer: vi.fn(),
+  pathname: '/',
 }));
 
 vi.mock('@lobechat/business-const', () => ({
+  COMMUNITY_SHOWCASE_LAYOUT: false,
   get NAV_RAIL_ENABLED() {
     return mocks.navRailEnabled;
   },
+}));
+vi.mock('@/hooks/useActiveLocation', () => ({
+  useActiveLocation: () => ({ pathname: mocks.pathname, search: '' }),
 }));
 
 vi.mock('@lobechat/electron-client-ipc', () => ({
@@ -73,6 +78,7 @@ describe('NavigationBar tray broadcasts', () => {
     mocks.leftPanelVisible = false;
     mocks.leftPanelWidth = 0;
     mocks.navRailEnabled = false;
+    mocks.pathname = '/';
     vi.clearAllMocks();
   });
 
@@ -121,6 +127,19 @@ describe('NavigationBar tray broadcasts', () => {
 
   it('leaves the collapsed width alone when the icon rail is on', () => {
     mocks.navRailEnabled = true;
+
+    const { container } = render(<NavigationBar />);
+
+    expect(container.querySelector('.root')).toHaveStyle({ width: '150px' });
+  });
+
+  // The scheduled-task workspace unmounts the panel even while the preference says
+  // expanded, so there is no panel width to span.
+  it('uses the collapsed width on a page that hides the sidebar', () => {
+    mocks.navRailEnabled = true;
+    mocks.leftPanelVisible = true;
+    mocks.leftPanelWidth = 280;
+    mocks.pathname = '/tasks';
 
     const { container } = render(<NavigationBar />);
 
