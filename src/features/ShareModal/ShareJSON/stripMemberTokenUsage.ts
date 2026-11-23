@@ -17,3 +17,15 @@ export const stripMemberTokenUsage = (metadata: UIChatMessage['metadata']) => {
     ...(metadata.performance && { performance: withoutUsageMetrics(metadata.performance) }),
   };
 };
+
+/** Only the built-in sub-agent tool owns these stats. Other tools define their own state. */
+export const stripSubAgentTokenUsage = (message: UIChatMessage) => {
+  const { plugin, pluginState } = message;
+  if (plugin?.identifier !== 'lobe-agent' || plugin.apiName !== 'callSubAgent' || !pluginState)
+    return pluginState;
+
+  return {
+    ...withoutUsageMetrics(pluginState),
+    ...(pluginState.progress && { progress: withoutUsageMetrics(pluginState.progress) }),
+  };
+};

@@ -177,3 +177,35 @@ it.each([false, true])(
     expect(result.messages[0].content).toBe(message.content);
   },
 );
+
+it.each([false, true])(
+  'gates both live and final built-in sub-agent tool stats (%s)',
+  (visible) => {
+    const stats = {
+      totalCost: 0.31,
+      totalInputTokens: 121,
+      totalOutputTokens: 422,
+      totalTokens: 543,
+    };
+    const state = { ...stats, progress: stats, threadId: 'thread' };
+    const message = {
+      content: 'result',
+      createdAt: 0,
+      id: 'tool',
+      plugin: { apiName: 'callSubAgent', identifier: 'lobe-agent' },
+      pluginState: state,
+      role: 'tool',
+      updatedAt: 0,
+    } as UIChatMessage;
+    const result = generateFullExport({
+      includeTool: true,
+      messages: [message],
+      showMemberTokenUsage: visible,
+      systemRole: '',
+      withSystemRole: false,
+    });
+    expect(result.messages[0].pluginState).toEqual(
+      visible ? state : { progress: { totalCost: 0.31 }, threadId: 'thread', totalCost: 0.31 },
+    );
+  },
+);

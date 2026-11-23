@@ -3,7 +3,7 @@ import { cleanObject } from '@lobechat/utils';
 
 import { LOADING_FLAT } from '@/const/message';
 
-import { stripMemberTokenUsage } from './stripMemberTokenUsage';
+import { stripMemberTokenUsage, stripSubAgentTokenUsage } from './stripMemberTokenUsage';
 import { type BaseExportOptions } from './type';
 
 interface FullExportParams extends BaseExportOptions {
@@ -42,7 +42,7 @@ export const generateFullExport = ({
         plugin: m.plugin,
         pluginError: m.pluginError,
         pluginIntervention: m.pluginIntervention,
-        pluginState: m.pluginState,
+        pluginState: showMemberTokenUsage ? m.pluginState : stripSubAgentTokenUsage(m),
         tool_call_id: m.tool_call_id,
         tools: m.tools,
 
