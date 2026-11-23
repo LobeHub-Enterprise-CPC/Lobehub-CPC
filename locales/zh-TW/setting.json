@@ -1430,7 +1430,6 @@
   "settingImage.defaultCount.desc": "設定圖像生成面板在建立新任務時的預設圖片數量。",
   "settingImage.defaultCount.label": "預設圖片數量",
   "settingImage.defaultCount.title": "AI 繪圖設定",
-  "settingModel.enableContextCompression.desc": "當對話超過 64,000 個標記時，自動將歷史訊息壓縮為摘要，可節省 60-80% 的標記使用量",
   "settingModel.enableContextCompression.title": "啟用自動上下文壓縮",
   "settingModel.enableMaxTokens.title": "啟用單次回覆限制",
   "settingModel.enableReasoningEffort.title": "開啟推理強度調整",
