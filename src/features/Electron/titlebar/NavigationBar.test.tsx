@@ -9,7 +9,14 @@ const mocks = vi.hoisted(() => ({
   leftPanelVisible: false,
   leftPanelWidth: 0,
   navigate: vi.fn(),
+  navRailEnabled: false,
   openAllAgentsDrawer: vi.fn(),
+}));
+
+vi.mock('@lobechat/business-const', () => ({
+  get NAV_RAIL_ENABLED() {
+    return mocks.navRailEnabled;
+  },
 }));
 
 vi.mock('@lobechat/electron-client-ipc', () => ({
@@ -65,6 +72,7 @@ describe('NavigationBar tray broadcasts', () => {
     mocks.isMac = false;
     mocks.leftPanelVisible = false;
     mocks.leftPanelWidth = 0;
+    mocks.navRailEnabled = false;
     vi.clearAllMocks();
   });
 
@@ -97,6 +105,26 @@ describe('NavigationBar tray broadcasts', () => {
     const expanded = render(<NavigationBar />);
 
     expect(expanded.container.querySelector('.root')).toHaveStyle({ width: '268px' });
+  });
+
+  // The tabs follow this bar, so its width is where they start: the content area's
+  // left edge. With the icon rail on, that edge sits a rail (56px) further right.
+  it('spans the icon rail too when the sidebar is expanded', () => {
+    mocks.navRailEnabled = true;
+    mocks.leftPanelVisible = true;
+    mocks.leftPanelWidth = 280;
+
+    const { container } = render(<NavigationBar />);
+
+    expect(container.querySelector('.root')).toHaveStyle({ width: '324px' });
+  });
+
+  it('leaves the collapsed width alone when the icon rail is on', () => {
+    mocks.navRailEnabled = true;
+
+    const { container } = render(<NavigationBar />);
+
+    expect(container.querySelector('.root')).toHaveStyle({ width: '150px' });
   });
 
   it('reserves the traffic light inset on macOS when the sidebar is collapsed', async () => {

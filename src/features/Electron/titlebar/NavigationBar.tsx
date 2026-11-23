@@ -1,5 +1,6 @@
 'use client';
 
+import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
 import { useWatchBroadcast } from '@lobechat/electron-client-ipc';
 import { ActionIcon, createStaticStyles, Flexbox, Popover, Tooltip } from '@lobehub/ui';
 import { ArrowLeft, ArrowRight, Clock } from 'lucide-react';
@@ -7,6 +8,7 @@ import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import ToggleLeftPanelButton from '@/features/NavPanel/ToggleLeftPanelButton';
+import { NAV_RAIL_WIDTH } from '@/features/NavRail/const';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { electronSystemService } from '@/services/electron/system';
 import { useElectronStore } from '@/store/electron';
@@ -131,8 +133,10 @@ const NavigationBar = memo(() => {
   const collapsedWidth =
     (isMac ? MAC_COLLAPSED_NAVIGATION_BAR_WIDTH : COLLAPSED_NAVIGATION_BAR_WIDTH) +
     macTrafficLightPadding;
+  // The icon rail sits left of the panel, so the content area starts a rail further right.
+  const navRailWidth = NAV_RAIL_ENABLED ? NAV_RAIL_WIDTH : 0;
   const navigationWidth = isLeftPanelVisible
-    ? Math.max(leftPanelWidth - 12, collapsedWidth)
+    ? Math.max(leftPanelWidth + navRailWidth - 12, collapsedWidth)
     : collapsedWidth;
 
   return (
@@ -146,7 +150,8 @@ const NavigationBar = memo(() => {
       style={{
         paddingLeft: macTrafficLightPadding,
         paddingRight: 8,
-        // Expanded: span the sidebar width so the right group hugs its right edge.
+        // Expanded: span the sidebar (and the icon rail, when on) so the right group
+        // hugs its right edge and the tabs start at the content area.
         // Collapsed: keep a concrete width so the titlebar controls can animate.
         width: navigationWidth,
       }}

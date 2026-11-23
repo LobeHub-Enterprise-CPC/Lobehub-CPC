@@ -1,5 +1,6 @@
 'use client';
 
+import { NAV_RAIL_ENABLED } from '@lobechat/business-const';
 import { TITLE_BAR_HEIGHT } from '@lobechat/desktop-bridge';
 import { createStaticStyles, Flexbox, keyframes } from '@lobehub/ui';
 import { memo, useEffect, useLayoutEffect, useState } from 'react';
@@ -13,6 +14,7 @@ import {
   getOuterCssVariables,
 } from '@/features/DesktopLayoutContainer/cssVariables';
 import { styles as containerStyles } from '@/features/DesktopLayoutContainer/style';
+import { NAV_RAIL_WIDTH } from '@/features/NavRail/const';
 import { electronStylish } from '@/styles/electron';
 
 import { readBootShellGeometry } from './geometry';
@@ -128,6 +130,11 @@ const AppShellSkeleton = memo<AppShellSkeletonProps>(({ id }) => {
         height={isDesktop ? `calc(100% - ${TITLE_BAR_HEIGHT}px)` : '100%'}
         width={'100%'}
       >
+        {/* The rail stays put whether or not the panel is open, so its width is
+            reserved either way; otherwise the app lands a rail further right. */}
+        {NAV_RAIL_ENABLED && (
+          <div data-boot-shell="nav-rail" style={{ flexShrink: 0, width: NAV_RAIL_WIDTH }} />
+        )}
         {showLeftPanel && (
           <div
             style={{
