@@ -1,5 +1,6 @@
+import type * as BusinessConst from '@lobechat/business-const';
 import { DEFAULT_BOT_DEBOUNCE_MS } from '@lobechat/const';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { PlatformDefinition } from './types';
 import {
@@ -11,6 +12,11 @@ import {
   resolveConnectionMode,
   withResolvedConcurrencySettings,
 } from './utils';
+
+vi.mock('@lobechat/business-const', async (load) => ({
+  ...(await load<typeof BusinessConst>()),
+  USAGE_CREDITS: undefined,
+}));
 
 function makePlatform(overrides: Partial<PlatformDefinition> = {}): PlatformDefinition {
   return {
@@ -265,7 +271,7 @@ describe('withResolvedConcurrencySettings', () => {
   });
 });
 
-it('hides token counts and dollars by default', () => {
+it('hides token counts and dollars by default when credit conversion is unavailable', () => {
   expect(
     formatUsageStats({
       elapsedMs: 3000,
