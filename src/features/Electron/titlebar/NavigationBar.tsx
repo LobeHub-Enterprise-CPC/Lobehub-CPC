@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight, Clock } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { hidesNavPanel } from '@/features/NavPanel/hidesNavPanel';
+import { hidesNavPanel, pageNavColumnWidth } from '@/features/NavPanel/hidesNavPanel';
 import ToggleLeftPanelButton from '@/features/NavPanel/ToggleLeftPanelButton';
 import { NAV_RAIL_WIDTH } from '@/features/NavRail/constants';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -22,7 +22,7 @@ import { electronStylish } from '@/styles/electron';
 import { getPlatform, isMacOS } from '@/utils/platform';
 
 import { useNavigationHistory } from '../navigation/useNavigationHistory';
-import { getMacTrafficLightPadding } from './layout';
+import { getMacTrafficLightPadding, NAV_RAIL_TAB_INSET } from './layout';
 import RecentlyViewed from './RecentlyViewed';
 import { useTrayMenuSync } from './TrayMenu/useTrayMenuSync';
 import WindowsAppMenu from './WindowsAppMenu';
@@ -131,16 +131,23 @@ const NavigationBar = memo(() => {
   // Tooltip content for the clock button
   const tooltipContent = t('navigation.recentView');
 
-  // Pages that own the navigation slot unmount the panel whatever the preference says.
-  const isLeftPanelVisible = leftPanelWidth > 0 && !hidesNavPanel(pathname, search);
+  // Pages that own the navigation slot unmount the panel whatever the preference
+  // says; some draw a column of their own there, which the tabs start after just the same.
+  const navColumnWidth = hidesNavPanel(pathname, search)
+    ? pageNavColumnWidth(pathname, search)
+    : leftPanelWidth;
+  const hasNavColumn = navColumnWidth > 0;
   const macTrafficLightPadding = getMacTrafficLightPadding(isMac, isWindowFullScreen);
   const collapsedWidth =
     (isMac ? MAC_COLLAPSED_NAVIGATION_BAR_WIDTH : COLLAPSED_NAVIGATION_BAR_WIDTH) +
     macTrafficLightPadding;
   // The icon rail sits left of the panel, so the content area starts a rail further right.
   const navRailWidth = NAV_RAIL_ENABLED ? NAV_RAIL_WIDTH : 0;
-  const navigationWidth = isLeftPanelVisible
-    ? Math.max(leftPanelWidth + navRailWidth - 12, collapsedWidth)
+  // In that layout the tabs start a little inside the content area. The inset is
+  // added to the width and to the end padding alike, so the buttons stay put.
+  const tabInset = NAV_RAIL_ENABLED && hasNavColumn ? NAV_RAIL_TAB_INSET : 0;
+  const navigationWidth = hasNavColumn
+    ? Math.max(navColumnWidth + navRailWidth - 12, collapsedWidth) + tabInset
     : collapsedWidth;
 
   return (
@@ -153,9 +160,9 @@ const NavigationBar = memo(() => {
       justify={isMac || isWindows ? 'space-between' : 'end'}
       style={{
         paddingLeft: macTrafficLightPadding,
-        paddingRight: 8,
+        paddingRight: 8 + tabInset,
         // Expanded: span the sidebar (and the icon rail, when on) so the right group
-        // hugs its right edge and the tabs start at the content area.
+        // hugs its right edge and the tabs start at (or just inside) the content area.
         // Collapsed: keep a concrete width so the titlebar controls can animate.
         width: navigationWidth,
       }}
