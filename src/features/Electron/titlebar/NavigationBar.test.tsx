@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import NavigationBar from './NavigationBar';
 
 const mocks = vi.hoisted(() => ({
+  communityShowcase: false,
   isMac: false,
   handlers: new Map<string, () => void>(),
   leftPanelVisible: false,
@@ -15,7 +16,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@lobechat/business-const', () => ({
-  COMMUNITY_SHOWCASE_LAYOUT: false,
+  get COMMUNITY_SHOWCASE_LAYOUT() {
+    return mocks.communityShowcase;
+  },
   get NAV_RAIL_ENABLED() {
     return mocks.navRailEnabled;
   },
@@ -73,6 +76,7 @@ vi.mock('./TrayMenu/useTrayMenuSync', () => ({ useTrayMenuSync: vi.fn() }));
 
 describe('NavigationBar tray broadcasts', () => {
   beforeEach(() => {
+    mocks.communityShowcase = false;
     mocks.handlers.clear();
     mocks.isMac = false;
     mocks.leftPanelVisible = false;
@@ -144,6 +148,21 @@ describe('NavigationBar tray broadcasts', () => {
     const { container } = render(<NavigationBar />);
 
     expect(container.querySelector('.root')).toHaveStyle({ width: '150px' });
+  });
+
+  it('follows the showcase market flag on the community page', () => {
+    mocks.navRailEnabled = true;
+    mocks.leftPanelVisible = true;
+    mocks.leftPanelWidth = 280;
+    mocks.pathname = '/community';
+
+    const kept = render(<NavigationBar />);
+    expect(kept.container.querySelector('.root')).toHaveStyle({ width: '324px' });
+    kept.unmount();
+
+    mocks.communityShowcase = true;
+    const hidden = render(<NavigationBar />);
+    expect(hidden.container.querySelector('.root')).toHaveStyle({ width: '150px' });
   });
 
   it('reserves the traffic light inset on macOS when the sidebar is collapsed', async () => {

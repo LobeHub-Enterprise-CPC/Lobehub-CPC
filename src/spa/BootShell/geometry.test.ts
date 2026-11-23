@@ -70,8 +70,14 @@ describe('readBootShellGeometry', () => {
   it('draws no panel for a boot url whose page hides it', () => {
     setStatus({ showLeftPanel: true });
     window.history.replaceState({}, '', '/tasks');
-
     expect(readBootShellGeometry().showLeftPanel).toBe(false);
+
+    // The tenant prefix rides the basename, so the rule has to see through it.
+    window.history.replaceState({}, '', '/orgs/acme/tasks');
+    expect(readBootShellGeometry().showLeftPanel).toBe(false);
+
+    window.history.replaceState({}, '', '/orgs/acme/agent');
+    expect(readBootShellGeometry().showLeftPanel).toBe(true);
   });
 
   it('follows the theme already resolved onto the document', () => {
