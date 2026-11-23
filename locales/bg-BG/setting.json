@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Разширени параметри",
   "settingModel.presencePenalty.desc": "Колкото по-висока е стойността, толкова по-склонен е моделът да използва различни изрази и да избягва повторения; по-ниска стойност води до по-последователно, но повтарящо се изразяване.",
   "settingModel.presencePenalty.title": "Разнообразие на изразяване",
-  "settingModel.reasoningEffort.desc": "По-високите стойности подобряват способността за разсъждение, но могат да увеличат времето за отговор и използването на токени.",
   "settingModel.reasoningEffort.options.high": "Високо",
   "settingModel.reasoningEffort.options.low": "Ниско",
   "settingModel.reasoningEffort.options.medium": "Средно",

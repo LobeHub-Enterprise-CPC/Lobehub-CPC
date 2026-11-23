@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "إعدادات متقدمة",
   "settingModel.presencePenalty.desc": "كلما زادت القيمة، زاد الميل لاستخدام تعبيرات متنوعة وتجنب تكرار المفاهيم؛ وكلما انخفضت، زاد الميل لتكرار المفاهيم أو السرد، مما يؤدي إلى تعبير أكثر اتساقًا.",
   "settingModel.presencePenalty.title": "تنوع التعبير",
-  "settingModel.reasoningEffort.desc": "القيم الأعلى تعزز القدرة على الاستدلال ولكن قد تزيد من وقت الاستجابة واستهلاك الرموز.",
   "settingModel.reasoningEffort.options.high": "عالي",
   "settingModel.reasoningEffort.options.low": "منخفض",
   "settingModel.reasoningEffort.options.medium": "متوسط",

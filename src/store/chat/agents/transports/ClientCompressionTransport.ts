@@ -14,7 +14,6 @@ import { chainCompressContext } from '@lobechat/prompts';
 
 import { messageService } from '@/services/message';
 import type { ChatStore } from '@/store/chat/store';
-import { rememberFirstCompression } from '@/utils/firstCompressionHint';
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
@@ -154,7 +153,6 @@ export class ClientCompressionTransport implements CompressionTransport {
       });
     }
 
-    rememberFirstCompression(input.topicId, input.messageGroupId);
     return result;
   }
 

@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Erweiterte Parameter",
   "settingModel.presencePenalty.desc": "Je höher der Wert, desto mehr unterschiedliche Ausdrücke; je niedriger, desto mehr Wiederholungen.",
   "settingModel.presencePenalty.title": "Ausdrucksvielfalt",
-  "settingModel.reasoningEffort.desc": "Höhere Werte verbessern die Denkfähigkeit, können aber Antwortzeit und Tokenverbrauch erhöhen.",
   "settingModel.reasoningEffort.options.high": "Hoch",
   "settingModel.reasoningEffort.options.low": "Niedrig",
   "settingModel.reasoningEffort.options.medium": "Mittel",

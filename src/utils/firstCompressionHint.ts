@@ -1,38 +1,27 @@
-const prefix = 'first-compression-hint:';
+const preferenceKey = 'first-compression-hint-dismissed';
 const changed = 'first-compression-hint-changed';
-const fallback = new Map<string, string>();
+let dismissedInMemory = false;
 
-function getPreference(topicId: string) {
+export function isFirstCompressionDismissed() {
   try {
-    return localStorage.getItem(prefix + topicId) ?? fallback.get(topicId);
+    return dismissedInMemory || localStorage.getItem(preferenceKey) === '1';
   } catch {
-    return fallback.get(topicId);
+    return dismissedInMemory;
   }
 }
 
-function setPreference(topicId: string, value: string) {
+export function dismissFirstCompression() {
+  dismissedInMemory = true;
   try {
-    localStorage.setItem(prefix + topicId, value);
+    localStorage.setItem(preferenceKey, '1');
   } catch {
-    fallback.set(topicId, value);
+    // The preference remains available for the current session.
   }
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event(changed));
+  window.dispatchEvent(new Event(changed));
 }
 
-export function rememberFirstCompression(topicId: string, groupId: string) {
-  if (getPreference(topicId) === undefined) setPreference(topicId, groupId);
-}
-
-export function dismissFirstCompression(topicId: string) {
-  setPreference(topicId, '');
-}
-
-export function shouldShowFirstCompression(firstGroup: string | undefined, groupId: string) {
-  return !!firstGroup && firstGroup === groupId;
-}
-
-export function isFirstCompressionVisible(topicId: string | null | undefined, groupId: string) {
-  return !!topicId && shouldShowFirstCompression(getPreference(topicId), groupId);
+export function shouldShowFirstCompression(dismissed: boolean, isFirstGroup: boolean) {
+  return !dismissed && isFirstGroup;
 }
 
 export function subscribeFirstCompression(listener: () => void) {

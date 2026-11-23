@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Gelişmiş Parametreler",
   "settingModel.presencePenalty.desc": "Değer ne kadar yüksekse, farklı ifadeler kullanma ve kavram tekrarından kaçınma eğilimi artar; değer ne kadar düşükse, tekrar eden kavramlar veya anlatımlar kullanılır ve daha tutarlı bir ifade sağlanır.",
   "settingModel.presencePenalty.title": "İfade Çeşitliliği",
-  "settingModel.reasoningEffort.desc": "Yüksek değerler akıl yürütme yeteneğini artırır ancak yanıt süresi ve token kullanımını da artırabilir.",
   "settingModel.reasoningEffort.options.high": "Yüksek",
   "settingModel.reasoningEffort.options.low": "Düşük",
   "settingModel.reasoningEffort.options.medium": "Orta",

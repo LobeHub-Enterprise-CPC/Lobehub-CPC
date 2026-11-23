@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Parametri Avanzati",
   "settingModel.presencePenalty.desc": "Valori più alti favoriscono espressioni diverse ed evitano ripetizioni; valori più bassi favoriscono coerenza e ripetizione.",
   "settingModel.presencePenalty.title": "Divergenza Espressiva",
-  "settingModel.reasoningEffort.desc": "Valori più alti migliorano la capacità di ragionamento ma possono aumentare il tempo di risposta e l'uso di token.",
   "settingModel.reasoningEffort.options.high": "Alto",
   "settingModel.reasoningEffort.options.low": "Basso",
   "settingModel.reasoningEffort.options.medium": "Medio",

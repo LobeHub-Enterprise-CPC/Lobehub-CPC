@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Расширенные параметры",
   "settingModel.presencePenalty.desc": "Чем выше значение, тем больше склонность использовать разные выражения и избегать повторения концепций; чем ниже значение, тем больше склонность к повторению, что делает речь более последовательной.",
   "settingModel.presencePenalty.title": "Разнообразие выражений",
-  "settingModel.reasoningEffort.desc": "Более высокие значения улучшают способность к рассуждению, но могут увеличить время ответа и расход токенов.",
   "settingModel.reasoningEffort.options.high": "Высокое",
   "settingModel.reasoningEffort.options.low": "Низкое",
   "settingModel.reasoningEffort.options.medium": "Среднее",

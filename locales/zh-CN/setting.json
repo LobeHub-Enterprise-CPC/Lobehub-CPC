@@ -1464,7 +1464,7 @@
   "settingModel.params.title": "高级参数",
   "settingModel.presencePenalty.desc": "值越大，越倾向不同的表达方式，避免概念重复；值越小，越倾向使用重复的概念或叙述，表达更具一致性",
   "settingModel.presencePenalty.title": "表述发散度",
-  "settingModel.reasoningEffort.desc": "值越大，推理能力越强，但可能会增加响应时间和 Token 消耗",
+  "settingModel.reasoningEffort.desc": "值越大，推理能力越强，但可能会增加响应时间和积分消耗",
   "settingModel.reasoningEffort.options.high": "高",
   "settingModel.reasoningEffort.options.low": "低",
   "settingModel.reasoningEffort.options.medium": "中",

@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Paramètres avancés",
   "settingModel.presencePenalty.desc": "Plus la valeur est élevée, plus le modèle évite les répétitions et varie les expressions ; plus la valeur est faible, plus il tend à répéter les concepts, assurant une cohérence.",
   "settingModel.presencePenalty.title": "Diversité d’expression",
-  "settingModel.reasoningEffort.desc": "Des valeurs plus élevées améliorent la capacité de raisonnement mais peuvent augmenter le temps de réponse et la consommation de jetons.",
   "settingModel.reasoningEffort.options.high": "Élevé",
   "settingModel.reasoningEffort.options.low": "Faible",
   "settingModel.reasoningEffort.options.medium": "Moyen",

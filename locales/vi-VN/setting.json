@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Tham Số Nâng Cao",
   "settingModel.presencePenalty.desc": "Giá trị càng cao, càng có xu hướng sử dụng cách diễn đạt khác nhau và tránh lặp lại khái niệm; giá trị càng thấp, càng có xu hướng lặp lại khái niệm hoặc cách diễn đạt, tạo ra sự nhất quán.",
   "settingModel.presencePenalty.title": "Độ Đa Dạng Diễn Đạt",
-  "settingModel.reasoningEffort.desc": "Giá trị cao hơn tăng khả năng lý luận nhưng có thể làm tăng thời gian phản hồi và số lượng token sử dụng.",
   "settingModel.reasoningEffort.options.high": "Cao",
   "settingModel.reasoningEffort.options.low": "Thấp",
   "settingModel.reasoningEffort.options.medium": "Trung Bình",

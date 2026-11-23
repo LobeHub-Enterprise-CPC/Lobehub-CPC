@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Geavanceerde parameters",
   "settingModel.presencePenalty.desc": "Hoe hoger de waarde, hoe meer variatie in uitdrukkingen en minder herhaling van concepten; hoe lager, hoe consistenter maar herhalender.",
   "settingModel.presencePenalty.title": "Expressievariatie",
-  "settingModel.reasoningEffort.desc": "Hogere waarden verbeteren het redeneervermogen, maar kunnen de responstijd en het tokengebruik verhogen.",
   "settingModel.reasoningEffort.options.high": "Hoog",
   "settingModel.reasoningEffort.options.low": "Laag",
   "settingModel.reasoningEffort.options.medium": "Gemiddeld",

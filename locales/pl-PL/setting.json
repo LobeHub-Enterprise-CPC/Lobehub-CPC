@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Zaawansowane parametry",
   "settingModel.presencePenalty.desc": "Im wyższa wartość, tym większa skłonność do używania różnych wyrażeń i unikania powtórzeń; im niższa, tym większa spójność i powtarzalność wypowiedzi.",
   "settingModel.presencePenalty.title": "Zróżnicowanie wypowiedzi",
-  "settingModel.reasoningEffort.desc": "Wyższe wartości zwiększają zdolność rozumowania, ale mogą wydłużyć czas odpowiedzi i zużycie tokenów.",
   "settingModel.reasoningEffort.options.high": "Wysoki",
   "settingModel.reasoningEffort.options.low": "Niski",
   "settingModel.reasoningEffort.options.medium": "Średni",

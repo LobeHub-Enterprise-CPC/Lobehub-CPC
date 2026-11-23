@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "고급 매개변수",
   "settingModel.presencePenalty.desc": "값이 클수록 다양한 표현 방식으로 기울어 개념의 반복을 피하고, 값이 작을수록 반복적인 개념이나 서술을 사용하는 경향이 있어 표현이 더 일관됩니다.",
   "settingModel.presencePenalty.title": "표현의 다양성",
-  "settingModel.reasoningEffort.desc": "값이 클수록 추론 능력이 강해지지만, 응답 시간과 토큰 소모가 증가할 수 있습니다",
   "settingModel.reasoningEffort.options.high": "높음",
   "settingModel.reasoningEffort.options.low": "낮음",
   "settingModel.reasoningEffort.options.medium": "중간",

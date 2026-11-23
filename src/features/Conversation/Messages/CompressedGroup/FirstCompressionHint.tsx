@@ -5,22 +5,27 @@ import { useTranslation } from 'react-i18next';
 
 import {
   dismissFirstCompression,
-  isFirstCompressionVisible,
+  isFirstCompressionDismissed,
+  shouldShowFirstCompression,
   subscribeFirstCompression,
 } from '@/utils/firstCompressionHint';
 
-import { useConversationStore } from '../../store';
+import { dataSelectors, useConversationStore } from '../../store';
 
 export default function FirstCompressionHint({ id }: { id: string }) {
   const { t } = useTranslation(['chat', 'common']);
-  const topicId = useConversationStore((s) => s.context.topicId);
-  const visible = useSyncExternalStore(
+  const isFirstGroup = useConversationStore(
+    (s) =>
+      dataSelectors.displayMessages(s).find((message) => message.role === 'compressedGroup')?.id ===
+      id,
+  );
+  const dismissed = useSyncExternalStore(
     subscribeFirstCompression,
-    () => isFirstCompressionVisible(topicId, id),
-    () => false,
+    isFirstCompressionDismissed,
+    () => true,
   );
 
-  if (!visible || !topicId) return null;
+  if (!shouldShowFirstCompression(dismissed, isFirstGroup)) return null;
   return (
     <Flexbox horizontal align={'center'} gap={4}>
       <span style={{ color: cssVar.colorTextDescription, fontSize: 12 }}>
@@ -31,7 +36,7 @@ export default function FirstCompressionHint({ id }: { id: string }) {
         icon={X}
         size={'small'}
         type={'text'}
-        onClick={() => dismissFirstCompression(topicId)}
+        onClick={dismissFirstCompression}
       />
     </Flexbox>
   );

@@ -1452,7 +1452,6 @@
   "settingModel.params.title": "Parâmetros Avançados",
   "settingModel.presencePenalty.desc": "Quanto maior o valor, maior a tendência de usar expressões diferentes e evitar repetições; quanto menor, mais repetitivo e consistente.",
   "settingModel.presencePenalty.title": "Diversidade de Expressão",
-  "settingModel.reasoningEffort.desc": "Valores mais altos aumentam a capacidade de raciocínio, mas podem aumentar o tempo de resposta e o uso de tokens.",
   "settingModel.reasoningEffort.options.high": "Alto",
   "settingModel.reasoningEffort.options.low": "Baixo",
   "settingModel.reasoningEffort.options.medium": "Médio",
