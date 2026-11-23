@@ -42,3 +42,12 @@ it('shows a charge even without a token total', () => {
   );
   expect(container.textContent).toContain('31 credits');
 });
+
+it('shows no charge for a message that cost nothing', () => {
+  visibility.enabled = false;
+  const { container } = render(
+    <Usage model="test-model" provider="openai" usage={{ cost: 0, totalTokens: 543 }} />,
+  );
+  expect(container.textContent).not.toContain('credits');
+  expect(container.textContent).not.toContain('543 tokens');
+});
