@@ -12,6 +12,7 @@ import ToggleLeftPanelButton from '@/features/NavPanel/ToggleLeftPanelButton';
 import { NAV_RAIL_WIDTH } from '@/features/NavRail/constants';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useActiveLocation } from '@/hooks/useActiveLocation';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { electronSystemService } from '@/services/electron/system';
 import { useElectronStore } from '@/store/electron';
 import { useGlobalStore } from '@/store/global';
@@ -22,13 +23,18 @@ import { electronStylish } from '@/styles/electron';
 import { getPlatform, isMacOS } from '@/utils/platform';
 
 import { useNavigationHistory } from '../navigation/useNavigationHistory';
-import { getMacTrafficLightPadding, NAV_RAIL_TAB_INSET } from './layout';
+import {
+  getMacTrafficLightPadding,
+  NAV_RAIL_TAB_INSET,
+  TITLE_BAR_HORIZONTAL_PADDING,
+} from './layout';
 import RecentlyViewed from './RecentlyViewed';
 import { useTrayMenuSync } from './TrayMenu/useTrayMenuSync';
 import WindowsAppMenu from './WindowsAppMenu';
 
 const isMac = isMacOS();
-const isWindows = getPlatform() === 'Windows';
+const platform = getPlatform();
+const isWindows = platform === 'Windows';
 const COLLAPSED_NAVIGATION_BAR_WIDTH = 150;
 const MAC_COLLAPSED_NAVIGATION_BAR_WIDTH = 116;
 
@@ -73,6 +79,7 @@ const NavigationBar = memo(() => {
 
   const leftPanelWidth = useNavPanelWidth();
   const { pathname, search } = useActiveLocation();
+  const isMobile = useIsMobile();
 
   useWatchBroadcast('windowFullscreenChanged', ({ isFullScreen }) => {
     if (isMac) setIsWindowFullScreen(isFullScreen);
@@ -134,7 +141,9 @@ const NavigationBar = memo(() => {
   // Pages that own the navigation slot unmount the panel whatever the preference
   // says; some draw a column of their own there, which the tabs start after just the same.
   const navColumnWidth = hidesNavPanel(pathname, search)
-    ? pageNavColumnWidth(pathname, search)
+    ? isMobile
+      ? 0
+      : pageNavColumnWidth(pathname, search)
     : leftPanelWidth;
   const hasNavColumn = navColumnWidth > 0;
   const macTrafficLightPadding = getMacTrafficLightPadding(isMac, isWindowFullScreen);
@@ -146,8 +155,9 @@ const NavigationBar = memo(() => {
   // In that layout the tabs start a little inside the content area. The inset is
   // added to the width and to the end padding alike, so the buttons stay put.
   const tabInset = NAV_RAIL_ENABLED && hasNavColumn ? NAV_RAIL_TAB_INSET : 0;
+  const startPadding = NAV_RAIL_ENABLED && platform === 'Linux' ? 0 : TITLE_BAR_HORIZONTAL_PADDING;
   const navigationWidth = hasNavColumn
-    ? Math.max(navColumnWidth + navRailWidth - 12, collapsedWidth) + tabInset
+    ? Math.max(navColumnWidth + navRailWidth - startPadding, collapsedWidth) + tabInset
     : collapsedWidth;
 
   return (

@@ -1,12 +1,19 @@
 import type * as BusinessConst from '@lobechat/business-const';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resolveTabScope } from '@/features/Electron/titlebar/TabBar/scope';
+import { saveTabPages, tabPagesStorageKey } from '@/features/Electron/titlebar/TabBar/storage';
 import { useGlobalStore } from '@/store/global';
 import { INITIAL_STATUS } from '@/store/global/initialState';
 
 import { readBootShellGeometry } from './geometry';
 
 const flags = vi.hoisted(() => ({ navRailEnabled: false }));
+
+vi.mock('@/const/version', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  isDesktop: true,
+}));
 
 vi.mock('@lobechat/business-const', async (importOriginal) => ({
   ...(await importOriginal<typeof BusinessConst>()),
@@ -78,6 +85,26 @@ describe('readBootShellGeometry', () => {
 
     window.history.replaceState({}, '', '/orgs/acme/agent');
     expect(readBootShellGeometry().showLeftPanel).toBe(true);
+  });
+
+  it.each([
+    ['/?lng=zh-CN', '/tasks'],
+    ['/acme?lng=zh-CN', '/acme/tasks'],
+  ])('uses the restored tab geometry on a plain desktop launch at %s', (bootUrl, tabUrl) => {
+    const scope = resolveTabScope(tabUrl);
+    saveTabPages(scope, [{ id: 'tasks', lastVisited: 1, url: tabUrl }], 'tasks');
+    flags.navRailEnabled = true;
+    setStatus({ leftPanelWidth: 400, showLeftPanel: true });
+
+    try {
+      window.history.replaceState({}, '', bootUrl);
+      expect(readBootShellGeometry()).toMatchObject({ navRailWidth: 56, showLeftPanel: false });
+
+      window.history.replaceState({}, '', tabUrl.replace(/tasks$/, 'agent'));
+      expect(readBootShellGeometry().showLeftPanel).toBe(true);
+    } finally {
+      window.localStorage.removeItem(tabPagesStorageKey(scope));
+    }
   });
 
   it('follows the theme already resolved onto the document', () => {

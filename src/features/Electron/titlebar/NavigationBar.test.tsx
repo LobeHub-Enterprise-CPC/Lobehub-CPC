@@ -9,6 +9,7 @@ import NavigationBar from './NavigationBar';
 const mocks = vi.hoisted(() => ({
   communityShowcase: false,
   isMac: false,
+  isMobile: false,
   handlers: new Map<string, () => void>(),
   leftPanelVisible: false,
   leftPanelWidth: 0,
@@ -26,6 +27,7 @@ vi.mock('@lobechat/business-const', () => ({
     return mocks.navRailEnabled;
   },
 }));
+vi.mock('@/hooks/useIsMobile', () => ({ useIsMobile: () => mocks.isMobile }));
 vi.mock('@/hooks/useActiveLocation', () => ({
   useActiveLocation: () => ({ pathname: mocks.pathname, search: '' }),
 }));
@@ -82,6 +84,7 @@ describe('NavigationBar tray broadcasts', () => {
     mocks.communityShowcase = false;
     mocks.handlers.clear();
     mocks.isMac = false;
+    mocks.isMobile = false;
     mocks.leftPanelVisible = false;
     mocks.leftPanelWidth = 0;
     mocks.navRailEnabled = false;
@@ -131,7 +134,7 @@ describe('NavigationBar tray broadcasts', () => {
     const { container } = render(<NavigationBar />);
     const navigationBar = container.querySelector('.root');
 
-    expect(navigationBar).toHaveStyle({ width: `${280 + 56 - 12 + NAV_RAIL_TAB_INSET}px` });
+    expect(navigationBar).toHaveStyle({ width: `${280 + 56 + NAV_RAIL_TAB_INSET}px` });
     // The inset goes into the end padding too, so the buttons stay left of the divider.
     expect(navigationBar).toHaveStyle({ paddingRight: `${8 + NAV_RAIL_TAB_INSET}px` });
   });
@@ -162,7 +165,7 @@ describe('NavigationBar tray broadcasts', () => {
     mocks.pathname = '/tasks';
 
     const expanded = render(<NavigationBar />);
-    const expectedWidth = `${SCHEDULED_TASKS_COLUMN_WIDTH + 56 - 12 + NAV_RAIL_TAB_INSET}px`;
+    const expectedWidth = `${SCHEDULED_TASKS_COLUMN_WIDTH + 56 + NAV_RAIL_TAB_INSET}px`;
     expect(expanded.container.querySelector('.root')).toHaveStyle({ width: expectedWidth });
     expanded.unmount();
 
@@ -170,6 +173,27 @@ describe('NavigationBar tray broadcasts', () => {
     mocks.leftPanelVisible = false;
     const collapsed = render(<NavigationBar />);
     expect(collapsed.container.querySelector('.root')).toHaveStyle({ width: expectedWidth });
+  });
+
+  it('does not reserve a fixed column for the narrow scheduled workspace', () => {
+    mocks.navRailEnabled = true;
+    mocks.isMobile = true;
+    mocks.pathname = '/tasks';
+
+    const { container } = render(<NavigationBar />);
+    expect(container.querySelector('.root')).toHaveStyle({ width: '150px' });
+  });
+
+  it('keeps the application panel on a task detail with a slug of tasks', () => {
+    mocks.navRailEnabled = true;
+    mocks.leftPanelVisible = true;
+    mocks.leftPanelWidth = 380;
+    mocks.pathname = '/acme/task/T-501/tasks';
+
+    const { container } = render(<NavigationBar />);
+    expect(container.querySelector('.root')).toHaveStyle({
+      width: String(380 + 56 + NAV_RAIL_TAB_INSET) + 'px',
+    });
   });
 
   // The showcase market draws no column at all, so there is nothing to span.
@@ -181,7 +205,7 @@ describe('NavigationBar tray broadcasts', () => {
 
     const kept = render(<NavigationBar />);
     expect(kept.container.querySelector('.root')).toHaveStyle({
-      width: `${280 + 56 - 12 + NAV_RAIL_TAB_INSET}px`,
+      width: `${280 + 56 + NAV_RAIL_TAB_INSET}px`,
     });
     kept.unmount();
 
