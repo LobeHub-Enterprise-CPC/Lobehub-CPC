@@ -465,7 +465,7 @@ describe('which tool counts as reaching the sandbox', () => {
       resolveSandboxPersistence: async () => persistence,
     });
 
-    expect(facts.variables.sandbox_workspace).toContain('persistent workspace');
+    expect(facts.variables.sandbox_workspace).toContain('environment directory');
     expect(facts.variables.sandbox_workspace).toContain('`lobehub-dev`');
   });
 
@@ -474,7 +474,16 @@ describe('which tool counts as reaching the sandbox', () => {
       resolveSandboxPersistence: async () => persistence,
     });
 
-    expect(facts.variables.sandbox_workspace).toContain('persistent workspace');
+    expect(facts.variables.sandbox_workspace).toContain('environment directory');
+  });
+
+  it('describes a drive folder as a folder on the network drive', async () => {
+    const facts = await gatherContextFacts(request({ enabledToolIds: ['lobe-cloud-sandbox'] }), {
+      resolveSandboxPersistence: async () => ({ cwd: 'reports', mode: 'drive' as const }),
+    });
+
+    expect(facts.variables.sandbox_workspace).toContain('`reports`, a folder on the user');
+    expect(facts.variables.sandbox_session_files).toContain('persist across sessions');
   });
 
   it('asks for nothing when no tool can run a command in the sandbox', async () => {

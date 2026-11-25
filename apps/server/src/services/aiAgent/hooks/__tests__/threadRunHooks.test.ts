@@ -3,18 +3,18 @@ import type { AgentHookEvent } from '@lobechat/agent-runtime';
 import { ThreadStatus } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createThreadHooks } from '../threadRunHooks';
+import { createThreadHooks, pickThreadUsageBaseline } from '../threadRunHooks';
 
 const thread = { completeRun: vi.fn(), updateProgressForRun: vi.fn() };
 const message = { update: vi.fn() };
 const startedAt = '2026-10-30T00:00:00.000Z';
-const baseline = { totalCost: 1, totalTokens: 100, totalToolCalls: 2 };
+const baseline = { totalCost: 1, totalLlmCalls: 5, totalTokens: 100, totalToolCalls: 2 };
 const state = {
   cost: { total: 0.5 },
   messages: [{ content: 'answer', role: 'assistant' }],
   operationId: 'op',
   stepCount: 3,
-  usage: { llm: { tokens: { total: 30 } }, tools: { totalCalls: 4 } },
+  usage: { llm: { apiCalls: 2, tokens: { total: 30 } }, tools: { totalCalls: 4 } },
 };
 const hooks = () =>
   createThreadHooks(
@@ -73,7 +73,9 @@ describe('thread run hooks', () => {
       operationId: 'op',
       startedAt,
       totalCost: 1,
+      totalLlmCalls: 7,
       totalMessages: 1,
+      totalSteps: 7,
       totalTokens: 130,
       totalToolCalls: 6,
     });
@@ -89,7 +91,9 @@ describe('thread run hooks', () => {
       ThreadStatus.Completed,
       expect.objectContaining({
         totalCost: 1.5,
+        totalLlmCalls: 7,
         totalMessages: 1,
+        totalSteps: 7,
         totalTokens: 130,
         totalToolCalls: 6,
       }),
@@ -144,5 +148,20 @@ describe('thread run hooks', () => {
     await expect(
       hooks()[0].handler!({ finalState: state, operationId: 'op' } as AgentHookEvent),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('pickThreadUsageBaseline', () => {
+  it('ignores legacy totalSteps when no versioned LLM baseline exists', () => {
+    const baseline = pickThreadUsageBaseline({ totalSteps: 9 } as any);
+
+    // Legacy `totalSteps` is in execution-step units; reusing it would mix units.
+    expect(baseline.totalLlmCalls).toBeUndefined();
+  });
+
+  it('uses the versioned totalLlmCalls baseline', () => {
+    const baseline = pickThreadUsageBaseline({ totalLlmCalls: 3, totalSteps: 9 } as any);
+
+    expect(baseline.totalLlmCalls).toBe(3);
   });
 });

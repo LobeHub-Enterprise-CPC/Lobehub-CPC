@@ -1,4 +1,6 @@
 // @vitest-environment node
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -46,20 +48,25 @@ vi.mock('@/server/services/redis/client', () => ({
 /**
  * Minimal drizzle select chains: the stale-candidate query (`orderBy`) answers
  * its n-th page with `page(n)`, the concurrent-foreground patrol (`groupBy`)
- * returns `overlapRows`.
+ * returns `overlapRows`. Every WHERE condition is kept so a test can read the
+ * SQL it compiles to.
  */
+const whereConditions: SQL[] = [];
 const buildPagedDb = (page: (call: number) => any[], overlapRows: any[] = []) => {
   const candidatePages = vi.fn(async () => page(candidatePages.mock.calls.length - 1));
   return {
     candidatePages,
     select: () => ({
       from: () => ({
-        where: () => ({
-          groupBy: () => ({
-            having: () => ({ limit: vi.fn().mockResolvedValue(overlapRows) }),
-          }),
-          orderBy: () => ({ limit: candidatePages }),
-        }),
+        where: (condition: SQL) => {
+          whereConditions.push(condition);
+          return {
+            groupBy: () => ({
+              having: () => ({ limit: vi.fn().mockResolvedValue(overlapRows) }),
+            }),
+            orderBy: () => ({ limit: candidatePages }),
+          };
+        },
       }),
     }),
   } as any;
@@ -70,14 +77,17 @@ const buildDb = (rows: any[], overlapRows: any[] = []) =>
 
 const CREATED_AT = new Date('2026-10-30T10:00:00.000Z');
 
-const candidate = (id = 'op_x') => ({
+const candidate = (id = 'op_x', overrides: Record<string, any> = {}) => ({
   createdAt: CREATED_AT,
   id,
+  leaseRefreshedAt: new Date(Date.now() - 10 * 60_000),
+  provider: 'openai',
   threadId: null,
   topicId: 'tpc_x',
   updatedAt: '2026-10-30 10:05:00.000001+00',
   userId: 'user_x',
   workspaceId: null,
+  ...overrides,
 });
 
 const buildCoordinator = (
@@ -122,6 +132,7 @@ describe('StaleOperationReaper', () => {
     settleStaleRunningMock.mockReset().mockResolvedValue(true);
     releaseStaleRedriveMock.mockReset().mockResolvedValue(true);
     finalizeAbandonedMock.mockClear();
+    whereConditions.length = 0;
     process.env.APP_URL = 'https://app.lobehub.test';
   });
 
@@ -187,19 +198,124 @@ describe('StaleOperationReaper', () => {
     expect(result).toMatchObject({ abandoned: 0, redriven: 0, skipped: 1 });
   });
 
-  it('never touches an operation with no coordinator state', async () => {
-    // This is the shape of a HEALTHY heterogeneous run: an external Claude
+  it('never redrives an operation with no coordinator state', async () => {
+    // This is also the shape of a HEALTHY heterogeneous run: an external Claude
     // Code / Codex CLI drives it, it never creates coordinator state, and it
     // only refreshes its lease on `heteroIngest` batches — so one long tool
-    // call reads as stale here. Retiring it would make `heteroIngest` drop
-    // every subsequent batch of a live session.
+    // call reads as stale here. Retiring it early would make `heteroIngest`
+    // drop every subsequent batch of a live session.
     const queue = buildQueue();
-    const result = await buildReaper([candidate()], null, queue).sweep();
+    const result = await buildReaper(
+      [candidate('op_x', { provider: 'codex' })],
+      null,
+      queue,
+    ).sweep();
 
     expect(queue.scheduleMessage).not.toHaveBeenCalled();
     expect(claimStaleRedriveMock).not.toHaveBeenCalled();
     expect(finalizeAbandonedMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({ abandoned: 0, redriven: 0, skipped: 1 });
+  });
+
+  it('only scans rows whose lease froze within the lookback window', async () => {
+    // Production carries ~21k `running` rows dead for days, none with
+    // coordinator state. Unbounded, the oldest-first window was those same 50
+    // skipped rows on every tick and never reached a run that just died.
+    const before = Date.now();
+    await buildReaper([], runningState()).sweep();
+
+    const { params, sql } = new PgDialect().sqlToQuery(whereConditions[0]);
+    expect(sql).toMatch(/"updated_at" >= \$\d+/);
+    const floor = params.find(
+      (p) => typeof p === 'string' && new Date(p).getTime() <= before - 23 * 60 * 60_000,
+    );
+    expect(floor).toBeDefined();
+    expect(new Date(floor as string).getTime()).toBeGreaterThanOrEqual(
+      before - 24 * 60 * 60_000 - 1000,
+    );
+  });
+
+  it('abandons a stateless heterogeneous run silent past the hetero window', async () => {
+    // 2026-10-12: a device-dispatched Codex run went silent when its desktop
+    // dropped off, the gateway inactivity watchdog never fired for it, and it
+    // stayed `running` — its Task refusing every new message — until a human
+    // paused it. Hetero runs never have coordinator state, so the reaper used
+    // to skip them unconditionally.
+    const queue = buildQueue();
+    const before = Date.now();
+    const result = await buildReaper(
+      [
+        candidate('op_x', {
+          leaseRefreshedAt: new Date(before - 61 * 60_000),
+          provider: 'codex',
+        }),
+      ],
+      null,
+      queue,
+    ).sweep();
+
+    const [, staleBefore] = settleStaleRunningMock.mock.calls[0];
+    // The CAS re-checks the lease against the hetero window, not the 5-min one,
+    // so an ingest batch that lands meanwhile keeps the run alive.
+    expect(staleBefore.getTime()).toBeLessThanOrEqual(before - 60 * 60_000 + 5);
+    expect(staleBefore.getTime()).toBeGreaterThan(before - 61 * 60_000);
+    expect(finalizeAbandonedMock).toHaveBeenCalledWith('op_x', 'stale_lease_hetero_silent', {
+      settledAsAbandoned: true,
+    });
+    expect(queue.scheduleMessage).not.toHaveBeenCalled();
+    expect(claimStaleRedriveMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ abandoned: 1, skipped: 0 });
+  });
+
+  it('keeps a heterogeneous run that is quiet but inside the hetero window', async () => {
+    // A long shell command inside the CLI reaches the server as silence; the
+    // backstop must not be stricter than the gateway's 60-min hetero window.
+    const result = await buildReaper(
+      [
+        candidate('op_x', {
+          provider: 'claude-code',
+          leaseRefreshedAt: new Date(Date.now() - 30 * 60_000),
+        }),
+      ],
+      null,
+    ).sweep();
+
+    expect(settleStaleRunningMock).not.toHaveBeenCalled();
+    expect(finalizeAbandonedMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ abandoned: 0, skipped: 1 });
+  });
+
+  it('leaves a silent heterogeneous run alone when an ingest batch wins the CAS', async () => {
+    settleStaleRunningMock.mockResolvedValue(false);
+
+    const result = await buildReaper(
+      [
+        candidate('op_x', {
+          leaseRefreshedAt: new Date(Date.now() - 90 * 60_000),
+          provider: 'codex',
+        }),
+      ],
+      null,
+    ).sweep();
+
+    expect(finalizeAbandonedMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ abandoned: 0, alive: 1 });
+  });
+
+  it('still skips a stateless non-heterogeneous run however long it has been quiet', async () => {
+    const result = await buildReaper(
+      [
+        candidate('op_x', {
+          provider: 'openai',
+          leaseRefreshedAt: new Date(Date.now() - 3 * 60 * 60_000),
+        }),
+      ],
+      null,
+    ).sweep();
+
+    expect(settleStaleRunningMock).not.toHaveBeenCalled();
+    expect(finalizeAbandonedMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ skipped: 1 });
   });
 
   it.each(['waiting_for_human', 'waiting_for_async_tool'])(

@@ -1,7 +1,7 @@
 import type { SandboxStorageClaim } from '@lobechat/builtin-tool-cloud-sandbox';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { AgentSenderMetadata, ExecAgentResult, UserInterventionConfig } from '@lobechat/types';
-import { parsePluginEntry } from '@lobechat/types';
+import { ordinaryFileAccessScope, parsePluginEntry } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
 import debug from 'debug';
 
@@ -23,6 +23,7 @@ import type { AgentDocumentsService } from '@/server/services/agentDocuments';
 import type { AgentRuntimeService } from '@/server/services/agentRuntime';
 import { getAbortError, throwIfAborted } from '@/server/services/agentRuntime/abort';
 import type { ComposioService } from '@/server/services/composio';
+import { DocumentService } from '@/server/services/document';
 import type { MarketService } from '@/server/services/market';
 import { resolveRevokedMarketAssets } from '@/server/services/market/installedAssetAccess';
 
@@ -127,6 +128,7 @@ export const execAgentTurn = async (
     evalRuntime,
     maxSteps,
     disableLocalSystem,
+    initialLlmCalls,
     initialStepCount,
     signal,
     userInterventionConfig: requestedUserInterventionConfig = { approvalMode: 'headless' },
@@ -477,8 +479,12 @@ export const execAgentTurn = async (
           }
         : appContext,
     assistantMessageId: turn.assistantMessageId,
+    botContext,
+    botPlatformContext,
     canUseDevice,
     deviceAccessReason,
+    disabledPluginIds,
+    discordContext,
     model,
     parentMessageId,
     persistAgentId,
@@ -604,6 +610,11 @@ export const execAgentTurn = async (
     );
   }
   const notRevoked = (ids?: string[]) => ids?.filter((id) => !revokedAssetIds.has(id));
+  // Discovery and the context assembly read the disabled ids off the run context;
+  // the operation's own `disabledPluginIds` (passed to startOperation) stays the agent's list.
+  if (revokedAssetIds.size > 0) {
+    runContext.disabledPluginIds = [...disabledPluginIds, ...revokedAssetIds];
+  }
 
   // 15. Generate operation ID: op_{timestamp}_{agentId}_{topicId}_{random}
   const operationId =
@@ -621,13 +632,9 @@ export const execAgentTurn = async (
     approvalOwnerAssistantId,
     approvedToolEntries,
     attachedFileIds,
-    botContext,
-    botPlatformContext,
     disableLocalSystem,
     disableSelfFeedbackIntentTool: params.disableSelfFeedbackIntentTool,
     disableTools: params.disableTools,
-    disabledPluginIds: [...disabledPluginIds, ...revokedAssetIds],
-    discordContext,
     ephemeralUserMessage,
     exclusivePluginIds,
     files,
@@ -637,7 +644,6 @@ export const execAgentTurn = async (
     isFixedDeviceTarget: turn.isFixedDeviceTarget,
     localDeviceId,
     mentionedAgents,
-    operationId,
     parentMessageId,
     requestTrigger: requestTriggerMetadata.trigger,
     requestedDeviceId: turn.requestedDeviceId,
@@ -668,6 +674,13 @@ export const execAgentTurn = async (
         loadHistoryMessages,
         messageModel: deps.messageModel,
         pluginModel: deps.pluginModel,
+        readFileContent: async (fileId) =>
+          (
+            await new DocumentService(deps.db, deps.userId, deps.workspaceId).parseFile(
+              fileId,
+              ordinaryFileAccessScope,
+            )
+          ).content ?? undefined,
         throwIfExecutionAborted,
         topicModel: deps.topicModel,
         userId: deps.userId,
@@ -675,6 +688,7 @@ export const execAgentTurn = async (
       },
       runContext,
       initRequest,
+      operationId,
     ),
   );
 
@@ -762,6 +776,7 @@ export const execAgentTurn = async (
         evalRuntime,
         hooks,
         initialContext,
+        initialLlmCalls,
         initialStepCount,
         maxSteps,
         operationId,

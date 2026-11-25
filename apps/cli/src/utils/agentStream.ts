@@ -1,13 +1,13 @@
 import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
-import { AgentStreamClient } from '@lobechat/agent-gateway-client';
 import pc from 'picocolors';
 
 import { getUserIdFromApiKey } from '../auth/apiKey';
 import { createGatewayIdentityProvider } from '../auth/gatewayIdentity';
 import { parseJwtSub } from '../auth/resolveToken';
-import { resolveServerUrl } from '../settings';
 import type { AgentRunOutcome } from './agentRunOutcome';
 import { classifyRunStatus, describeOutcome } from './agentRunOutcome';
+import type { AgentStreamAuth, AgentStreamTransportOptions } from './agentStreamTransport';
+import { AgentStreamHistoryError, consumeAgentStream } from './agentStreamTransport';
 import { log } from './logger';
 
 export type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
@@ -17,36 +17,19 @@ interface StreamOptions {
   verbose?: boolean;
 }
 
-interface LiveStreamOptions extends StreamOptions {
+interface FollowStreamOptions extends StreamOptions, AgentStreamTransportOptions {
   /**
-   * Called when the stream has carried no progress for `stallTimeoutMs`. Both
-   * transports can keep a connection alive with heartbeats while never
-   * delivering the terminal event (a gateway that does not forward it, or an
-   * SSE subscription opened after a fast run already ended), so silence alone
-   * must not be read as either "finished" or "failed". Return the run's
-   * outcome to finish, `undefined` when the run is still active (keep
-   * streaming), or throw to give up on the stream.
+   * Called when the stream has carried no progress for `stallTimeoutMs`. A
+   * gateway can keep a connection alive with heartbeats while never
+   * delivering the terminal event, so silence alone must not be read as either
+   * "finished" or "failed". Return `undefined` while the run is still active
+   * (keep streaming). A terminal outcome gets a bounded final catch-up for the
+   * terminal journal event first, then the stream fails as incomplete; throwing
+   * does too.
    */
   onStall?: () => Promise<AgentRunOutcome | undefined>;
   /** Progress window before `onStall` is consulted. Defaults to 60s. */
   stallTimeoutMs?: number;
-}
-
-interface WebSocketStreamOptions extends LiveStreamOptions {
-  gatewayUrl: string;
-  operationId: string;
-  /**
-   * LobeHub server URL the gateway should call back to when verifying
-   * an apiKey token (via `/api/v1/users/me`). Required when
-   * `tokenType === 'apiKey'`; ignored for JWT.
-   */
-  serverUrl?: string;
-  token: string;
-  /**
-   * How the gateway should verify `token`. `jwt` is the default for
-   * backwards compatibility with existing callers.
-   */
-  tokenType?: 'jwt' | 'apiKey';
 }
 
 /**
@@ -67,179 +50,14 @@ export const outcomeFromEndEvent = (event: AgentStreamEvent): AgentRunOutcome =>
 };
 
 const STALL_TIMEOUT = 60_000;
+/** Upper bound on minting a gateway ticket before a (re)connect gives up. */
+const GATEWAY_IDENTITY_TIMEOUT_MS = 15_000;
 
 const outcomeFromErrorEvent = (event: AgentStreamEvent): AgentRunOutcome => ({
   error: event.data?.message || event.data?.error || 'Unknown error',
   kind: 'failed',
   status: 'error',
 });
-
-/**
- * Connect to the agent SSE stream and render events to the terminal.
- * Resolves with the run outcome once a terminal event arrives, or `undefined`
- * when the stream closed without one (the caller should check the status).
- * Rejects when the stream cannot be opened — the run may still be executing
- * server-side, so the caller falls back to polling rather than exiting here.
- */
-export async function streamAgentEvents(
-  url: string,
-  headers: Record<string, string>,
-  options: LiveStreamOptions = {},
-): Promise<AgentRunOutcome | undefined> {
-  const { onStall, stallTimeoutMs = STALL_TIMEOUT } = options;
-  const jsonEvents: AgentStreamEvent[] = [];
-  // `--json` promises one JSON array on stdout whatever happens next — even
-  // `[]` when the stream fails before any event and the caller falls back to
-  // polling — so every exit path prints through here exactly once.
-  let jsonPrinted = false;
-  const printJsonOnce = () => {
-    if (!options.json || jsonPrinted) return;
-    jsonPrinted = true;
-    console.log(JSON.stringify(jsonEvents, null, 2));
-  };
-
-  let res: Response;
-  try {
-    res = await fetch(url, { headers });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Agent stream failed: ${res.status} ${text}`);
-    }
-    if (!res.body) {
-      throw new Error('No response body received from agent stream');
-    }
-  } catch (error) {
-    printJsonOnce();
-    throw error;
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  const ctx = createRenderContext();
-
-  // Declared outside the read loop so partial SSE frames that span
-  // chunk boundaries are not lost between reader.read() calls.
-  let eventType = '';
-  let eventData = '';
-
-  // Progress window, restarted by real events only — SSE heartbeats keep the
-  // response open even when the terminal event was missed, so they must not
-  // count. When it expires, `onStall` decides; its verdict is handed back to
-  // the read loop by cancelling the pending read. Without `onStall` there is no
-  // window at all: silence is not evidence, and a quiet tool call is legitimate.
-  let finished = false;
-  let stallTimer: ReturnType<typeof setTimeout> | undefined;
-  let stalled: { error: Error } | { outcome: AgentRunOutcome } | undefined;
-  const armStallTimer = () => {
-    if (!onStall) return;
-    if (stallTimer) clearTimeout(stallTimer);
-    stallTimer = setTimeout(async () => {
-      if (finished) return;
-      const silence = `Agent stream sent no progress for ${Math.round(stallTimeoutMs / 1000)}s`;
-      log.debug(`${silence}; checking the run status`);
-      try {
-        const outcome = await onStall();
-        if (finished) return;
-        if (!outcome) {
-          armStallTimer();
-          return;
-        }
-        stalled = { outcome };
-      } catch (error) {
-        if (finished) return;
-        stalled = {
-          error: new Error(`${silence}; status check failed: ${(error as Error).message}`),
-        };
-      }
-      void reader.cancel();
-    }, stallTimeoutMs);
-  };
-  armStallTimer();
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (stalled) {
-        finished = true;
-        if ('error' in stalled) {
-          printJsonOnce();
-          throw stalled.error;
-        }
-        if (options.json) printJsonOnce();
-        else renderOutcome(stalled.outcome);
-        return stalled.outcome;
-      }
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event:')) {
-          eventType = line.slice(6).trim();
-          continue;
-        }
-
-        if (line.startsWith('data:')) {
-          eventData = line.slice(5).trim();
-        }
-
-        // Empty line = end of SSE message
-        if (line === '' && eventData) {
-          if (eventType === 'heartbeat') {
-            log.heartbeat();
-            eventType = '';
-            eventData = '';
-            continue;
-          }
-
-          armStallTimer();
-          try {
-            const event: AgentStreamEvent = JSON.parse(eventData);
-
-            if (options.json) {
-              jsonEvents.push(event);
-            } else {
-              renderEvent(event, ctx, options);
-            }
-
-            if (event.type === 'agent_runtime_end') {
-              const outcome = outcomeFromEndEvent(event);
-              if (options.json) {
-                printJsonOnce();
-              } else {
-                renderEnd(event, outcome);
-              }
-              return outcome;
-            }
-
-            if (event.type === 'error') {
-              printJsonOnce();
-              const outcome = outcomeFromErrorEvent(event);
-              log.error(`Agent error: ${outcome.error}`);
-              return outcome;
-            }
-          } catch {
-            // Not JSON, skip
-          }
-
-          eventType = '';
-          eventData = '';
-        }
-      }
-    }
-
-    // Stream ended without agent_runtime_end
-    printJsonOnce();
-    return undefined;
-  } finally {
-    finished = true;
-    if (stallTimer) clearTimeout(stallTimer);
-    reader.releaseLock();
-  }
-}
 
 /**
  * Replay previously saved JSON events (from --json output) to the terminal.
@@ -283,154 +101,139 @@ export function replayAgentEvents(
 }
 
 /**
- * Connect to the Agent Gateway via WebSocket and render events to the terminal.
- * Resolves with the run outcome once a terminal event arrives, `undefined` when
- * the gateway completed the session without one, and rejects when the
- * connection fails so the caller can fall back to polling.
+ * Consult `onStall` whenever `timeoutMs` passes without progress. Re-arms while
+ * the run is still active; a terminal status means the journal should hold the
+ * terminal event too, so `onFinalCatchUp` gets a bounded grace to read it before
+ * the history is declared incomplete. (The coordinator persists the terminal
+ * state *before* publishing it, so a status probe can win that race — and with
+ * it the simultaneous periodic catch-up.)
  */
-export async function streamAgentEventsViaWebSocket(
-  options: WebSocketStreamOptions,
+const TERMINAL_HISTORY_GRACE_ATTEMPTS = 3;
+const TERMINAL_HISTORY_GRACE_DELAY_MS = 500;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const watchForStall = (
+  timeoutMs: number,
+  onStall: () => Promise<AgentRunOutcome | undefined>,
+  onIncomplete: (error: AgentStreamHistoryError) => void,
+  onFinalCatchUp?: () => Promise<boolean>,
+) => {
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = () => {
+    if (stopped) return;
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      let message = 'Run status is terminal but the complete event history has no terminal event';
+      try {
+        if (!(await onStall())) return arm();
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      // A terminal status does not guarantee the terminal journal event already
+      // landed; read once more, then retry over a short bounded window.
+      if (onFinalCatchUp) {
+        const readTerminal = onFinalCatchUp;
+        for (let attempt = 0; attempt < TERMINAL_HISTORY_GRACE_ATTEMPTS; attempt++) {
+          if (attempt > 0) {
+            await sleep(TERMINAL_HISTORY_GRACE_DELAY_MS);
+            if (stopped) return;
+          }
+          if (await readTerminal()) return;
+          if (stopped) return;
+        }
+      }
+      if (!stopped) onIncomplete(new AgentStreamHistoryError(message));
+    }, timeoutMs);
+  };
+  const stop = () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
+  arm();
+  return { arm, stop };
+};
+
+/**
+ * Follow an operation's events (server journal, woken by the Gateway
+ * WebSocket) and render them to the terminal. Resolves with the outcome of the
+ * terminal event; rejects with `AgentStreamHistoryError` when the complete
+ * event history cannot be confirmed.
+ */
+export async function streamAgentEvents(
+  options: FollowStreamOptions,
 ): Promise<AgentRunOutcome | undefined> {
-  const {
-    gatewayUrl,
-    onStall,
-    operationId,
-    serverUrl,
-    stallTimeoutMs = STALL_TIMEOUT,
-    token,
-    tokenType = 'jwt',
-    ...streamOpts
-  } = options;
-  const entry = serverUrl ?? resolveServerUrl();
-  const userId =
-    tokenType === 'apiKey' ? await getUserIdFromApiKey(token, entry) : parseJwtSub(token);
-  if (!userId) throw new Error('SOURCE_UNVERIFIABLE');
-  const identityProvider = createGatewayIdentityProvider(
-    { serverUrl: entry, token, tokenType, userId },
+  // This deployment's Gateway admits only a dedicated, tenant-scoped gateway
+  // ticket minted by the server (gateway tenancy protocol 1), never the raw
+  // user JWT / API key. Every (re)connect asks for auth, so each one mints a
+  // fresh operation ticket from the current credentials.
+  const { getAuth, operationId } = options;
+  const getGatewayAuth = async (): Promise<AgentStreamAuth> => {
+    const auth = await getAuth();
+    const userId =
+      auth.tokenType === 'apiKey'
+        ? await getUserIdFromApiKey(auth.token, auth.serverUrl)
+        : parseJwtSub(auth.token);
+    if (!userId) throw new Error('SOURCE_UNVERIFIABLE');
+    const identity = await createGatewayIdentityProvider(
+      { serverUrl: auth.serverUrl, token: auth.token, tokenType: auth.tokenType, userId },
+      { audience: 'urn:lobehub:gateway:agent', operationId },
+    )({ signal: AbortSignal.timeout(GATEWAY_IDENTITY_TIMEOUT_MS) });
+    return { serverUrl: auth.serverUrl, token: identity.gatewayTicket, tokenType: 'jwt' };
+  };
+
+  const jsonEvents: AgentStreamEvent[] = [];
+  const ctx = createRenderContext();
+  let outcome: AgentRunOutcome | undefined;
+
+  const transport = consumeAgentStream(
     {
-      audience: 'urn:lobehub:gateway:agent',
-      operationId,
+      ...options,
+      getAuth: getGatewayAuth,
+      // A group member's events ride the supervisor's socket but never its
+      // journal, so they are rendered from the wire. They are never terminal:
+      // the supervisor continues after a member finishes.
+      onMirroredEvent: (event) => {
+        stall?.arm();
+        if (options.json) jsonEvents.push(event);
+        else renderEvent(event, ctx, options);
+      },
+    },
+    (event) => {
+      stall?.arm();
+      if (options.json) jsonEvents.push(event);
+      else renderEvent(event, ctx, options);
+      if (event.type === 'agent_runtime_end') {
+        outcome = outcomeFromEndEvent(event);
+        if (!options.json) renderEnd(event, outcome);
+        return true;
+      }
+      if (event.type === 'error') {
+        outcome = outcomeFromErrorEvent(event);
+        log.error(`Agent error: ${outcome.error}`);
+        return true;
+      }
+      return false;
     },
   );
-  return new Promise<AgentRunOutcome | undefined>((resolve, reject) => {
-    const client = new AgentStreamClient({
-      gatewayUrl,
-      operationId,
-      token,
-      identityProvider,
-      autoReconnect: false,
-    });
-    const jsonEvents: AgentStreamEvent[] = [];
-    const ctx = createRenderContext();
-    let stallTimer: ReturnType<typeof setTimeout> | undefined;
-    let isSettled = false;
-    let jsonPrinted = false;
-
-    const cleanup = () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      client.disconnect();
-    };
-
-    // Same `--json` contract as SSE: exactly one array per run, `[]` included.
-    const printJsonOnce = () => {
-      if (streamOpts.json && !jsonPrinted) {
-        jsonPrinted = true;
-        console.log(JSON.stringify(jsonEvents, null, 2));
-      }
-    };
-
-    const settle = (outcome: AgentRunOutcome | undefined) => {
-      if (isSettled) return;
-      isSettled = true;
-      cleanup();
-      resolve(outcome);
-    };
-
-    const fail = (error: Error) => {
-      if (isSettled) return;
-      isSettled = true;
-      cleanup();
-      printJsonOnce();
-      reject(error);
-    };
-
-    // Progress window: restarted by real stream traffic only. `heartbeat_ack`
-    // must not restart it — a gateway that keeps acking while never forwarding
-    // the terminal event is exactly the shape that used to hang forever.
-    const armStallTimer = () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      stallTimer = setTimeout(async () => {
-        if (isSettled) return;
-        const silence = `Agent gateway WebSocket sent no progress for ${Math.round(stallTimeoutMs / 1000)}s`;
-        if (!onStall) {
-          fail(new Error(`${silence} and never reported completion`));
-          return;
-        }
-        log.debug(`${silence}; checking the run status`);
-        try {
-          const outcome = await onStall();
-          if (isSettled) return;
-          if (outcome) {
-            if (!streamOpts.json) renderOutcome(outcome);
-            printJsonOnce();
-            settle(outcome);
-          } else {
-            armStallTimer();
-          }
-        } catch (error) {
-          fail(new Error(`${silence}; status check failed: ${(error as Error).message}`));
-        }
-      }, stallTimeoutMs);
-    };
-
-    client.on('connected', () => {
-      log.debug('Gateway authenticated');
-      armStallTimer();
-    });
-    client.on('auth_failed', (reason) => fail(new Error(`Gateway auth failed: ${reason}`)));
-    client.on('auth_expired', () => {
-      if (!isSettled) void client.reconnect();
-    });
-    client.on('agent_event', (agentEvent) => {
-      armStallTimer();
-
-      if (streamOpts.json) {
-        jsonEvents.push(agentEvent);
-      } else {
-        renderEvent(agentEvent, ctx, streamOpts);
-      }
-
-      if (agentEvent.type === 'agent_runtime_end') {
-        if (isSettled) return;
-        const outcome = outcomeFromEndEvent(agentEvent);
-        if (!streamOpts.json) renderEnd(agentEvent, outcome);
-        printJsonOnce();
-        settle(outcome);
-        return;
-      }
-
-      if (agentEvent.type === 'error') {
-        if (isSettled) return;
-        const outcome = outcomeFromErrorEvent(agentEvent);
-        printJsonOnce();
-        log.error(`Agent error: ${outcome.error}`);
-        settle(outcome);
-        return;
-      }
-    });
-    client.on('session_complete', () => {
-      printJsonOnce();
-      settle(undefined);
-    });
-    client.on('error', (error) =>
-      fail(new Error(`Agent gateway WebSocket failed: ${error.message}`)),
+  const stall =
+    options.onStall &&
+    watchForStall(
+      options.stallTimeoutMs ?? STALL_TIMEOUT,
+      options.onStall,
+      transport.abort,
+      transport.catchUp,
     );
-    client.on('disconnected', () =>
-      fail(new Error('Agent gateway WebSocket closed before completion')),
-    );
-    armStallTimer();
-    client.connect();
-  });
+
+  try {
+    await transport.done;
+    return outcome;
+  } finally {
+    stall?.stop();
+    transport.close();
+    if (options.json) console.log(JSON.stringify(jsonEvents, null, 2));
+  }
 }
 
 // ── Render helpers ──────────────────────────────────────
@@ -524,11 +327,6 @@ function renderEvent(event: AgentStreamEvent, ctx: RenderContext, options: Strea
       break;
     }
   }
-}
-
-function renderOutcome(outcome: AgentRunOutcome): void {
-  console.log();
-  console.log(describeOutcome(outcome));
 }
 
 function renderEnd(event: AgentStreamEvent, outcome: AgentRunOutcome): void {

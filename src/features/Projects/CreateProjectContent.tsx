@@ -14,7 +14,12 @@ import { FolderIcon } from 'lucide-react';
 import { memo, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { getActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
+import { useAgentStore } from '@/store/agent';
+import { builtinAgentSelectors } from '@/store/agent/selectors';
+import { useHomeStore } from '@/store/home';
+import { homeAgentListSelectors } from '@/store/home/selectors';
 import { type ProjectListItem, useProjectStore } from '@/store/project';
 import { isTrpcErrorCode } from '@/utils/trpcError';
 
@@ -26,6 +31,12 @@ import {
   isProjectIdentifierValid,
   isProjectSlugValid,
 } from './createProjectForm';
+import MainAgentField from './MainAgentField';
+import {
+  readRememberedMainAgent,
+  resolveDefaultMainAgent,
+  writeRememberedMainAgent,
+} from './mainAgentStorage';
 
 export interface CreateProjectOptions {
   /**
@@ -39,8 +50,9 @@ export interface CreateProjectOptions {
 interface CreateProjectFormState {
   conflict?: { field: ProjectDuplicateField; value: string };
   identifier: string;
-  identifierEdited: boolean;
   loading: boolean;
+  /** Explicit pick in this modal; otherwise the remembered agent or LobeAI. */
+  mainAgentId?: string;
   name: string;
   slug: string;
   slugEdited: boolean;
@@ -61,16 +73,26 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
   const slugDescriptionId = useId();
   const [form, setForm] = useState<CreateProjectFormState>({
     identifier: '',
-    identifierEdited: false,
     loading: false,
     name: '',
     slug: '',
     slugEdited: false,
   });
+  const inboxAgentId = useAgentStore(builtinAgentSelectors.inboxAgentId);
+  const [remembered] = useState(() => readRememberedMainAgent(getActiveWorkspaceId()));
+  const defaultMainAgentId = useHomeStore((s) =>
+    resolveDefaultMainAgent({
+      // New projects are shared, so a private agent is not a valid default.
+      agentExists: (id) => homeAgentListSelectors.sharedAgents(s).some((agent) => agent.id === id),
+      inboxAgentId,
+      listLoaded: homeAgentListSelectors.isAgentListInit(s),
+      remembered,
+    }),
+  );
+  const mainAgentId = form.mainAgentId ?? defaultMainAgentId;
   const createInput = getCreateProjectInput(form);
-  const identifierValid = isProjectIdentifierValid(form.identifier);
   const identifierInvalid =
-    (form.identifierEdited || Boolean(form.name.trim())) && !identifierValid;
+    Boolean(form.identifier.trim()) && !isProjectIdentifierValid(form.identifier);
   const slugValid = isProjectSlugValid(form.slug);
   const conflictField =
     form.conflict && form[form.conflict.field].trim() === form.conflict.value
@@ -89,7 +111,6 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
     const suggestions = getProjectFieldSuggestions(name);
     setForm((current) => ({
       ...current,
-      identifier: current.identifierEdited ? current.identifier : suggestions.identifier,
       name,
       slug: current.slugEdited ? current.slug : suggestions.slug,
     }));
@@ -99,7 +120,8 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
     if (!createInput || form.loading || conflictField) return;
     updateForm({ conflict: undefined, loading: true });
     try {
-      const project = await createProject(createInput);
+      const project = await createProject({ ...createInput, coordinatorAgentId: mainAgentId });
+      if (mainAgentId) writeRememberedMainAgent(mainAgentId, getActiveWorkspaceId());
       close();
       if (onCreated) {
         onCreated(project);
@@ -161,10 +183,8 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
             placeholder={t('create.identifierPlaceholder')}
             style={identifierError ? { borderColor: cssVar.colorError } : undefined}
             value={form.identifier}
+            onChange={(event) => updateForm({ identifier: event.target.value.toUpperCase() })}
             onPressEnter={handleCreate}
-            onChange={(event) =>
-              updateForm({ identifier: event.target.value.toUpperCase(), identifierEdited: true })
-            }
           />
           <Text
             aria-live="polite"
@@ -211,6 +231,19 @@ const CreateProjectContent = memo<CreateProjectOptions>(({ onCreated }) => {
                   ? 'create.slugDescription'
                   : 'create.slugInvalid',
             )}
+          </Text>
+        </Flexbox>
+        <Flexbox gap={6}>
+          <Text fontSize={13} weight={500}>
+            {t('create.mainAgentLabel')}
+          </Text>
+          <MainAgentField
+            agentId={mainAgentId}
+            disabled={form.loading}
+            onChange={(id) => updateForm({ mainAgentId: id })}
+          />
+          <Text fontSize={12} type="secondary">
+            {t('create.mainAgentDescription')}
           </Text>
         </Flexbox>
       </Flexbox>

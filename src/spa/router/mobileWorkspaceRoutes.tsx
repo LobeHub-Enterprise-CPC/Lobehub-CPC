@@ -88,7 +88,7 @@ const projectRoutes: RouteObject[] = [
           }),
           // The settings page opens with its own "Project settings" heading.
           'settings/:section?': withHandle({ mobileShellHeader: 'untitled' }),
-          'conversation/:topicId?': (route) => ({
+          'topic/:topicId?': (route) => ({
             ...route,
             element: dynamicElement(
               () => import('@/routes/(mobile)/project/[projectId]/topic'),

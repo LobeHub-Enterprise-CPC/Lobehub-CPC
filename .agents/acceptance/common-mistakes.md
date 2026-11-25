@@ -73,6 +73,7 @@ the next free number of that prefix.
 - **L-S28** 本地验收前核对所有对外服务的实际客户端和服务端请求：`MARKET_BASE_URL`、`NEXT_PUBLIC_MARKET_BASE_URL`、设备网关等须指向本地或已隔离的目标；S3、发信、模型等外部例外须有明确范围授权。
 - **L-S29** Hatchet 隔离验收显式选择 `Default` tenant，核对客户端 JWT 的 `sub` 与该 tenant id、worker 注册归属一致；有 worker 但操作零 claim 时先排除 tenant 不一致。
 - **L-S30** 启动或构建 Enterprise 前，依赖从 shell root 按其 workspace 安装并保留业务 overrides，不叠加独立内核的另一套依赖根；核对 Next 与业务包的实际解析路径，单测或类型检查通过不能证明布局正确。
+- **L-S31** 根 `.env` 起不来时不修它：开一个没有 `.env` 的 worktree，先按 L-S23 装依赖、L-S20 取端口、L-S9 建 per-run 库，再 `setup-db` → `migrate` → `seed-user` → `dev`。
 
 ## Entries
 
@@ -737,3 +738,20 @@ workspace 的 overrides；仅根目录存在、单测或类型检查通过不足
 **Rule:** 按实际标题栏范围唯一定位触发器，不忽略交互失败；分别真实悬停登录和地址错误，
 记录可见 Tooltip 文案。禁用动作的说明使用可接收鼠标、可键盘聚焦的外层触发器，内层按钮
 仍保持禁用；验证键盘聚焦能显示原因且连接调用为零。输入框说明不能代替标题栏说明证据。
+
+### L-S31 — 在坏掉的根 `.env` 上原地硬修
+
+`since 2026-10-23` · `holds-while: init-dev-env.sh 在根 .env 存在时直接退出，dev-server.md 只写了「有 .env 用现有配置」这一条分支`
+
+**Trap:** repo 根目录有 `.env`（Neon 口令已失效，或 `DATABASE_URL` 被指到本地库但 schema 落后、缺
+`agent_history_jobs`），于是走「有 `.env` 就用现有配置」这条分支：`bun run dev` 起来但登录 500，
+`setup-auth.sh` 又提示 `root .env exists; do not seed or modify this DB`。接下来会去改根 `.env`、改
+`node_modules` 里的依赖硬救——那都是别人的本地配置，救回来也只是这一轮能跑，下一轮照旧。
+
+**Rule:** 根 `.env` 起不来就离开它：`git worktree add --detach /tmp/<slug> <ref-or-sha>` 开一棵没有
+根 `.env` 的树（`--detach`：正在检出的分支不能重复 checkout），再把这条路径走完整——按 L-S23 复制
+一份可用的 `node_modules`（含各 package 自己的），按 L-S20 从 `docker ps` 取容器真实端口，按 L-S9
+在容器里建 per-run 库并导出 `DATABASE_URL`，然后 `init-dev-env.sh setup-db` → `migrate` →
+`seed-user` → `dev`（脚本一律用绝对路径，L-S21；端口从日志取，L-S24）。worktree 路径写进 report，
+teardown 时 `clean` 停服、删掉这个库、`git worktree remove` 移除这棵树。不要在被改坏的根 `.env` 上
+继续调试。

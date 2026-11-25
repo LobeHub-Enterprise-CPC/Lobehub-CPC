@@ -19,6 +19,11 @@ import { isDesktop } from '@/const/version';
 import { isTenantUnavailableCode } from '@/features/Auth/utils/tenantUnavailable';
 import { type LambdaRouter } from '@/server/routers/lambda';
 
+import {
+  detectUnreadableServerResponse,
+  findUnreadableServerResponseError,
+} from './unreadableServerResponse';
+
 const log = debug('lobe-image:lambda-client');
 
 // 401 error debouncing: prevent showing multiple login notifications in short time
@@ -39,14 +44,19 @@ const isPublicShareRoute = () =>
 // says what actually happened.
 const TRANSFORM_RESULT_ERROR_MESSAGE = 'Unable to transform response from server';
 
+//
+// A body that is not JSON at all (a gateway HTML error page) is caught earlier,
+// in `linkOptions.fetch`, which still holds the response and can keep its
+// status and request id for the copy.
 const rewriteUnreadableResponseMessage = async (err: TRPCClientError<LambdaRouter>) => {
-  if (err.message !== TRANSFORM_RESULT_ERROR_MESSAGE) return;
+  const unreadable = findUnreadableServerResponseError(err);
+  if (!unreadable && err.message !== TRANSFORM_RESULT_ERROR_MESSAGE) return;
 
   // dynamic import to avoid circular dependency
   const { unreadableResponseMessage } =
     await import('@/components/Error/unreadableResponseMessage');
 
-  err.message = unreadableResponseMessage(err.meta?.responseJSON);
+  err.message = unreadableResponseMessage(err.meta?.responseJSON, unreadable);
 };
 
 // handle error
@@ -182,6 +192,13 @@ const linkOptions = {
     // Ensure credentials are included to send cookies (like mp_token)
     const response = await fetch(input, { ...init, credentials: 'include' });
     if (isDesktop && isProxyNetworkFailure(response)) void notifyRemoteServerNetworkError(response);
+
+    // Throw while the response is still in hand: past this point @trpc/client
+    // calls `res.json()` and, on an HTML error page, drops the response along
+    // with its status and the request id we need to trace the failure.
+    const unreadable = await detectUnreadableServerResponse(response);
+    if (unreadable) throw unreadable;
+
     return response;
   },
   headers: async () => {
@@ -231,7 +248,13 @@ const slowProcedures = new Set(['market.getAssistantList', 'message.getMessages'
 // time and the stop button — so a topic switch shows a live run as idle for as
 // long as the slowest procedure sharing its batch. It is a cheap read; give it
 // its own request instead of the shared queue.
-const latencyCriticalProcedures = new Set(['aiAgent.refreshGatewayToken']);
+const latencyCriticalProcedures = new Set([
+  'aiAgent.refreshGatewayToken',
+  // Decides whether entering a workspace opens its onboarding page. Entering a
+  // workspace revalidates every SWR key at once; batched, this read waited for
+  // the slowest home read and the admin stayed on the home page.
+  'workspace.getSettings',
+]);
 const SKIP_BATCH_PROCEDURES = new Set([
   ...initialLoadProcedures,
   ...slowProcedures,
@@ -262,6 +285,10 @@ const LARGE_INPUT_QUERY_PROCEDURES = new Set([
   // the batched GET's 2083-char budget, and a tool-heavy topic is exactly when
   // it is called.
   'message.getToolResultPayloads',
+  // The sidebar asks for every visible agent group's device binding at once;
+  // the supported 100-topic page can hold ~100 distinct agent ids, far past
+  // the batched GET's 2083-char budget.
+  'device.getAgentDeviceBindings',
 ]);
 
 /**

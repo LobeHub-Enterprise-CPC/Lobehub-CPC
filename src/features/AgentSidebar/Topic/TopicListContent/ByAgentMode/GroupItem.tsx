@@ -1,5 +1,6 @@
 'use client';
 
+import { agentDisplayName } from '@lobechat/types';
 import {
   AccordionHeader,
   AccordionItem,
@@ -25,6 +26,12 @@ import { useTranslation } from 'react-i18next';
 
 import Avatar from '@/components/Avatar';
 import { openProjectTopicModal } from '@/features/Projects/WorkingDirectories/StartDirectoryModal';
+import {
+  canStageDraftOn,
+  startProjectTopicDraft,
+} from '@/features/Projects/WorkingDirectories/startProjectTopicDraft';
+import { useAgentFixedDeviceId } from '@/features/Projects/WorkingDirectories/useAgentFixedDeviceId';
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useGlobalStore } from '@/store/global';
@@ -35,12 +42,14 @@ import { useProjectDirectories } from '@/store/projectWorkingDirectory';
 import { useTopicListScope } from '../../TopicListScope';
 import ProjectTopicList from '../ByProjectMode/ProjectTopicList';
 import { type GroupItemComponentProps } from '../GroupedAccordion';
+import DevicePresenceDot from './DevicePresenceDot';
 
 const AGENT_GROUP_PREFIX = 'agent:';
 const SUB_GROUP_MODES: ProjectTopicSubGroupMode[] = ['none', 'byDevice', 'byTime', 'byStatus'];
 
 const styles = createStaticStyles(({ css }) => ({
   avatarWrap: css`
+    position: relative;
     flex: none;
     border-radius: 50%;
     background: ${cssVar.colorFillTertiary};
@@ -85,9 +94,8 @@ const GroupItem = memo<GroupItemComponentProps>(({ group }) => {
     row?.agentAvatar || registeredMeta?.avatar || (isOwnBucket ? activeMeta.avatar : undefined);
   const name =
     title ??
-    registeredMeta?.title ??
-    registeredMeta?.name ??
-    (isOwnBucket ? (activeMeta.title ?? activeMeta.name) : undefined) ??
+    agentDisplayName(registeredMeta) ??
+    (isOwnBucket ? agentDisplayName(activeMeta) : undefined) ??
     t('groupTitle.byAgent.unknown');
 
   const isCoordinator = !!agentId && agentId === scope?.coordinatorAgentId;
@@ -95,16 +103,26 @@ const GroupItem = memo<GroupItemComponentProps>(({ group }) => {
   // Only an attributed bucket in a project-scoped list can start a topic with
   // its agent preselected; the `no-agent` bucket has no agent to preselect.
   const canAddTopic = !!scope && !!agentId;
-  // The new-topic modal's picker only lists instance-bound directories; a
-  // device section offering any other directory would open with an unselectable
-  // work location, so its "+" only considers instance-bound ones.
+  // A directory that can't run work — or one on another device than the agent
+  // is fixed to — would stage a draft whose first send is refused, so both the
+  // default and the device sections' "+" only consider ones the agent can use.
+  const fixedDeviceId = useAgentFixedDeviceId(agentId);
   const startDirectories = useMemo(
-    () => (canAddTopic ? directories.filter((directory) => directory.instanceId) : undefined),
-    [canAddTopic, directories],
+    () => (canAddTopic ? directories.filter((d) => canStageDraftOn(d, fixedDeviceId)) : undefined),
+    [canAddTopic, directories, fixedDeviceId],
   );
 
+  const navigate = useWorkspaceAwareNavigate();
+  // Same habit as an agent's "+": open a blank conversation on a directory and
+  // let the first message create the topic. The modal is only the fallback for
+  // a project with no runnable directory yet — it offers to add one.
   const handleAddTopic = (initialDirectoryId?: string) => {
     if (!scope || !agentId) return;
+    const directoryId = initialDirectoryId ?? startDirectories?.[0]?.id;
+    if (directoryId) {
+      startProjectTopicDraft({ agentId, directoryId, navigate, projectId: scope.projectId });
+      return;
+    }
     openProjectTopicModal({
       coordinatorAgentId: scope.coordinatorAgentId ?? agentId,
       directories,
@@ -145,6 +163,7 @@ const GroupItem = memo<GroupItemComponentProps>(({ group }) => {
           <Flexbox horizontal align="center" gap={8} height={24} style={{ overflow: 'hidden' }}>
             <Center className={styles.avatarWrap} flex={'none'} height={18} width={18}>
               <Avatar avatar={avatar} name={name} size={18} />
+              {agentId && <DevicePresenceDot agentId={agentId} />}
             </Center>
             <Text ellipsis fontSize={14} style={{ flex: 1 }}>
               {name}
@@ -192,6 +211,7 @@ const GroupItem = memo<GroupItemComponentProps>(({ group }) => {
           // repeat the avatar at its leading position.
           suppressAgentAvatar
           mode={subGroupMode}
+          startAgentId={agentId}
           startDirectories={startDirectories}
           topics={children}
           onStartInDirectory={canAddTopic ? handleAddTopic : undefined}

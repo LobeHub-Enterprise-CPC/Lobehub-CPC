@@ -1,5 +1,6 @@
 'use client';
 
+import { useAppBaseUrl } from '@lobechat/business-tenant/client';
 import type { AcceptanceCommentItem } from '@lobechat/types';
 import type { DropdownItem } from '@lobehub/ui';
 import {
@@ -86,6 +87,7 @@ const CommentCard = memo<CommentCardProps>(
   }) => {
     const { t } = useTranslation('verify');
     const time = useActivityTime(comment.createdAt);
+    const appOrigin = useAppBaseUrl();
     const [deleting, setDeleting] = useState(false);
     const name = nameOverride ?? commentAuthorName(comment.author);
     const viewerId = useUserStore(userProfileSelectors.userId);
@@ -93,7 +95,7 @@ const CommentCard = memo<CommentCardProps>(
 
     const copyAnchor = async () => {
       try {
-        await navigator.clipboard.writeText(commentAnchorUrl(comment.id));
+        await navigator.clipboard.writeText(commentAnchorUrl(comment.id, appOrigin));
         toast.success(t('acceptance.comments.linkCopied'));
       } catch (cause) {
         console.error('[acceptance:comments]', cause);

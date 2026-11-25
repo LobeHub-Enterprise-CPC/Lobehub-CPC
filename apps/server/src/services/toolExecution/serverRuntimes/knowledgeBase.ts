@@ -8,6 +8,7 @@ import { KnowledgeBaseModel } from '@/database/models/knowledgeBase';
 import { ProjectModel } from '@/database/models/project';
 import { KnowledgeRepo } from '@/database/repositories/knowledge';
 import { DocumentService } from '@/server/services/document';
+import { resolveDocumentWrite } from '@/server/services/document/editorData';
 import {
   assertEnterpriseContentStaysInLibrary,
   assertNotEnterpriseKnowledgeBase,
@@ -211,9 +212,12 @@ export const knowledgeBaseRuntime: ServerRuntimeRegistration = {
           const service = scope.enterprise
             ? new DocumentService(serverDB, scope.ownerId)
             : documentService;
+          // Same Markdown write as `lh doc create`: real editor state, and no
+          // body heading that repeats the title.
+          const write = await resolveDocumentWrite({ content, fileType, title });
           const params = {
-            content,
-            editorData: {},
+            content: write.content,
+            editorData: write.editorData,
             fileType,
             knowledgeBaseId: scope.enterprise ? scope.knowledgeBaseId : knowledgeBaseId,
             parentId,

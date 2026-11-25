@@ -539,7 +539,13 @@ const AgentViewAllPage = memo(() => {
           />
         }
       />
-      <WideScreenContainer gap={16} paddingBlock={16} wrapperStyle={{ flex: 1, overflowY: 'auto' }}>
+      <WideScreenContainer
+        fullWidth
+        gap={16}
+        paddingBlock={16}
+        paddingInline={16}
+        wrapperStyle={{ flex: 1, overflowY: 'auto' }}
+      >
         {AGENT_DIRECTORY_SHOWCASE_LAYOUT && (
           <Flexbox
             horizontal

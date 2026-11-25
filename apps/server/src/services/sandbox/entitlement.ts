@@ -64,6 +64,7 @@ export interface SandboxStorageClaimInput extends Omit<SandboxStorageScope, 'ten
  * what every session does today.
  */
 export const resolveSandboxStorageClaim = async ({
+  drive,
   isShareVisitorRun,
   serverDB,
   userId,
@@ -71,7 +72,12 @@ export const resolveSandboxStorageClaim = async ({
 }: SandboxStorageClaimInput): Promise<SandboxStorageClaim | null> => {
   if (isShareVisitorRun) return null;
 
+  // The drive picks the key and nothing else: a workspace's public drive and
+  // every member's personal drive draw on the workspace plan's one pool, so
+  // each is issued the whole pool as its soft quota and the execution plane
+  // judges the workspace on their sum.
   const key = deriveSandboxStorageKey({
+    drive,
     tenantDigest: sandboxTenantDigest(),
     userId,
     workspaceId,

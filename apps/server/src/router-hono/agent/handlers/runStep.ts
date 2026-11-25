@@ -1,3 +1,4 @@
+import { getLlmCallCount } from '@lobechat/agent-runtime';
 import { requireTenantScope } from '@lobechat/database/tenant';
 import debug from 'debug';
 import { eq } from 'drizzle-orm';
@@ -528,7 +529,7 @@ export async function runStep(c: Context): Promise<Response> {
       stepIndex: currentStepIndex,
       success: result.success,
       totalCost: result.state.cost?.total || 0,
-      totalSteps: result.state.stepCount,
+      totalSteps: getLlmCallCount(result.state),
       waitingForHuman: result.state.status === 'waiting_for_human',
     };
 

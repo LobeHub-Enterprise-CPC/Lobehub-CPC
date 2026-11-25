@@ -1,11 +1,12 @@
 'use client';
 
 import {
+  ClipboardListIcon,
   FilePenIcon,
   FilesIcon,
   FileText,
+  HardDriveIcon,
   ImageIcon,
-  LayoutPanelTopIcon,
   LibraryBigIcon,
   Mic2,
   SquarePlay,
@@ -21,13 +22,15 @@ import { routeMeta } from '@/spa/router/routeMeta';
 import { worksLoader } from '@/spa/router/worksLoader';
 import { dynamicElement, ErrorBoundary } from '@/utils/router';
 
-const resourceCategoryRoutes: RouteObject[] = [
-  { icon: LayoutPanelTopIcon, path: 'all', titleKey: 'navigation.resourceAll' },
-  { icon: FileText, path: 'documents', titleKey: 'navigation.resourceDocuments' },
-  { icon: ImageIcon, path: 'images', titleKey: 'navigation.resourceImages' },
-  { icon: SquarePlay, path: 'videos', titleKey: 'navigation.resourceVideos' },
-  { icon: Mic2, path: 'audios', titleKey: 'navigation.resourceAudios' },
-  { icon: FilesIcon, path: 'files', titleKey: 'navigation.resourceFiles' },
+// Drive views share the Docs home page: /resource/drive, /resource/drive/images, …
+const resourceDriveRoutes: RouteObject[] = [
+  { icon: HardDriveIcon, path: 'drive', titleKey: 'navigation.resourceDrive' },
+  { icon: FileText, path: 'drive/documents', titleKey: 'navigation.resourceDocuments' },
+  { icon: ImageIcon, path: 'drive/images', titleKey: 'navigation.resourceImages' },
+  { icon: SquarePlay, path: 'drive/videos', titleKey: 'navigation.resourceVideos' },
+  { icon: Mic2, path: 'drive/audios', titleKey: 'navigation.resourceAudios' },
+  { icon: FilesIcon, path: 'drive/files', titleKey: 'navigation.resourceFiles' },
+  { icon: HardDriveIcon, path: 'drive/:category', titleKey: 'navigation.resourceDrive' },
 ].map(({ icon, path, titleKey }) => ({
   element: dynamicElement(
     () => import('@/routes/(main)/resource/(home)'),
@@ -39,9 +42,10 @@ const resourceCategoryRoutes: RouteObject[] = [
 }));
 
 /**
- * `/resource`: the resource home, its category views and knowledge-base
- * libraries. Mounted by the desktop router and reused by the mobile router
- * (`mobileWorkspaceRoutes.tsx`).
+ * Docs (`/resource`): the home dashboard, the drive, the library gallery and
+ * Works share one layout and sidebar; a library opens under `library/:id` with
+ * its own sidebar. Shared by the root and the workspace route trees, and reused
+ * by the mobile router (`mobileWorkspaceRoutes.tsx`).
  */
 export const resourceRoute: RouteObject = {
   children: [
@@ -62,13 +66,38 @@ export const resourceRoute: RouteObject = {
             }),
           },
           index: true,
-          loader: worksLoader,
         },
         ...BusinessResourceRoutes,
-        ...resourceCategoryRoutes,
-        // /resource/page needs a static segment: the dynamic `:category`
-        // ties with the workspace mirror `/:workspaceSlug/page` on route
-        // score, and the workspace tree would swallow it into a slug 404.
+        ...resourceDriveRoutes,
+        {
+          element: dynamicElement(
+            () => import('@/routes/(main)/resource/(home)'),
+            'Desktop > Resource > Home > Works',
+            { preloadId: 'resource' },
+          ),
+          handle: {
+            meta: routeMeta({ icon: ClipboardListIcon, titleKey: 'navigation.resourceWorks' }),
+          },
+          loader: worksLoader,
+          path: 'works',
+        },
+        // Library gallery: every library as a cover card; a library itself
+        // opens under `library/:id` with its own sidebar.
+        {
+          element: dynamicElement(
+            () => import('@/routes/(main)/resource/(home)/library'),
+            'Desktop > Resource > Library Gallery',
+            { preloadId: 'resource' },
+          ),
+          handle: {
+            meta: routeMeta({ icon: LibraryBigIcon, titleKey: 'navigation.knowledgeBase' }),
+          },
+          path: 'library',
+        },
+        // Legacy /resource/page (pages left the drive): a static segment, since
+        // the dynamic `:category` ties with the workspace mirror
+        // `/:workspaceSlug/page` on route score and would be swallowed into a
+        // slug 404. The page redirects to the Docs home.
         {
           element: dynamicElement(
             () => import('@/routes/(main)/resource/(home)'),
@@ -80,7 +109,23 @@ export const resourceRoute: RouteObject = {
           },
           path: 'page',
         },
-        // Category views share the home page: /resource/documents, /resource/images, …
+        // A page or file opened inside Docs, over the home dashboard.
+        ...(
+          [
+            { icon: FilePenIcon, path: 'page/:id', titleKey: 'navigation.resourcePages' },
+            { icon: FilesIcon, path: 'file/:id', titleKey: 'navigation.resourceFiles' },
+          ] as const
+        ).map(({ icon, path, titleKey }) => ({
+          element: dynamicElement(
+            () => import('@/routes/(main)/resource/(home)'),
+            `Desktop > Resource > Home > ${path}`,
+            { preloadId: 'resource' },
+          ),
+          handle: { meta: routeMeta({ icon, titleKey }) },
+          path,
+        })),
+        // Legacy category paths (/resource/documents, /resource/all, …)
+        // redirect into the drive.
         {
           element: dynamicElement(
             () => import('@/routes/(main)/resource/(home)'),

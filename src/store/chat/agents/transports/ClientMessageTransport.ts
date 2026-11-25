@@ -176,6 +176,7 @@ export class ClientMessageTransport implements MessageTransport {
     store.internal_dispatchMessage(
       { id, type: 'createMessage', value: { ...message } },
       optimisticContext,
+      { creationOrigin: 'client' },
     );
 
     try {
@@ -198,6 +199,7 @@ export class ClientMessageTransport implements MessageTransport {
       );
       throw createError;
     }
+    store.internal_confirmClientMessages([id]);
 
     return message;
   }

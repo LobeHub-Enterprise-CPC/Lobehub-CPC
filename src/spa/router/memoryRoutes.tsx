@@ -3,7 +3,6 @@ import type { RouteObject } from 'react-router';
 
 import MemorySkeleton from '@/components/Skeleton/Memory';
 import { activityListLoader } from '@/spa/router/activityListLoader';
-import { contextListLoader } from '@/spa/router/contextListLoader';
 import { identitiesListLoader } from '@/spa/router/identitiesListLoader';
 import { preferenceListLoader } from '@/spa/router/preferenceListLoader';
 import { routeMeta } from '@/spa/router/routeMeta';
@@ -50,8 +49,6 @@ export const memoryChildren: RouteObject[] = [
     handle: {
       meta: routeMeta({ icon: BrainCircuit, titleKey: 'navigation.memoryContexts' }),
     },
-    // Seed the persisted head page before the page paints (see `contextListLoader`).
-    loader: contextListLoader,
     path: 'contexts',
   },
   {

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Outlet, useParams } from 'react-router';
 
 import AsyncError from '@/components/AsyncError';
+import { recordLibraryVisit } from '@/features/ResourceHome/recentLibraries';
 import RegisterHotkeys from '@/features/ResourceLibrary/RegisterHotkeys';
 import { useKnowledgeBaseItem } from '@/features/ResourceManager/hooks/useKnowledgeItem';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
@@ -47,6 +48,12 @@ const LibraryLayout: FC = () => {
     void useKnowledgeBaseStore.getState().refreshKnowledgeBaseList();
     navigate('/resource', { replace: true });
   }, [unavailable, id, navigate, t]);
+
+  // Orders the Docs sidebar's "Recent libraries" shortcut list.
+  useEffect(() => {
+    if (id && !error) recordLibraryVisit(id);
+  }, [id, error]);
+
   if (unavailable) return <Empty description={t('enterprise.notFound', { ns: 'knowledgeBase' })} />;
 
   // A restricted KB (resource-permission `use` level) 403s for members. Catch

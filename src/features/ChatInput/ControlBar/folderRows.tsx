@@ -48,7 +48,7 @@ const styles = stylex.create({
   },
 });
 
-export type FolderEntry = { path: string; repoType?: 'git' | 'github' };
+export type FolderEntry = { environmentId?: string; path: string; repoType?: 'git' | 'github' };
 
 interface ChooseLocalFolderRowProps {
   defaultPath?: string;
@@ -102,7 +102,14 @@ export const AddRemoteFolderRow = memo<AddRemoteFolderRowProps>(
 
     const handleClick = () => {
       onBeforeOpen();
-      openPickWorkingDirModal({ defaultPath: defaultCwd || undefined, deviceId, onPick });
+      // A folder picked on a device may go with a code environment. Only the
+      // association is kept — nothing clones or sets up on the device.
+      openPickWorkingDirModal({
+        defaultPath: defaultCwd || undefined,
+        deviceId,
+        onPick,
+        withEnvironment: true,
+      });
     };
     return (
       <Flexbox

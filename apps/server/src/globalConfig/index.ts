@@ -11,7 +11,6 @@ import { fileEnv } from '@/envs/file';
 import { gatewayEnv } from '@/envs/gateway';
 import { imageEnv } from '@/envs/image';
 import { langfuseEnv } from '@/envs/langfuse';
-import { sandboxEnv } from '@/envs/sandbox';
 import { toolsEnv } from '@/envs/tools';
 import { OIDC_ISSUER_PATH } from '@/libs/oidc-provider/routes';
 import { getConnectorPolicy } from '@/server/services/connector/policy';
@@ -236,10 +235,6 @@ export const getServerGlobalConfig = async () => {
     // effect in gateway (server-run) mode, and the browser-generated tool
     // names on the client-driven chat path would still say `lobe-*`.
     toolIdNamespace: toolsEnv.BUILTIN_TOOL_ID_NAMESPACE,
-    // Lets the widget publish review match the sandbox's real egress contract:
-    // unless the Worker enforces per-host allowlists, declared hosts are
-    // advisory and the review must say any host is reachable.
-    widgetSandboxNetworkFormat: sandboxEnv.WIDGET_SANDBOX_NETWORK_FORMAT,
   };
 
   return config;

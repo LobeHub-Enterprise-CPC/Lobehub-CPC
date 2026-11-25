@@ -3,9 +3,9 @@ import {
   sanitizeErrorPayloadForDisplay,
 } from '@lobechat/const/errorBranding';
 import { AgentRuntimeErrorType, ChatErrorType, type ChatMessageError } from '@lobechat/types';
-import { isRecord } from '@lobechat/utils/object';
 import { containsQueryDetail, DATABASE_ERROR_PUBLIC_MESSAGE } from '@lobechat/utils/queryError';
 
+import { isRecord } from '../utils/object';
 import { refineErrorCode } from './refine';
 import { getErrorCodeSpec } from './specs';
 

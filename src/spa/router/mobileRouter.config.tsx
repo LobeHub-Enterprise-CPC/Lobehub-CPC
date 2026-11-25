@@ -60,6 +60,24 @@ const mobileHomeRoute: RouteObject = {
   handle: { meta: routeMeta({ Skeleton: createSurfaceSkeleton('list') }) },
 };
 
+// Mobile owns its home layout; it has no persistent desktop Home outside the outlet.
+const mobileHomeRoute: RouteObject = {
+  children: [
+    {
+      element: dynamicElement(() => import('@/routes/(mobile)/(home)/'), 'Mobile > Home', {
+        preloadId: 'mobile-home',
+      }),
+      index: true,
+    },
+  ],
+  element: dynamicLayout(
+    () => import('@/routes/(mobile)/(home)/_layout'),
+    'Mobile > Home > Layout',
+    { preloadId: 'mobile-home' },
+  ),
+  handle: { meta: routeMeta({ Skeleton: createSurfaceSkeleton('list') }) },
+};
+
 /**
  * Children shared between `/` and `/:workspaceSlug` for mobile. Mobile only
  * mirrors the subset of routes it actually supports — settings / me stay personal-only.
@@ -474,5 +492,43 @@ export const mobileRoutes: RouteObject[] = [
     errorElement: <ErrorBoundary />,
     handle: { meta: acceptanceRouteMeta },
     path: '/acceptance/:acceptanceId/check/:checkId',
+  },
+  // Workspace-scoped report links (`/:workspaceSlug/acceptance/...`) are what
+  // in-app navigation produces inside a workspace; mirror them like desktop.
+  {
+    children: [
+      {
+        children: [
+          {
+            element: dynamicElement(
+              () => import('@/routes/acceptance/[acceptanceId]'),
+              'Mobile > Workspace > AcceptanceReport',
+            ),
+            errorElement: <ErrorBoundary />,
+            handle: { meta: acceptanceRouteMeta },
+            path: 'acceptance/:acceptanceId',
+          },
+          {
+            element: dynamicElement(
+              () => import('@/routes/acceptance/[acceptanceId]'),
+              'Mobile > Workspace > AcceptanceCheck',
+            ),
+            errorElement: <ErrorBoundary />,
+            handle: { meta: acceptanceRouteMeta },
+            path: 'acceptance/:acceptanceId/check/:checkId',
+          },
+        ],
+        element: dynamicLayout(
+          () => import('@/routes/(main)/[workspaceSlug]/_layout'),
+          'Mobile > Workspace > Acceptance Layout',
+        ),
+        errorElement: <ErrorBoundary />,
+        path: ':workspaceSlug',
+      },
+    ],
+    element: dynamicLayout(
+      () => import('@/routes/(main)/acceptance/_layout'),
+      'Mobile > Acceptance Layout',
+    ),
   },
 ];

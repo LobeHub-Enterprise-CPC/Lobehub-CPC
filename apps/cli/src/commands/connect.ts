@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 
 import type {
   GatewayIdentityProvider,
@@ -77,6 +78,7 @@ import {
   resolveDeviceMetricsBacklogPath,
   resolveServerUrl,
 } from '../settings';
+import { closeBrowserSessions, resolveBrowserDevice } from '../tools/browser';
 import { cleanupAllProcesses, getActiveShellCount, probeSandbox } from '../tools/shell';
 import { log, setVerbose } from '../utils/logger';
 import { sweepLocalTraces } from '../utils/traceMaintenance';
@@ -86,6 +88,8 @@ const SHUTDOWN_METRICS_FLUSH_MS = 3000;
 const CONNECT_SERVICE_NAME = CLI_CONNECT_SERVICE_NAME;
 
 interface ConnectOptions {
+  /** `agent-browser` binary for the browser tool; see `resolveBrowserDevice`. */
+  agentBrowser?: string;
   daemon?: boolean;
   daemonChild?: boolean;
   deviceId?: string;
@@ -110,6 +114,10 @@ export function registerConnectCommand(program: Command) {
     .option(
       '--public',
       'With --workspace: enroll into the shared pool visible to every member (default: private, visible only to you)',
+    )
+    .option(
+      '--agent-browser <binary>',
+      'Run the browser tool with this agent-browser binary (default: agent-browser on PATH)',
     )
     .option('-v, --verbose', 'Enable verbose logging')
     .option('-d, --daemon', 'Run as a background daemon process')
@@ -196,6 +204,10 @@ export function registerConnectCommand(program: Command) {
     .option('--token <jwt>', 'JWT access token')
     .option('--gateway <url>', 'Device gateway URL')
     .option('--device-id <id>', 'Device ID')
+    .option(
+      '--agent-browser <binary>',
+      'Run the browser tool with this agent-browser binary (default: agent-browser on PATH)',
+    )
     .option('-v, --verbose', 'Enable verbose logging')
     .action(async (options: ConnectOptions) => {
       const wasStopped = stopDaemon();
@@ -340,6 +352,7 @@ function buildDaemonArgs(options: ConnectOptions): string[] {
   if (options.deviceId) args.push('--device-id', options.deviceId);
   if (options.workspace) args.push('--workspace', options.workspace);
   if (options.public) args.push('--public');
+  if (options.agentBrowser) args.push('--agent-browser', path.resolve(options.agentBrowser));
   if (options.verbose) args.push('--verbose');
 
   return args;
@@ -395,6 +408,14 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
       `Saved ${resolvedGatewayUrl} as the device gateway for ${auth.serverUrl}; later runs use it ahead of the server's own address.`,
     );
   }
+
+  // Fail before connecting rather than advertise a tool this device cannot run.
+  const browser = await resolveBrowserDevice(options.agentBrowser).catch((err: Error) => {
+    log.error(err.message);
+    process.exit(1);
+    throw err;
+  });
+  if (browser) info(`Browser tool enabled via ${browser.binaryPath}`);
 
   // Workspace enrollment: the device joins a workspace pool (reachable by all
   // members) instead of the personal pool. It authenticates with a minted
@@ -560,6 +581,7 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
   const nativeRuntimes = createRuntimeProbeCache(probeNativeRuntimes);
 
   const handlerContext: GatewayHandlerContext = {
+    browser,
     deps: deviceControlDeps,
     error,
     // Read at dispatch time — `auth` may be refreshed mid-session.
@@ -877,7 +899,10 @@ async function runConnect(options: ConnectOptions, isDaemonChild: boolean) {
   // (bounded) before the socket closes, so the device page doesn't show the
   // final minutes as "not running".
   const shutdown = async () => {
-    await metricsSampler?.stop({ flushTimeoutMs: SHUTDOWN_METRICS_FLUSH_MS });
+    await Promise.all([
+      metricsSampler?.stop({ flushTimeoutMs: SHUTDOWN_METRICS_FLUSH_MS }),
+      closeBrowserSessions(browser),
+    ]);
     cleanup();
     process.exit(0);
   };

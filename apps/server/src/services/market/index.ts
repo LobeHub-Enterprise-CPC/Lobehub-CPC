@@ -2,7 +2,12 @@ import { BRANDING_NAME } from '@lobechat/business-const';
 import { type LobeToolManifest } from '@lobechat/context-engine';
 import { currentTenantScope } from '@lobechat/database/tenant';
 import { CacheRevalidate, CacheTag } from '@lobechat/types';
-import { MarketSDK, type OrgRef, orgRefToPathSegment } from '@lobehub/market-sdk';
+import {
+  MarketSDK,
+  type OrgRef,
+  orgRefToPathSegment,
+  type RunBuildInToolsContext,
+} from '@lobehub/market-sdk';
 import { type AssetAccessCheckItem } from '@lobehub/market-types';
 import debug from 'debug';
 import { type NextRequest } from 'next/server';
@@ -553,14 +558,10 @@ export class MarketService {
   /**
    * Export file from sandbox to upload URL
    */
-  async exportFile(params: { path: string; topicId: string; uploadUrl: string; userId: string }) {
-    const { path, uploadUrl, topicId, userId } = params;
+  async exportFile(params: { path: string; uploadUrl: string }, context: RunBuildInToolsContext) {
+    const { path, uploadUrl } = params;
 
-    return this.market.plugins.runBuildInTool(
-      'exportFile',
-      { path, uploadUrl },
-      { topicId, userId },
-    );
+    return this.market.plugins.runBuildInTool('exportFile', { path, uploadUrl }, context);
   }
 
   /**

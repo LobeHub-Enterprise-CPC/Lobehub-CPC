@@ -51,6 +51,7 @@ function expected(): Array<
     ['hasTopics', 'query', 12],
     ['importHeteroSessions', 'mutation', 14],
     ['importTopic', 'mutation', 14],
+    ['markTopicRead', 'mutation', 14],
     ['queryTopics', 'query', 13],
     ['rankTopics', 'query', 13],
     ['recentTopics', 'query', 13],

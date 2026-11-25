@@ -281,6 +281,7 @@ export class CompletionLifecycle {
       model: input.model ?? undefined,
       provider: input.provider ?? undefined,
       stepCount: input.stepCount ?? null,
+      llmCalls: input.llmCalls ?? undefined,
       usage: input.usage ?? undefined,
     };
   }

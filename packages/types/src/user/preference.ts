@@ -145,6 +145,11 @@ export interface LobeUser {
 
 export const UserGuideSchema = z.object({
   /**
+   * Pages and Resources were merged into Docs; set once the notice is acknowledged
+   */
+  docsMerged: z.boolean().optional(),
+
+  /**
    * Move the settings button to the avatar dropdown
    */
   moveSettingsToAvatar: z.boolean().optional(),
@@ -254,11 +259,6 @@ export const UserLabSchema = z.object({
    * instead of being thrown away with the sandbox
    */
   enablePersistentSandbox: z.boolean().optional(),
-  /**
-   * show the redesigned onboarding flow when this user first enters a newly
-   * created workspace (the previous flow otherwise)
-   */
-  enableWorkspaceOnboardingV2: z.boolean().optional(),
 });
 
 export type UserLab = z.infer<typeof UserLabSchema>;
