@@ -6,6 +6,7 @@ import { type EnabledProviderWithModels } from '@/types/aiProvider';
 import { isNewReleaseDate } from '@/utils/time';
 
 import { type GroupMode, type ListItem, type ModelWithProviders } from '../types';
+import { favoriteModelKey } from '../utils';
 
 /**
  * Shares the exact rule behind `NewModelBadge`. Every renderer of this list must keep the badge
@@ -83,11 +84,19 @@ const sortWithPinnedNewModels = <T>(
   ];
 };
 
+const NO_FAVORITES: readonly string[] = [];
+
+/**
+ * `favorites` are the starred models (`provider/model`, in the order they were starred). They move
+ * to a section of their own at the top and leave the list below, so no model shows twice; a starred
+ * model that is not enabled stays out of the list like any other.
+ */
 export const buildListItems = (
   enabledList: EnabledProviderWithModels[],
   groupMode: GroupMode,
   searchKeyword: string = '',
   sortModelLast?: (modelId: string, providerId: string) => boolean,
+  favorites: readonly string[] = NO_FAVORITES,
 ): ListItem[] => {
   if (enabledList.length === 0) {
     return [{ type: 'no-provider' }] as ListItem[];
@@ -97,6 +106,15 @@ export const buildListItems = (
     if (!searchKeyword.trim()) return true;
     const keyword = searchKeyword.toLowerCase().trim();
     return text.toLowerCase().includes(keyword);
+  };
+
+  const favoriteRanks = new Map(favorites.map((key, index) => [key, index]));
+  /** Position of a starred row, or -1. A row offered by several providers takes its first star. */
+  const favoriteRank = (modelId: string, providerIds: string[]): number => {
+    const ranks = providerIds
+      .map((providerId) => favoriteRanks.get(favoriteModelKey(providerId, modelId)))
+      .filter((rank) => rank !== undefined);
+    return ranks.length > 0 ? Math.min(...ranks) : -1;
   };
 
   // lobehub first, then others
@@ -149,28 +167,59 @@ export const buildListItems = (
       });
     }
 
+    const rankOf = (item: ModelWithProviders) =>
+      favoriteRank(
+        item.model.id,
+        item.providers.map((provider) => provider.id),
+      );
+    const favoriteModels = modelArray
+      .filter((item) => rankOf(item) >= 0)
+      .toSorted((a, b) => rankOf(a) - rankOf(b));
+
     const sortedModels = sortWithPinnedNewModels(
-      modelArray,
+      modelArray.filter((item) => rankOf(item) < 0),
       (item) => item.model,
       sortModelLast &&
         ((item) => item.providers.every((provider) => sortModelLast(item.model.id, provider.id))),
     );
 
-    return sortedModels.map((data) => ({
+    const toItem = (data: ModelWithProviders): ListItem => ({
       data,
-      type:
-        data.providers.length === 1
-          ? ('model-item-single' as const)
-          : ('model-item-multiple' as const),
-    }));
+      type: data.providers.length === 1 ? 'model-item-single' : 'model-item-multiple',
+    });
+    const otherItems = sortedModels.map(toItem);
+    if (favoriteModels.length === 0) return otherItems;
+
+    return [
+      { section: 'favorites', type: 'section-header' },
+      ...favoriteModels.map(toItem),
+      ...(otherItems.length > 0
+        ? [{ section: 'others', type: 'section-header' } satisfies ListItem]
+        : []),
+      ...otherItems,
+    ];
   } else {
     const items: ListItem[] = [];
+    const favoriteItems: { item: ListItem; rank: number }[] = [];
 
     for (const providerItem of sortedProviders) {
-      const filteredModels = providerItem.children.filter(
+      const matchedModels = providerItem.children.filter(
         (modelItem) =>
           matchesSearch(modelItem.displayName || modelItem.id) || matchesSearch(providerItem.name),
       );
+      const filteredModels = matchedModels.filter((modelItem) => {
+        const rank = favoriteRank(modelItem.id, [providerItem.id]);
+        if (rank < 0) return true;
+
+        favoriteItems.push({
+          item: { model: modelItem, provider: providerItem, type: 'provider-model-item' },
+          rank,
+        });
+        return false;
+      });
+      // Every match is starred, so the group has nothing left to list here.
+      if (matchedModels.length > 0 && filteredModels.length === 0) continue;
+
       const sortedModels = sortWithPinnedNewModels(
         filteredModels,
         (item) => item,
@@ -194,7 +243,13 @@ export const buildListItems = (
       }
     }
 
-    return items;
+    if (favoriteItems.length === 0) return items;
+
+    return [
+      { section: 'favorites', type: 'section-header' },
+      ...favoriteItems.toSorted((a, b) => a.rank - b.rank).map(({ item }) => item),
+      ...items,
+    ];
   }
 };
 
@@ -203,8 +258,9 @@ export const useBuildListItems = (
   groupMode: GroupMode,
   searchKeyword: string = '',
   sortModelLast?: (modelId: string, providerId: string) => boolean,
+  favorites?: readonly string[],
 ): ListItem[] =>
   useMemo(
-    () => buildListItems(enabledList, groupMode, searchKeyword, sortModelLast),
-    [enabledList, groupMode, searchKeyword, sortModelLast],
+    () => buildListItems(enabledList, groupMode, searchKeyword, sortModelLast, favorites),
+    [enabledList, groupMode, searchKeyword, sortModelLast, favorites],
   );

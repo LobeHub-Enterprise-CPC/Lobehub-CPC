@@ -69,6 +69,11 @@ export interface WorkspaceUserPreference {
   /** Per-member Agent/Chat runtime mode for shared workspace agents. */
   agentModeOverrides?: Record<string /* agentId */, boolean>;
   /**
+   * Models this member starred in the model picker, as `provider/model`, in the
+   * order they were starred. Says nothing about whether a model is enabled.
+   */
+  favoriteModels?: string[];
+  /**
    * This member's notification preferences for workspace-scoped scenarios
    * (the `workspace` category of the scenario registry). Same shape as the
    * personal `user_settings.notification` bag; missing = every workspace
@@ -297,6 +302,11 @@ export interface UserPreference {
    */
   disableInputMarkdownRender?: boolean;
   /**
+   * Personal-mode counterpart of
+   * {@link WorkspaceUserPreference.favoriteModels}: each scope keeps its own list.
+   */
+  favoriteModels?: string[];
+  /**
    * CSS font-family value used as the global default UI font.
    * Empty or whitespace-only values fall back to the application font stack.
    */
@@ -406,6 +416,7 @@ export interface SSOProvider {
 export const UserPreferenceSchema = z
   .object({
     defaultOpenInApp: z.string().optional(),
+    favoriteModels: z.array(z.string()).optional(),
     fontFamily: z.string().optional(),
     guide: UserGuideSchema.optional(),
     hideSyncAlert: z.boolean().optional(),

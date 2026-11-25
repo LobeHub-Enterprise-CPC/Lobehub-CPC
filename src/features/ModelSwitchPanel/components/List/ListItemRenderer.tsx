@@ -12,6 +12,7 @@ import {
   Flexbox,
   Icon,
   menuSharedStyles,
+  Text,
 } from '@lobehub/ui';
 import { LucideArrowRight, LucideBolt } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
@@ -97,6 +98,20 @@ export const ListItemRenderer = memo<ListItemRendererProps>(
         );
       }
 
+      case 'section-header': {
+        return (
+          <Flexbox
+            className={styles.groupHeader}
+            paddingBlock={'12px 4px'}
+            paddingInline={'12px 8px'}
+          >
+            <Text style={{ fontSize: 12 }} type={'secondary'}>
+              {t(`ModelSwitchPanel.section.${item.section}`)}
+            </Text>
+          </Flexbox>
+        );
+      }
+
       case 'group-header': {
         return (
           <Flexbox
@@ -165,8 +180,12 @@ export const ListItemRenderer = memo<ListItemRendererProps>(
           <Flexbox style={{ marginBlock: 1, marginInline: 4 }}>
             <DropdownMenuSubmenuRoot open={detailOpen} onOpenChange={setDetailOpen}>
               <DropdownMenuSubmenuTrigger
-                className={cx(menuSharedStyles.item, isActive && styles.menuItemActive)}
                 style={{ paddingBlock: 8, paddingInline: 8 }}
+                className={cx(
+                  menuSharedStyles.item,
+                  styles.modelRow,
+                  isActive && styles.menuItemActive,
+                )}
                 onClick={(e) => {
                   e.preventDefault();
                   setDetailOpen(false);
@@ -209,8 +228,12 @@ export const ListItemRenderer = memo<ListItemRendererProps>(
           <Flexbox style={{ marginBlock: 1, marginInline: 4 }}>
             <DropdownMenuSubmenuRoot open={detailOpen} onOpenChange={setDetailOpen}>
               <DropdownMenuSubmenuTrigger
-                className={cx(menuSharedStyles.item, isActive && styles.menuItemActive)}
                 style={{ paddingBlock: 8, paddingInline: 8 }}
+                className={cx(
+                  menuSharedStyles.item,
+                  styles.modelRow,
+                  isActive && styles.menuItemActive,
+                )}
                 onClick={(e) => {
                   e.preventDefault();
                   setDetailOpen(false);

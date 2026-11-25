@@ -23,6 +23,20 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
       border-radius: ${cssVar.borderRadiusSM};
     }
   `,
+  favoriteAction: css`
+    flex: none;
+    opacity: 0;
+
+    &[aria-pressed='true'],
+    &:focus-visible {
+      opacity: 1;
+    }
+
+    /* Touch has no hover to reveal it with */
+    @media (hover: none) {
+      opacity: 1;
+    }
+  `,
   groupHeader: css`
     width: 100%;
     color: ${cssVar.colorTextSecondary};
@@ -49,6 +63,12 @@ export const styles = createStaticStyles(({ css, cssVar }) => ({
   `,
   menuItemActive: css`
     background: ${cssVar.colorFillTertiary};
+  `,
+  modelRow: css`
+    &:hover [data-favorite-action],
+    &[data-highlighted] [data-favorite-action] {
+      opacity: 1;
+    }
   `,
   footer: css`
     border-block-start: 1px solid ${cssVar.colorBorderSecondary};

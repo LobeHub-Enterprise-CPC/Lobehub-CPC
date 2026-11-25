@@ -13,6 +13,7 @@ import type { EnabledProviderWithModels } from '@/types/aiProvider';
 import { FOOTER_HEIGHT, ITEM_HEIGHT, MAX_PANEL_HEIGHT, TOOLBAR_HEIGHT } from '../../const';
 import { useBuildListItems } from '../../hooks/useBuildListItems';
 import { useModelAndProvider } from '../../hooks/useModelAndProvider';
+import { useModelFavorites } from '../../hooks/useModelFavorites';
 import { usePanelHandlers } from '../../hooks/usePanelHandlers';
 import { styles } from '../../styles';
 import { type GroupMode } from '../../types';
@@ -21,6 +22,7 @@ import type { PricingMode } from '../ModelDetailPanel';
 import GenerationListItemRenderer from './GenerationListItemRenderer';
 import { ListItemRenderer } from './ListItemRenderer';
 import { MetaColumnsContext, resolveMetaColumns } from './metaColumns';
+import { ModelFavoritesContext } from './modelFavoritesContext';
 
 interface ListProps {
   /** Muted text shown after the active model's name, e.g. its reasoning effort */
@@ -61,7 +63,16 @@ export const List: FC<ListProps> = ({
     onModelChange: onModelChangeProp,
     onOpenChange,
   });
-  const listItems = useBuildListItems(enabledList, groupMode, searchKeyword, sortModelLast);
+  const modelFavorites = useModelFavorites();
+  // Image and video pickers render their own rows, which carry no star.
+  const favorites = ModelItemComponent ? undefined : modelFavorites.favorites;
+  const listItems = useBuildListItems(
+    enabledList,
+    groupMode,
+    searchKeyword,
+    sortModelLast,
+    favorites,
+  );
 
   const resolvePricing = useBusinessModelPricing();
   const resolveRating = useBusinessModelRating();
@@ -128,62 +139,64 @@ export const List: FC<ListProps> = ({
       style={{ minHeight: 0 }}
       onScroll={handleListScroll}
     >
-      <MetaColumnsContext value={metaColumns}>
-        {listItems.map((item, index) => {
-          const itemKey = menuKey(
-            'provider' in item && item.provider ? item.provider.id : '',
-            'model' in item && item.model
-              ? item.model.id
-              : 'data' in item && item.data
-                ? item.data.displayName
-                : `${item.type}-${index}`,
-          );
-          const isActive =
-            (item.type === 'provider-model-item' &&
-              menuKey(item.provider.id, item.model.id) === activeKey) ||
-            (item.type === 'model-item-single' &&
-              menuKey(item.data.providers[0].id, item.data.model.id) === activeKey) ||
-            (item.type === 'model-item-multiple' &&
-              item.data.providers.some((p) => menuKey(p.id, item.data.model.id) === activeKey));
-
-          const renderItem = (key?: string) =>
-            ModelItemComponent ? (
-              <GenerationListItemRenderer
-                ModelItemComponent={ModelItemComponent}
-                activeKey={activeKey}
-                enabledList={enabledList}
-                item={item}
-                key={key}
-                pricingMode={pricingMode}
-                onClose={handleClose}
-                onModelChange={handleModelChange}
-              />
-            ) : (
-              <ListItemRenderer
-                activeKey={activeKey}
-                activeSecondaryText={activeSecondaryText}
-                isModelRestricted={isModelRestricted}
-                item={item}
-                key={key}
-                newLabel={newLabel}
-                proLabel={proLabel}
-                subscribeScroll={subscribeScroll}
-                onBeforeModelSelect={onBeforeModelSelect}
-                onClose={handleClose}
-                onModelChange={handleModelChange}
-                onRestrictedModelClick={onRestrictedModelClick}
-              />
+      <ModelFavoritesContext value={ModelItemComponent ? null : modelFavorites}>
+        <MetaColumnsContext value={metaColumns}>
+          {listItems.map((item, index) => {
+            const itemKey = menuKey(
+              'provider' in item && item.provider ? item.provider.id : '',
+              'model' in item && item.model
+                ? item.model.id
+                : 'data' in item && item.data
+                  ? item.data.displayName
+                  : `${item.type}-${index}`,
             );
+            const isActive =
+              (item.type === 'provider-model-item' &&
+                menuKey(item.provider.id, item.model.id) === activeKey) ||
+              (item.type === 'model-item-single' &&
+                menuKey(item.data.providers[0].id, item.data.model.id) === activeKey) ||
+              (item.type === 'model-item-multiple' &&
+                item.data.providers.some((p) => menuKey(p.id, item.data.model.id) === activeKey));
 
-          return isActive ? (
-            <div key={itemKey} ref={activeItemRef}>
-              {renderItem()}
-            </div>
-          ) : (
-            renderItem(itemKey)
-          );
-        })}
-      </MetaColumnsContext>
+            const renderItem = (key?: string) =>
+              ModelItemComponent ? (
+                <GenerationListItemRenderer
+                  ModelItemComponent={ModelItemComponent}
+                  activeKey={activeKey}
+                  enabledList={enabledList}
+                  item={item}
+                  key={key}
+                  pricingMode={pricingMode}
+                  onClose={handleClose}
+                  onModelChange={handleModelChange}
+                />
+              ) : (
+                <ListItemRenderer
+                  activeKey={activeKey}
+                  activeSecondaryText={activeSecondaryText}
+                  isModelRestricted={isModelRestricted}
+                  item={item}
+                  key={key}
+                  newLabel={newLabel}
+                  proLabel={proLabel}
+                  subscribeScroll={subscribeScroll}
+                  onBeforeModelSelect={onBeforeModelSelect}
+                  onClose={handleClose}
+                  onModelChange={handleModelChange}
+                  onRestrictedModelClick={onRestrictedModelClick}
+                />
+              );
+
+            return isActive ? (
+              <div key={itemKey} ref={activeItemRef}>
+                {renderItem()}
+              </div>
+            ) : (
+              renderItem(itemKey)
+            );
+          })}
+        </MetaColumnsContext>
+      </ModelFavoritesContext>
     </Flexbox>
   );
 };

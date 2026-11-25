@@ -6,6 +6,9 @@ import { type ListItem } from './types';
 
 export const menuKey = (provider: string, model: string) => `${provider}-${model}`;
 
+/** How a starred model is stored in the user's preference. */
+export const favoriteModelKey = (provider: string, model: string) => `${provider}/${model}`;
+
 export const getListItemKey = (item: ListItem): string => {
   switch (item.type) {
     case 'model-item-single':
@@ -20,6 +23,9 @@ export const getListItemKey = (item: ListItem): string => {
     }
     case 'empty-model': {
       return `empty-${item.provider.id}`;
+    }
+    case 'section-header': {
+      return `section-${item.section}`;
     }
     case 'no-provider': {
       return 'no-provider';

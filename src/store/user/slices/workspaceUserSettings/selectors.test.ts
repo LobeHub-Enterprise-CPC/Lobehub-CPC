@@ -22,3 +22,20 @@ describe('workspaceUserSettingsSelectors.topicOnlyMine', () => {
     expect(workspaceUserSettingsSelectors.topicOnlyMine('ws-2')(state('ws-1', true))).toBe(false);
   });
 });
+
+describe('workspaceUserSettingsSelectors.favoriteModels', () => {
+  const starred = {
+    workspaceUserPreference: { favoriteModels: ['lobehub/a'] },
+    workspaceUserPreferenceWorkspaceId: 'ws-1',
+  } as unknown as UserStore;
+
+  it('reads the stars of the workspace the bucket was loaded for', () => {
+    expect(workspaceUserSettingsSelectors.favoriteModels('ws-1')(starred)).toEqual(['lobehub/a']);
+    expect(workspaceUserSettingsSelectors.favoriteModels('ws-1')(state('ws-1'))).toEqual([]);
+  });
+
+  it('never carries stars over to another workspace or to personal mode', () => {
+    expect(workspaceUserSettingsSelectors.favoriteModels('ws-2')(starred)).toEqual([]);
+    expect(workspaceUserSettingsSelectors.favoriteModels(null)(starred)).toEqual([]);
+  });
+});
