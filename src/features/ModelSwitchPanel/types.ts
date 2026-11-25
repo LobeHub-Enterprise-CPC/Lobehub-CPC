@@ -42,6 +42,11 @@ export type ListItem =
       type: 'empty-model';
     }
   | {
+      /** Splits the list into the starred models and the rest. */
+      section: 'favorites' | 'others';
+      type: 'section-header';
+    }
+  | {
       type: 'no-provider';
     };
 

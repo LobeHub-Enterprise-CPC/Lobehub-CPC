@@ -195,4 +195,135 @@ describe('buildListItems', () => {
       'deepseek-v4.1-flash',
     ]);
   });
+
+  describe('favorites', () => {
+    const describeItems = (items: ReturnType<typeof buildListItems>) =>
+      items.map((item) => {
+        switch (item.type) {
+          case 'section-header': {
+            return `# ${item.section}`;
+          }
+          case 'group-header': {
+            return `[${item.provider.id}]`;
+          }
+          case 'provider-model-item': {
+            return `${item.provider.id}/${item.model.id}`;
+          }
+          case 'model-item-single':
+          case 'model-item-multiple': {
+            return item.data.model.id;
+          }
+          default: {
+            return item.type;
+          }
+        }
+      });
+
+    it('should move starred models to their own section in the order they were starred', () => {
+      const items = buildListItems(
+        [provider('lobehub', [model('a'), model('b'), model('c')])],
+        'byModel',
+        '',
+        undefined,
+        ['lobehub/c', 'lobehub/a'],
+      );
+
+      expect(describeItems(items)).toEqual(['# favorites', 'c', 'a', '# others', 'b']);
+    });
+
+    it('should leave the list unsectioned when no starred model is enabled', () => {
+      const items = buildListItems(
+        [provider('lobehub', [model('a'), model('b')])],
+        'byModel',
+        '',
+        undefined,
+        ['lobehub/removed', 'other/a'],
+      );
+
+      expect(describeItems(items)).toEqual(['a', 'b']);
+    });
+
+    it('should omit the second header when every model is starred', () => {
+      const items = buildListItems([provider('lobehub', [model('a')])], 'byModel', '', undefined, [
+        'lobehub/a',
+      ]);
+
+      expect(describeItems(items)).toEqual(['# favorites', 'a']);
+    });
+
+    it('should treat a by-model row as starred when any of its providers is', () => {
+      const items = buildListItems(
+        [
+          provider('lobehub', [model('shared', 'Shared'), model('b')]),
+          provider('openai', [model('shared', 'Shared')]),
+        ],
+        'byModel',
+        '',
+        undefined,
+        ['openai/shared'],
+      );
+
+      expect(describeItems(items)).toEqual(['# favorites', 'shared', '# others', 'b']);
+    });
+
+    it('should keep new models pinned only among the models that are not starred', () => {
+      const items = buildListItems(
+        [
+          provider('lobehub', [
+            model('old'),
+            model('starred-new', 'S', daysAgo(1)),
+            model('new', 'N', daysAgo(2)),
+          ]),
+        ],
+        'byModel',
+        '',
+        undefined,
+        ['lobehub/starred-new'],
+      );
+
+      expect(describeItems(items)).toEqual([
+        '# favorites',
+        'starred-new',
+        '# others',
+        'new',
+        'old',
+      ]);
+    });
+
+    it('should drop a provider group whose models are all starred but keep an empty one', () => {
+      const items = buildListItems(
+        [
+          provider('lobehub', [model('a')]),
+          provider('openai', [model('b'), model('c')]),
+          provider('empty', []),
+        ],
+        'byProvider',
+        '',
+        undefined,
+        ['openai/c', 'lobehub/a'],
+      );
+
+      expect(describeItems(items)).toEqual([
+        '# favorites',
+        'openai/c',
+        'lobehub/a',
+        '[openai]',
+        'openai/b',
+        '[empty]',
+        'empty-model',
+      ]);
+    });
+
+    it('should apply the search to starred models too', () => {
+      const enabled = [provider('lobehub', [model('alpha'), model('beta')])];
+      const favorites = ['lobehub/alpha'];
+
+      expect(
+        describeItems(buildListItems(enabled, 'byModel', 'beta', undefined, favorites)),
+      ).toEqual(['beta']);
+      expect(
+        describeItems(buildListItems(enabled, 'byProvider', 'alpha', undefined, favorites)),
+      ).toEqual(['# favorites', 'lobehub/alpha']);
+    });
+  });
 });

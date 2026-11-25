@@ -86,7 +86,7 @@ export const MultipleProvidersModelItem = memo<MultipleProvidersModelItemProps>(
         }}
       >
         <DropdownMenuSubmenuTrigger
-          className={cx(menuSharedStyles.item, isActive && styles.menuItemActive)}
+          className={cx(menuSharedStyles.item, styles.modelRow, isActive && styles.menuItemActive)}
           style={{ paddingBlock: 8, paddingInline: 8 }}
           onClick={() => {
             if (defaultProviderRestricted) {
@@ -108,6 +108,7 @@ export const MultipleProvidersModelItem = memo<MultipleProvidersModelItemProps>(
             newLabel={newLabel}
             proBadgeLabel={defaultProviderRestricted ? proLabel : undefined}
             provider={(activeProvider ?? defaultProvider)?.id ?? ''}
+            providers={data.providers.map((p) => p.id)}
           />
         </DropdownMenuSubmenuTrigger>
         <DropdownMenuPortal>

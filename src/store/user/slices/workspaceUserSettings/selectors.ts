@@ -64,12 +64,27 @@ const topicOnlyMine =
     s.workspaceUserPreferenceWorkspaceId === workspaceId &&
     !!s.workspaceUserPreference.topicOnlyMine;
 
+const EMPTY_FAVORITES: string[] = [];
+
+/**
+ * Models the caller starred in `workspaceId` (the active one). Like
+ * {@link topicOnlyMine}, the bucket only counts when it was loaded for this
+ * workspace, so another workspace's stars never show after a switch.
+ */
+const favoriteModels =
+  (workspaceId: string | null) =>
+  (s: UserStore): string[] =>
+    (workspaceId && s.workspaceUserPreferenceWorkspaceId === workspaceId
+      ? s.workspaceUserPreference.favoriteModels
+      : undefined) ?? EMPTY_FAVORITES;
+
 /** The workspace whose preference row is currently loaded (null = not yet fetched). */
 const preferenceWorkspaceId = (s: UserStore) => s.workspaceUserPreferenceWorkspaceId;
 
 export const workspaceUserSettingsSelectors = {
   agentDeviceOverrideById,
   agentModelOverrideById,
+  favoriteModels,
   isAgentHiddenFromSidebar,
   preferenceWorkspaceId,
   sidebarAgentVisibilityOverrides,
