@@ -1,4 +1,7 @@
+// @vitest-environment node
 import { runWithTenantScope, type TenantScope } from '@lobechat/database/tenant';
+import { betterAuth } from 'better-auth';
+import { memoryAdapter } from 'better-auth/adapters/memory';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { appEnv, getSession } = vi.hoisted(() => ({
@@ -43,6 +46,48 @@ describe('getSessionUser', () => {
       tenantId: 'tenant-a',
       userId: 'user_1',
     });
+  });
+
+  it('leaves a due session for the auth endpoint to renew on a response with cookies', async () => {
+    const database = {
+      account: [],
+      session: [] as { expiresAt: Date }[],
+      user: [],
+      verification: [],
+    };
+    const baseURL = 'http://localhost:3000';
+    const auth = betterAuth({
+      baseURL,
+      database: memoryAdapter(database),
+      emailAndPassword: { enabled: true },
+      secret: 'test-secret-test-secret-test-secret',
+    });
+    const { headers: signUpHeaders } = await auth.api.signUpEmail({
+      body: { email: 'a@b.com', name: 'Ada', password: 'session-fixture-password' },
+      returnHeaders: true,
+    });
+    const cookie = signUpHeaders.getSetCookie()[0].split(';')[0];
+    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1_000);
+    database.session[0].expiresAt = expiry;
+    const requestHeaders = new Headers({ cookie });
+    getSession.mockImplementationOnce(auth.api.getSession);
+    vi.mocked(headers).mockResolvedValueOnce(requestHeaders);
+
+    await expect(inTenant('tenant-a', getSessionUser)).resolves.toMatchObject({ email: 'a@b.com' });
+    expect(database.session[0].expiresAt).toEqual(expiry);
+
+    const renewed = await auth.handler(
+      new Request(`${baseURL}/api/auth/get-session`, {
+        headers: requestHeaders,
+      }),
+    );
+
+    expect(renewed.status).toBe(200);
+    expect(await renewed.json()).toMatchObject({ user: { email: 'a@b.com' } });
+    expect(renewed.headers.getSetCookie()).toEqual([
+      expect.stringContaining('better-auth.session_token='),
+    ]);
+    expect(database.session[0].expiresAt.getTime()).toBeGreaterThan(expiry.getTime());
   });
 
   it('is undefined for a signed-out visitor', async () => {

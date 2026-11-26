@@ -6,8 +6,10 @@ export const getUserAuth = async () => {
   const currentHeaders = await headers();
   const requestHeaders = Object.fromEntries(currentHeaders.entries());
 
+  // The caller has no response headers to carry a renewed session cookie.
   const session = await auth.api.getSession({
     headers: requestHeaders,
+    query: { disableRefresh: true },
   });
 
   const userId = session?.user?.id;

@@ -31,7 +31,7 @@ export const linearInstall = async (c: Context): Promise<Response> => {
 
   let session: Awaited<ReturnType<typeof auth.api.getSession>>;
   try {
-    session = await auth.api.getSession({ headers: req.headers });
+    session = await auth.api.getSession({ headers: req.headers, query: { disableRefresh: true } });
   } catch (error) {
     log('getSession failed: %O', error);
     session = null;

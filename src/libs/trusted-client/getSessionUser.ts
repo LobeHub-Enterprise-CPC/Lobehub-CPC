@@ -30,6 +30,7 @@ export const getSessionUser = async (): Promise<TrustedClientUserInfo | undefine
     const headersList = await headers();
     const session = await auth.api.getSession({
       headers: headersList,
+      query: { disableRefresh: true },
     });
 
     // No session is "not signed in", not an identity failure.
