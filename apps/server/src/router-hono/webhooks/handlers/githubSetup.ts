@@ -77,7 +77,10 @@ export const githubSetup = async (c: Context): Promise<Response> => {
   if (!statePayload) {
     let userId: string | undefined;
     try {
-      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      const session = await auth.api.getSession({
+        headers: c.req.raw.headers,
+        query: { disableRefresh: true },
+      });
       userId = session?.user?.id;
     } catch (error) {
       log('getSession failed: %O', error);

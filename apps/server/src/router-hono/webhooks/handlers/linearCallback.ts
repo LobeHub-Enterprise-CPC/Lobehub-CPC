@@ -52,10 +52,12 @@ export const linearCallback = async (c: Context): Promise<Response> => {
   const { lobeUserId: userId, returnTo } = statePayload;
   const workspaceId = statePayload.workspaceId ?? null;
 
-  const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch((error) => {
-    log('getSession failed: %O', error);
-    return null;
-  });
+  const session = await auth.api
+    .getSession({ headers: c.req.raw.headers, query: { disableRefresh: true } })
+    .catch((error) => {
+      log('getSession failed: %O', error);
+      return null;
+    });
   if (session?.user?.id !== userId) {
     log('state for user=%s finished by another session', userId);
     return redirectToSettings(url.origin, { error: 'invalid_state' });

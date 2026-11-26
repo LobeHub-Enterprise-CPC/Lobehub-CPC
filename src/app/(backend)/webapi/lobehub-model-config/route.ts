@@ -40,7 +40,10 @@ const handleGet = async (request: Request) => {
         (model as { visible?: boolean }).visible !== false,
     );
 
-    const session = await auth.api.getSession({ headers: request.headers });
+    const session = await auth.api.getSession({
+      headers: request.headers,
+      query: { disableRefresh: true },
+    });
     const userEmail = session?.user?.email;
     const userId = session?.user?.id;
     const availability = await Promise.all(
