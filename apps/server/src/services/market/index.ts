@@ -597,7 +597,7 @@ export class MarketService {
   /**
    * Get agent group detail
    */
-  async getAgentGroupDetail(identifier: string, options?: { locale?: string; version?: string }) {
+  async getAgentGroupDetail(identifier: string, options?: { locale?: string; version?: number }) {
     return this.market.agentGroups.getAgentGroupDetail(identifier, options);
   }
 

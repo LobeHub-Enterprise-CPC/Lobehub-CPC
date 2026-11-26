@@ -1,6 +1,5 @@
 import { type LobeChatDatabase } from '@lobechat/database';
 import { currentTenantScope } from '@lobechat/database/tenant';
-import { MARKET_TRUSTED_CLIENT_ORG_UNIT_LIMIT } from '@lobehub/market-types';
 
 import { UserModel } from '@/database/models/user';
 
@@ -11,6 +10,9 @@ import {
 } from './config';
 import { TrustedClientIdentityError } from './errors';
 import { type TrustedClientUserInfo } from './index';
+
+/** Most org units Market accepts in a trusted-client chain (private Market's limit). */
+const MARKET_TRUSTED_CLIENT_ORG_UNIT_LIMIT = 32;
 
 export interface ResolveTrustedClientIdentityParams extends Pick<
   TrustedClientUserInfo,

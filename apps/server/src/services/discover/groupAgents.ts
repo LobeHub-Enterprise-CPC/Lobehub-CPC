@@ -31,25 +31,28 @@ export const getGroupAgentDetail = async (
   try {
     const response = await service.market.agentGroups.getAgentGroupDetail(params.identifier, {
       locale: params.locale,
-      version: params.version || undefined,
+      // Market reads `version` from the query string; the published SDK types it as a number.
+      version: params.version ? Number(params.version) : undefined,
     });
     // Forking the group builds each member from its version config: drop retired models there.
+    // Market returns `currentVersion` on members; the published SDK types omit it.
     if (!response?.memberAgents) return response;
     const memberAgents = await Promise.all(
-      response.memberAgents.map(async (member) =>
-        member.currentVersion
+      response.memberAgents.map(async (member) => {
+        const { currentVersion } = member as { currentVersion?: { config?: Record<string, any> } };
+        return currentVersion
           ? {
               ...member,
               currentVersion: {
-                ...member.currentVersion,
+                ...currentVersion,
                 config: await withoutUnavailableModel(
-                  member.currentVersion.config,
+                  currentVersion.config,
                   service.userInfo?.email,
                 ),
               },
             }
-          : member,
-      ),
+          : member;
+      }),
     );
     return { ...response, memberAgents };
   } catch (error) {

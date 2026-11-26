@@ -1,4 +1,4 @@
-import { CATEGORY_LUCIDE_ICON_NAMES, parseCategoryIcon } from '@lobehub/market-types';
+import { CATEGORY_LUCIDE_ICON_NAMES } from '@lobehub/market-types';
 import type { LucideIcon, LucideProps } from 'lucide-react';
 import {
   AppleIcon,
@@ -191,8 +191,38 @@ const imageIcon = (src: string): LucideIcon => {
   return ImageIcon;
 };
 
+type ParsedCategoryIcon =
+  { name: string; type: 'lucide' } | { type: 'image'; url: string } | { type: 'none' };
+
+const LUCIDE_PREFIX = 'lucide:';
+
 /**
- * The component for a Market category icon, from the shared `parseCategoryIcon`
+ * Reads a stored Market category icon: `lucide:<name>` (only names on the
+ * allowlist), an HTTP(S) URL, or nothing usable. Same contract as the private
+ * Market types package this used to import; the published package does not
+ * ship it.
+ */
+const parseCategoryIcon = (
+  icon: string | null | undefined,
+  allowedLucideNames: readonly string[],
+): ParsedCategoryIcon => {
+  const value = icon?.trim();
+  if (!value) return { type: 'none' };
+  if (value.startsWith(LUCIDE_PREFIX)) {
+    const name = value.slice(LUCIDE_PREFIX.length);
+    return allowedLucideNames.includes(name) ? { name, type: 'lucide' } : { type: 'none' };
+  }
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'http:' || url.protocol === 'https:') return { type: 'image', url: value };
+  } catch {
+    // not a URL
+  }
+  return { type: 'none' };
+};
+
+/**
+ * The component for a Market category icon, from `parseCategoryIcon`
  * reading: a lucide name from the static table, an HTTP(S) URL as an image,
  * anything else (null, unknown name, other schemes) as the generic icon.
  */

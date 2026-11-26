@@ -233,8 +233,10 @@ export const agentGroupRouter = router({
             : {
                 // TODO: Add author info from group detail
                 author: undefined,
-                // Market keeps the avatar on the group's versions, not on the group row.
-                avatar: groupDetail.currentVersion?.avatar,
+                // Market keeps the avatar on the group's versions, not on the group row
+                // (`currentVersion`, which the published SDK types omit).
+                avatar: (groupDetail as { currentVersion?: { avatar?: string } }).currentVersion
+                  ?.avatar,
                 identifier: groupDetail.group.identifier,
                 name: groupDetail.group.name,
               },
