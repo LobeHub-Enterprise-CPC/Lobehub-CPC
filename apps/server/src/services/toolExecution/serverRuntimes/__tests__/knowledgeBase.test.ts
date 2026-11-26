@@ -36,6 +36,11 @@ vi.mock('@/server/services/document', () => ({
   }),
 }));
 vi.mock('@/server/services/file', () => ({ FileService: vi.fn() }));
+// Personal knowledge bases only: with the deployment's enterprise knowledge enabled, the
+// scope lookup would otherwise query the mocked database.
+vi.mock('@/server/services/enterpriseKnowledge/contentScope', () => ({
+  resolveContentScope: vi.fn(async () => ({ enterprise: false })),
+}));
 
 vi.mock('@/server/services/knowledgeBase', () => ({
   KnowledgeBaseSearchService: vi.fn().mockImplementation(function () {

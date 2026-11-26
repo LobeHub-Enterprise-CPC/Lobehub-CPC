@@ -20,6 +20,12 @@ vi.mock('@/features/Workspace/WorkspaceLink', () => ({
   ),
 }));
 
+// Upstream's column layout; a deployment can switch the directory to its showcase layout.
+vi.mock('@lobechat/business-const', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  AGENT_DIRECTORY_SHOWCASE_LAYOUT: false,
+}));
+
 vi.mock('./AgentAvatar', () => ({ default: () => <span /> }));
 vi.mock('./ItemActions', () => ({ default: () => <button type={'button'}>more</button> }));
 

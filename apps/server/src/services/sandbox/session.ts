@@ -22,8 +22,9 @@ import { resolveScmCloneCredential } from '@/server/services/scm/cloneCredential
 
 import { sandboxStorageBinding } from './binding';
 import { driveFolderExists } from './driveFolder';
-import { resolveSandboxStorageClaim, sandboxTenantDigest } from './entitlement';
+import { resolveSandboxStorageClaim } from './entitlement';
 import { type SandboxInitialization, toSandboxInitialization } from './environmentInit';
+import { sandboxTenantDigest } from './tenantDigest';
 import type { SandboxSessionSpecification } from './types';
 
 const log = debug('lobe-server:sandbox:session');

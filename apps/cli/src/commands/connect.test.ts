@@ -702,9 +702,7 @@ describe('connect command', () => {
         requestId: 'r',
         type: 'system_info_request',
       });
-      expect(lastSentSystemInfoResponse.result.systemInfo.supportedTools).toEqual([
-        'lobe-browser',
-      ]);
+      expect(lastSentSystemInfoResponse.result.systemInfo.supportedTools).toEqual(['lobe-browser']);
 
       await clientEventHandlers['tool_call_request']?.(navigateCall);
       expect(executeToolCall).not.toHaveBeenCalled();

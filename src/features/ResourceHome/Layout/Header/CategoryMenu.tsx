@@ -1,13 +1,7 @@
 'use client';
 
 import { Flexbox } from '@lobehub/ui';
-import {
-  BoxIcon,
-  HardDriveIcon,
-  HouseIcon,
-  LibraryBigIcon,
-  type LucideIcon,
-} from 'lucide-react';
+import { BoxIcon, HardDriveIcon, HouseIcon, LibraryBigIcon, type LucideIcon } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';

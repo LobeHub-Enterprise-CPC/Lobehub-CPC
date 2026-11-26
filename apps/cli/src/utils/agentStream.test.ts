@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentStreamEvent } from './agentStream';
 import { replayAgentEvents, streamAgentEvents as streamImpl } from './agentStream';
-import type { AgentHistoryPage, AgentStreamAuth } from './agentStreamTransport';
 import { streamTestConfirmation } from './agentStreamTestUtils';
+import type { AgentHistoryPage, AgentStreamAuth } from './agentStreamTransport';
 
 // The Gateway only admits a server-minted gateway ticket; only the Work HTTP
 // boundary that mints it is substituted here.

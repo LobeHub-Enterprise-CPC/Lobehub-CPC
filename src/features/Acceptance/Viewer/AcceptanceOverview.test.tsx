@@ -21,7 +21,8 @@ vi.mock('./Comments/discussionTimeline', () => ({ countDiscussionMessages: () =>
 vi.mock('@/services/verify', () => ({ verifyService: { setAcceptanceVisibility: vi.fn() } }));
 // Desktop renders from `app://renderer`; shared links must use the server origin instead.
 vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@lobechat/business-tenant/client')>()),
+  ...(await importOriginal<Record<string, unknown>>()),
+  buildAppUrl: (path: string) => new URL(path, 'https://app.lobehub.com').toString(),
   useAppBaseUrl: () => 'https://app.lobehub.com',
 }));
 

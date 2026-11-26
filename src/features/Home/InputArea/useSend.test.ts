@@ -581,7 +581,7 @@ describe('Home InputArea useSend', () => {
     expect(summaryTopicTitleMock).toHaveBeenCalledWith('tpc_project', [
       expect.objectContaining({ content: 'draft the proposal', role: 'user' }),
     ]);
-    expect(routerMock.push).toHaveBeenCalledWith('/project/prj_1/conversation/tpc_project');
+    expect(routerMock.push).toHaveBeenCalledWith('/project/prj_1/topic/tpc_project');
     // The pick lasts for one conversation.
     expect(setHomeSelectedProjectIdMock).toHaveBeenCalledWith(undefined);
     expect(clearContentMock).toHaveBeenCalled();

@@ -1,8 +1,8 @@
 import { INLINE_VIDEO_SIZE_LIMIT } from '@lobechat/const/media';
-import { createMediaFileRef } from '../../const/mediaRef';
 import type { ChatAudioItem, ChatImageItem, ChatVideoItem, UIChatMessage } from '@lobechat/types';
 import { describe, expect, it, vi } from 'vitest';
 
+import { createMediaFileRef } from '../../const/mediaRef';
 import type { PipelineContext } from '../../types';
 import { MessageContentProcessor, VISION_DOWNGRADE_PLACEHOLDER } from '../MessageContent';
 

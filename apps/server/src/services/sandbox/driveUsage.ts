@@ -11,7 +11,7 @@ import { users, workspaceMembers } from '@/database/schemas';
 import { MarketService } from '@/server/services/market';
 
 import type { DriveAccess } from './driveAccess';
-import { sandboxTenantDigest } from './entitlement';
+import { sandboxTenantDigest } from './tenantDigest';
 
 /** Roles that may see how much each member's personal drive holds — never what. */
 const USAGE_ADMIN_ROLES = new Set(['admin', 'owner']);

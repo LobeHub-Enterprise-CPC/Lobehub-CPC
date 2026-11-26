@@ -8,7 +8,8 @@ import type { LobeChatDatabase } from '@lobechat/database';
 
 import { MarketService } from '@/server/services/market';
 
-import { type resolveSandboxStorageClaim, sandboxTenantDigest } from './entitlement';
+import type { resolveSandboxStorageClaim } from './entitlement';
+import { sandboxTenantDigest } from './tenantDigest';
 
 interface DriveAccessInput {
   /** Handed in rather than imported, so a caller's own seam for it is the one used. */

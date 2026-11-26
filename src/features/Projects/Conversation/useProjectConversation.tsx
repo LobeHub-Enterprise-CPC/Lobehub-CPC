@@ -58,10 +58,7 @@ export const useProjectConversation = () => {
     );
   }, [conversationAgentId]);
 
-  const getConversationPath = useCallback(
-    () => getProjectTopicPath(projectSlug!),
-    [projectSlug],
-  );
+  const getConversationPath = useCallback(() => getProjectTopicPath(projectSlug!), [projectSlug]);
   const getTopicPath = useCallback(
     (_agentId: string, topicId: string) => getProjectTopicPath(projectSlug!, topicId),
     [projectSlug],

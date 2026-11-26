@@ -9,7 +9,7 @@ vi.mock('@/hooks/useActivityTime', () => ({
 }));
 // Desktop renders from `app://renderer`; shared links must use the server origin instead.
 vi.mock('@lobechat/business-tenant/client', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@lobechat/business-tenant/client')>()),
+  ...(await importOriginal<Record<string, unknown>>()),
   useAppBaseUrl: () => 'https://app.lobehub.com',
 }));
 vi.mock('@/store/user', () => ({
