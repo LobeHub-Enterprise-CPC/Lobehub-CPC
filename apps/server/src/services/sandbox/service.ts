@@ -16,6 +16,7 @@ import {
   checkCommand,
   COMMAND_BLOCKED_MESSAGE,
   type CommandGovernanceContext,
+  type CommandGovernanceDecision,
   GOVERNANCE_UNAVAILABLE_MESSAGE,
   GovernanceUnavailableError,
   isGovernanceEnabled,
@@ -28,9 +29,9 @@ import {
   type SandboxInitDownload,
 } from './bootstrap';
 import {
-  buildSandboxEnvironmentInitCommand,
   environmentInitRan,
   environmentInitReport,
+  planSandboxEnvironmentInit,
   SANDBOX_ENVIRONMENT_INIT_TIMEOUT_MS,
 } from './environmentInit';
 import { isSandboxAccessDeniedError, isSandboxAuthError } from './errors';
@@ -136,15 +137,18 @@ export class SandboxMiddlewareService implements SandboxService {
     if (!init || !this.provider.capabilities.shell) return;
 
     try {
-      const result = await callTenantSandboxTool(
-        this.provider,
+      const { command, governedCommands } = planSandboxEnvironmentInit(init);
+      const result = await this.callGovernedTool(
         'runCommand',
-        {
-          command: buildSandboxEnvironmentInitCommand(init),
-          timeout: SANDBOX_ENVIRONMENT_INIT_TIMEOUT_MS,
-        },
-        this.options,
+        { command, timeout: SANDBOX_ENVIRONMENT_INIT_TIMEOUT_MS },
+        governedCommands,
       );
+      if (
+        result.error?.name === 'COMMAND_BLOCKED' ||
+        result.error?.name === 'GOVERNANCE_UNAVAILABLE'
+      ) {
+        return `The environment "${init.name}" could not be applied: ${result.error.message}`;
+      }
       const stdout = (result.result as { stdout?: string } | null | undefined)?.stdout;
       // The command always exits cleanly, so a failed call that printed
       // nothing never reached the sandbox: said so, not passed off as a
@@ -161,8 +165,8 @@ export class SandboxMiddlewareService implements SandboxService {
       );
 
       return environmentInitReport(stdout) || undefined;
-    } catch (error) {
-      log('Environment init failed for topic %s: %O', this.options.topicId, error);
+    } catch {
+      log('Environment init failed for topic %s', this.options.topicId);
 
       return environmentInitUnreachable(init.name);
     }
@@ -242,6 +246,7 @@ export class SandboxMiddlewareService implements SandboxService {
   private async callGovernedTool(
     toolName: string,
     params: Record<string, unknown>,
+    environmentCommands?: readonly string[],
   ): Promise<SandboxCallToolResult> {
     const { serverDB, userId } = this.options;
 
@@ -249,12 +254,15 @@ export class SandboxMiddlewareService implements SandboxService {
       return callTenantSandboxTool(this.provider, toolName, params, this.options);
     }
 
+    // Generated environment wrappers contain clone credentials and environment
+    // values. Check the clone and setup commands, and audit the wrapper by name.
     const ctx = {
       apiName: toolName,
       // The exact payload that will execute: `executeCode` runs `code` (never
       // the sibling `command` field, which an attacker can attach as a decoy).
-      commandText:
-        toolName === 'executeCode'
+      commandText: environmentCommands
+        ? 'Sandbox environment initialization'
+        : toolName === 'executeCode'
           ? typeof params?.code === 'string'
             ? params.code
             : JSON.stringify(params ?? {})
@@ -266,14 +274,20 @@ export class SandboxMiddlewareService implements SandboxService {
       userId,
     } satisfies CommandGovernanceContext;
 
-    let decision;
+    let decision: CommandGovernanceDecision = { allowed: true };
     try {
       if (!userId) throw new GovernanceUnavailableError();
       if (!serverDB) {
         if (await isGovernanceEnabled(userId)) throw new GovernanceUnavailableError();
         return callTenantSandboxTool(this.provider, toolName, params, this.options);
       }
-      decision = await checkCommand(ctx, serverDB);
+      for (const commandText of environmentCommands ?? [ctx.commandText]) {
+        const checked = await checkCommand({ ...ctx, commandText }, serverDB);
+        if (!checked.allowed) {
+          decision = checked;
+          break;
+        }
+      }
     } catch (error) {
       // Governance could not be evaluated: nothing runs, and it is not reported as a rule
       // denial (COMMAND_BLOCKED tells the model never to retry).
@@ -312,7 +326,7 @@ export class SandboxMiddlewareService implements SandboxService {
         {
           blocked: false,
           durationMs: Date.now() - startedAt,
-          errorMessage: result.error?.message,
+          errorMessage: environmentCommands ? undefined : result.error?.message,
           success: result.success,
         },
         serverDB,

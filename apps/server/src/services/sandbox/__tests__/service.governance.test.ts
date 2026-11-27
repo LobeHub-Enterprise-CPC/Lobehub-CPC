@@ -33,6 +33,23 @@ const provider = {
 const service = () =>
   new SandboxMiddlewareService(provider, { serverDB: {} as never, userId: 'user-1' });
 
+const initService = () =>
+  new SandboxMiddlewareService(
+    { ...provider, capabilities: { ...provider.capabilities, shell: true } },
+    {
+      sandboxInitialization: {
+        bootstrapCommand: 'echo setup',
+        cloneCredential: { header: 'fixture-clone-header', urlPrefix: 'https://example.test/' },
+        env: { FIXTURE: 'fixture-env-value' },
+        environmentId: 'fixture',
+        name: 'Example',
+        sources: [{ url: 'https://example.test/repository' }],
+      },
+      serverDB: {} as never,
+      userId: 'user-1',
+    },
+  );
+
 afterEach(() => vi.restoreAllMocks());
 
 describe('SandboxMiddlewareService command governance', () => {
@@ -120,6 +137,64 @@ describe('SandboxMiddlewareService command governance', () => {
 
     expect(mocks.checkCommand).not.toHaveBeenCalled();
     expect(mocks.callTenantSandboxTool).toHaveBeenCalledOnce();
+  });
+
+  it.each([/^git clone /, /^echo setup$/])(
+    'does not initialize the environment if policy denies %s',
+    async (rule) => {
+      mocks.checkCommand.mockImplementation(async ({ commandText }) =>
+        rule.test(commandText) ? { allowed: false, ruleId: 'init-rule' } : { allowed: true },
+      );
+      const result = await initService().callTool('runCommand', { command: 'pwd' });
+
+      expect(mocks.callTenantSandboxTool).toHaveBeenCalledExactlyOnceWith(
+        expect.anything(),
+        'runCommand',
+        { command: 'pwd' },
+        expect.anything(),
+      );
+      expect(result).toMatchObject({ success: true });
+      expect(mocks.logCommandExecution).toHaveBeenCalledWith(
+        expect.anything(),
+        { blocked: true, matchedRuleId: 'init-rule' },
+        expect.anything(),
+      );
+    },
+  );
+
+  it('keeps initialization credentials and environment values out of policy and audit calls', async () => {
+    await initService().callTool('listFiles', { path: '.' });
+
+    expect(mocks.checkCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ commandText: 'echo setup' }),
+      expect.anything(),
+    );
+    expect(mocks.callTenantSandboxTool).toHaveBeenCalledWith(
+      expect.anything(),
+      'runCommand',
+      expect.objectContaining({ command: expect.stringContaining('fixture-clone-header') }),
+      expect.anything(),
+    );
+    const governanceCalls = JSON.stringify([
+      mocks.checkCommand.mock.calls,
+      mocks.logCommandExecution.mock.calls,
+    ]);
+    expect(governanceCalls).not.toContain('fixture-clone-header');
+    expect(governanceCalls).not.toContain('fixture-env-value');
+  });
+
+  it('does not dispatch initialization when its governance check is unavailable', async () => {
+    mocks.checkCommand.mockRejectedValueOnce(new mocks.GovernanceUnavailableError());
+
+    await initService().callTool('listFiles', { path: '.' });
+
+    expect(mocks.callTenantSandboxTool).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      'listFiles',
+      { path: '.' },
+      expect.anything(),
+    );
+    expect(mocks.logCommandExecution).not.toHaveBeenCalled();
   });
 
   it('governs executeCode on its real code field and runs when allowed', async () => {

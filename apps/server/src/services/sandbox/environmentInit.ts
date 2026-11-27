@@ -100,7 +100,7 @@ const safeDestination = (path: string | undefined): string | undefined => {
  * The variables are exported in a subshell, so they reach clone and setup and
  * not the commands the conversation runs afterwards.
  */
-export const buildSandboxEnvironmentInitCommand = (init: SandboxInitialization): string => {
+export const planSandboxEnvironmentInit = (init: SandboxInitialization) => {
   const label = shellQuote(init.name);
 
   const exports = Object.entries(init.env ?? {})
@@ -110,7 +110,9 @@ export const buildSandboxEnvironmentInitCommand = (init: SandboxInitialization):
   const clones = init.sources.map((source, index) => {
     const destination = safeDestination(source.path);
     if (!destination)
-      return `echo ${shellQuote(`Skipped a repository with an unusable path: ${source.path}`)}`;
+      return {
+        steps: [`echo ${shellQuote(`Skipped a repository with an unusable path: ${source.path}`)}`],
+      };
 
     const branch = source.ref ? ` --branch ${shellQuote(source.ref)}` : '';
     const url = shellQuote(source.url);
@@ -119,11 +121,15 @@ export const buildSandboxEnvironmentInitCommand = (init: SandboxInitialization):
     // checkout's own `.git` comes along.
     const staging = `"$__lobe_tmp/${index}"`;
 
-    return [
-      `git clone --depth 1${branch} ${url} ${staging}`,
-      `mkdir -p ${shellQuote(destination)}`,
-      `cp -a ${staging}/. ${shellQuote(destination)}/`,
-    ].join(' && ');
+    const command = `git clone --depth 1${branch} ${url} ${staging}`;
+    return {
+      command,
+      steps: [
+        command,
+        `mkdir -p ${shellQuote(destination)}`,
+        `cp -a ${staging}/. ${shellQuote(destination)}/`,
+      ],
+    };
   });
 
   // Given to git through its environment for the clones alone, and unset
@@ -151,7 +157,7 @@ export const buildSandboxEnvironmentInitCommand = (init: SandboxInitialization):
     ...exports,
     ...staging,
     ...credential.set,
-    ...clones,
+    ...clones.flatMap(({ steps }) => steps),
     ...credential.unset,
     ...(init.bootstrapCommand ? [init.bootstrapCommand] : []),
   ];
@@ -163,7 +169,7 @@ export const buildSandboxEnvironmentInitCommand = (init: SandboxInitialization):
   const record = `"\${HOME:-/tmp}/${SANDBOX_ENVIRONMENT_STATE_DIR}"`;
   const key = `"$(printf '%s|%s' "$PWD" ${shellQuote(init.environmentId)} | cksum | cut -d ' ' -f 1)"`;
 
-  return [
+  const command = [
     `__lobe_state=${record}/${key}`,
     `if [ ! -e "$__lobe_state" ] && [ -z "$(ls -A . 2>/dev/null)" ]; then`,
     `  echo ${SANDBOX_ENVIRONMENT_RAN_LINE}`,
@@ -178,7 +184,18 @@ export const buildSandboxEnvironmentInitCommand = (init: SandboxInitialization):
     `  fi`,
     `fi`,
   ].join('\n');
+
+  return {
+    command,
+    governedCommands: [
+      ...clones.flatMap(({ command }) => (command ? [command] : [])),
+      ...(init.bootstrapCommand ? [init.bootstrapCommand] : []),
+    ],
+  };
 };
+
+export const buildSandboxEnvironmentInitCommand = (init: SandboxInitialization) =>
+  planSandboxEnvironmentInit(init).command;
 
 /** Whether the command's output says it ran, rather than finding the folder initialized. */
 export const environmentInitRan = (stdout: string | undefined): boolean =>
