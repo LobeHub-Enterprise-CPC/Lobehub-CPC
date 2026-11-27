@@ -6,6 +6,7 @@ import {
 } from '@lobechat/builtin-tool-cloud-sandbox';
 import type { LobeChatDatabase } from '@lobechat/database';
 
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { MarketService } from '@/server/services/market';
 
 import type { resolveSandboxStorageClaim } from './entitlement';
@@ -57,15 +58,18 @@ export const createDriveAccess = ({
     claim,
     client: async (drive: SandboxDrive) => {
       const resolved = await claim(drive);
+      if (!resolved) return;
 
-      return resolved
-        ? {
-            claim: resolved,
-            client: new MarketService({
-              userInfo: { sandboxStorage: resolved, userId, workspaceId },
-            }).getSandboxStorageClient(),
-          }
-        : undefined;
+      const userInfo = await resolveMarketServiceIdentity({
+        sandboxStorage: resolved,
+        serverDB,
+        userId,
+        workspaceId,
+      });
+      return {
+        claim: resolved,
+        client: new MarketService({ userInfo }).getSandboxStorageClient(),
+      };
     },
     /** Which of the caller's drives a storage key is, or `undefined` for none of theirs. */
     driveOf: (key: string | null | undefined) =>

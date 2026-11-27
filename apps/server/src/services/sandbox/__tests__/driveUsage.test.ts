@@ -1,15 +1,34 @@
 import { deriveSandboxStorageKey } from '@lobechat/builtin-tool-cloud-sandbox';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createDriveAccess } from '../driveAccess';
 import { readDriveUsage } from '../driveUsage';
 
 const memberGetStorage = vi.fn();
+const marketEmail = 'owner@example.test';
+
+vi.mock('@/libs/trusted-client/resolveIdentity', () => ({
+  resolveMarketServiceIdentity: async ({
+    sandboxStorage,
+    userId,
+  }: {
+    sandboxStorage: { key: string };
+    userId: string;
+  }) => ({ email: userId === 'owner' ? marketEmail : undefined, sandboxStorage, userId }),
+}));
 
 vi.mock('@/server/services/market', () => ({
   // `function`, not an arrow: the service is constructed with `new`.
-  MarketService: vi.fn().mockImplementation(function () {
+  MarketService: vi.fn().mockImplementation(function (options: {
+    userInfo?: { email?: string; sandboxStorage?: { key: string } };
+  }) {
     return {
-      getSandboxStorageClient: () => ({ getStorage: memberGetStorage }),
+      getSandboxStorageClient: () => ({
+        getStorage: async () => {
+          if (options.userInfo?.email !== marketEmail) throw new Error('Market rejected identity');
+          return memberGetStorage(options.userInfo.sandboxStorage?.key);
+        },
+      }),
     };
   }),
 }));
@@ -56,6 +75,24 @@ describe('readDriveUsage', () => {
     memberGetStorage.mockReset().mockResolvedValue({ usageBytes: 1 });
   });
 
+  it('should read the personal drive usage with the caller’s Market identity', async () => {
+    const claim = { key: 'ws-owner', quotaBytes: 1000 };
+    const drives = createDriveAccess({
+      resolveClaim: async () => claim,
+      serverDB,
+      userId: 'owner',
+    });
+
+    await expect(
+      readDriveUsage({ claim, drives, serverDB, userId: 'owner' }),
+    ).resolves.toMatchObject({
+      drives: [{ drive: 'personal', usageBytes: 1 }],
+      quotaBytes: 1000,
+      totalUsageBytes: 1,
+    });
+    expect(memberGetStorage).toHaveBeenCalledWith('ws-owner');
+  });
+
   it("should take members' figures from the pool listing, without a read per member", async () => {
     const adaKey = deriveSandboxStorageKey({
       drive: 'personal',
@@ -87,7 +124,7 @@ describe('readDriveUsage', () => {
 
     const usage = await read(access);
 
-    expect(memberGetStorage).toHaveBeenCalledTimes(2);
+    expect(memberGetStorage.mock.calls.flat().sort()).toEqual(['ws-mem-ws1-ada', 'ws-mem-ws1-bo']);
     expect(usage.members?.map((member) => member.usageBytes)).toEqual([1, 1]);
   });
 

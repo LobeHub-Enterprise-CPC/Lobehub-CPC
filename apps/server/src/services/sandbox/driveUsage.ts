@@ -8,6 +8,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import pMap from 'p-map';
 
 import { users, workspaceMembers } from '@/database/schemas';
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client/resolveIdentity';
 import { MarketService } from '@/server/services/market';
 
 import type { DriveAccess } from './driveAccess';
@@ -118,18 +119,18 @@ export const readDriveUsage = async ({
         others,
         async (row) => {
           const key = keyOf(row.userId);
-          const info = key
-            ? await new MarketService({
-                userInfo: {
-                  sandboxStorage: { key, quotaBytes: claim.quotaBytes },
-                  userId,
-                  workspaceId,
-                },
-              })
-                .getSandboxStorageClient()
-                .getStorage()
-                .catch(() => null)
-            : null;
+          if (!key) return describe(row, null);
+
+          const userInfo = await resolveMarketServiceIdentity({
+            sandboxStorage: { key, quotaBytes: claim.quotaBytes },
+            serverDB,
+            userId,
+            workspaceId,
+          });
+          const info = await new MarketService({ userInfo })
+            .getSandboxStorageClient()
+            .getStorage()
+            .catch(() => null);
 
           return describe(row, info?.usageBytes ?? null);
         },
