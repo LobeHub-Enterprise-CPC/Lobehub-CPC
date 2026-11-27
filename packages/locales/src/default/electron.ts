@@ -1,5 +1,7 @@
 export default {
   'navigation.scheduledTasks': 'Scheduled tasks',
+  'navigation.resourceDrive': 'Drive',
+  'navigation.resourceWorks': 'Works',
   'startupUpdate.requiredTitle': 'Update required',
   'startupUpdate.requiredDescription': 'This version has a security issue. Update to continue.',
   'startupUpdate.checking': 'Checking for updates…',
@@ -46,7 +48,7 @@ export default {
   'navigation.projects': 'Projects',
   'navigation.provider': 'Provider',
   'navigation.recentView': 'Recent pages',
-  'navigation.resources': 'Resources',
+  'navigation.resources': 'Docs',
   'navigation.resourceAll': 'All',
   'navigation.resourceAudios': 'Audio',
   'navigation.resourceDocuments': 'Documents',

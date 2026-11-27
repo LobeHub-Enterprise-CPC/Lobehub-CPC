@@ -7,6 +7,7 @@ import { type AgentExecutionParams, type AgentExecutionResult } from '../../type
 import { armClientLlmWaitExpiry } from '../clientLlmWait';
 import { STEP_LOCK_RETRY_MAX_ATTEMPTS } from '../constants';
 import { ClientWaitExpiryUnarmedError } from '../executionErrors';
+import { isShareRunRevoked } from '../shareRunGate';
 import type { AgentRuntimeServiceContext } from '../types';
 import { stepLockRetryDelayMs } from '../utils';
 import { owesCompletionLifecycle } from './completion';
@@ -487,23 +488,18 @@ export async function skipUnrunnableStep(
       agentState.status,
     );
 
-    if (!isHatchetDeliveryEnabled()) {
-      const reason = deps.determineCompletionReason(agentState);
-
-      await deps.completionLifecycle.emitSignalEvents(operationId, agentState, reason);
-
-      // Dispatch completion hooks so consumers (e.g., bot local-mode promise) can finalize
-      await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason, {
-        assertOwnership,
-      });
+    // Hatchet: the completion lifecycle is owned by its checkpoint and was
+    // replayed (or already announced) before this point; do not dispatch it again.
+    if (isHatchetDeliveryEnabled()) {
+      return {
+        nextStepScheduled: false,
+        state: agentState,
+        stepResult: null,
+        success: true,
+      };
     }
 
-    return {
-      nextStepScheduled: false,
-      state: agentState,
-      stepResult: null,
-      success: true,
-    };
+    return settleSkippedStep(deps, operationId, agentState, assertOwnership);
   }
 
   // Agent Share: re-prove this visitor run's authorization on EVERY step.
@@ -516,27 +512,42 @@ export async function skipUnrunnableStep(
   // step boundary. See `AgentShareModel.isRunStillAuthorized`'s JSDoc for
   // why one query covers every revocation path (visibility flip — which
   // is what turning sharing off does — share delete, agent delete).
-  if (deps.delegate.verifyShareRunStillAuthorized) {
-    const shareMarker = agentState.principal?.actor?.shareVisitor as
-      { agentId?: string; shareId?: string } | undefined;
-    if (shareMarker?.agentId && shareMarker.shareId) {
-      let stillAuthorized = false;
-      try {
-        stillAuthorized = await deps.delegate.verifyShareRunStillAuthorized({
-          agentId: shareMarker.agentId,
-          shareId: shareMarker.shareId,
-        });
-      } catch (error) {
-        // Fail closed: a read failure must not be read as "still
-        // authorized". Falls through to the abort below with
-        // `stillAuthorized` left `false`.
-        log('[%s][%d] Share run authorization re-check failed: %O', operationId, stepIndex, error);
-      }
-      if (!stillAuthorized) {
-        return deps.buildShareAbortResult(operationId, agentState);
-      }
-    }
+  if (
+    await isShareRunRevoked(
+      deps.delegate.verifyShareRunStillAuthorized,
+      operationId,
+      stepIndex,
+      agentState,
+    )
+  ) {
+    return deps.buildShareAbortResult(operationId, agentState);
   }
 
   return undefined;
+}
+
+/**
+ * Settle a step that will not run because the operation is already terminal:
+ * emit the completion signals and dispatch the completion hooks so consumers
+ * (e.g. the bot local-mode promise) can finalize. Publishes no step event.
+ */
+export async function settleSkippedStep(
+  deps: Pick<StepGuardsDeps, 'completionLifecycle' | 'determineCompletionReason'>,
+  operationId: string,
+  agentState: AgentState,
+  assertOwnership?: () => Promise<void>,
+): Promise<AgentExecutionResult> {
+  const reason = deps.determineCompletionReason(agentState);
+
+  await deps.completionLifecycle.emitSignalEvents(operationId, agentState, reason);
+  await deps.completionLifecycle.dispatchHooks(operationId, agentState, reason, {
+    assertOwnership,
+  });
+
+  return {
+    nextStepScheduled: false,
+    state: agentState,
+    stepResult: null,
+    success: true,
+  };
 }

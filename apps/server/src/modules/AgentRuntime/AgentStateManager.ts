@@ -2,6 +2,7 @@ import {
   type AgentEvent,
   type AgentRuntimeContext,
   type AgentState,
+  getLlmCallCount,
   normalizeAgentState,
 } from '@lobechat/agent-runtime';
 import { currentTenantScope } from '@lobechat/database/tenant';
@@ -173,7 +174,7 @@ export class AgentStateManager {
         lastActiveAt: new Date().toISOString(),
         status: state.status,
         totalCost: state.cost?.total || 0,
-        totalSteps: state.stepCount,
+        totalSteps: getLlmCallCount(state),
       });
 
       // State change events are recorded through the events array in saveStepResult
@@ -285,7 +286,7 @@ export class AgentStateManager {
         lastActiveAt: new Date().toISOString(),
         status: stepResult.newState.status,
         totalCost: stepResult.newState.cost?.total || 0,
-        totalSteps: stepResult.newState.stepCount,
+        totalSteps: getLlmCallCount(stepResult.newState),
       };
       pipeline.hmset(metaKey, metadata as any);
       pipeline.expire(metaKey, this.DEFAULT_TTL);

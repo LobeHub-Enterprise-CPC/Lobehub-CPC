@@ -25,7 +25,9 @@ import {
 import { memo, type ReactNode, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { GoalDecisionAsker } from '@/features/AgentGoals/GoalDecision';
+import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
 import { useShowMemberTokenUsage } from '@/hooks/useShowMemberTokenUsage';
 import { mutate as globalMutate } from '@/libs/swr';
 import { isAcceptanceListKey } from '@/libs/swr/keys';
@@ -280,6 +282,7 @@ const DetailPanel = memo<{ onClose: () => void; selection: Selection }>(
   ({ onClose, selection }) => {
     const { t } = useTranslation('verify');
     const showMemberTokenUsage = useShowMemberTokenUsage();
+    const workspaceSlug = useActiveWorkspaceSlug();
     const title = selection.kind === 'result' ? selection.unit.title : selection.title;
     const brief = selection.kind === 'result' ? selection.unit.brief : selection.brief;
     return (
@@ -301,9 +304,12 @@ const DetailPanel = memo<{ onClose: () => void; selection: Selection }>(
             {selection.unit.acceptance && (
               <a
                 className={styles.link}
-                href={acceptanceOverviewPath(selection.unit.acceptance.id)}
                 rel="noreferrer"
                 target="_blank"
+                href={buildWorkspaceAwarePath(
+                  acceptanceOverviewPath(selection.unit.acceptance.id),
+                  workspaceSlug,
+                )}
               >
                 {selection.unit.acceptance.checks
                   ? t('acceptance.gate.unitAcceptance', {

@@ -41,6 +41,7 @@ function expected(): Array<
     ['createTerminalSession', 'mutation', 13],
     ['createTunnel', 'mutation', 13],
     ['deleteGitBranch', 'mutation', 13],
+    ['getAgentDeviceBindings', 'query', 13],
     ['getAgentProfile', 'query', 13],
     ['getAppUpdateState', 'query', 13],
     ['getClaudeCodeQuota', 'mutation', 13],

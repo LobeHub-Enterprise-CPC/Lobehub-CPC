@@ -31,8 +31,7 @@ type LabFeatureI18nKey =
   | 'persistentSandbox'
   | 'projects'
   | 'selfLearning'
-  | 'topicBugReport'
-  | 'workspaceOnboarding';
+  | 'topicBugReport';
 
 export interface LabFeatureItem {
   /**
@@ -145,13 +144,6 @@ const ALL_LAB_FEATURES: LabFeatureItem[] = [
     i18nKey: 'artifactDeployment',
     searchKeywords: ['artifact', 'deploy', 'publish'],
     stage: 'beta',
-  },
-  {
-    flag: 'enableWorkspaceOnboardingV2',
-    i18nKey: 'workspaceOnboarding',
-    searchKeywords: ['workspace', 'onboarding', 'team setup'],
-    stage: 'alpha',
-    workspaceOnly: true,
   },
   {
     desktopOnly: true,

@@ -160,6 +160,42 @@ describe('background runs in the active topic', () => {
     },
   );
 
+  it.each(['deleted topic', 'edited topic without a live response'])(
+    'does not revive stale details after %s',
+    async (change) => {
+      vi.useFakeTimers();
+      let resolve!: (value: ChatTopic) => void;
+      vi.mocked(topicService.getTopicDetail).mockReturnValue(
+        new Promise((done) => {
+          resolve = done;
+        }),
+      );
+      renderHook(useFetchActiveTopicDetail, { wrapper });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => {
+        if (change === 'deleted topic') {
+          useChatStore.getState().internal_dispatchTopic({ id: topic.id, type: 'deleteTopic' });
+        } else {
+          useChatStore.getState().internal_dispatchTopic({
+            id: topic.id,
+            type: 'updateTopic',
+            value: { title: 'Updated', status: 'completed' },
+          });
+        }
+      });
+      await act(async () => {
+        resolve(change === 'deleted topic' ? { ...topic, metadata: { runningOperation } } : topic);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const current = topicSelectors.getTopicById(topic.id)(useChatStore.getState());
+      if (change === 'deleted topic') expect(current).toBeUndefined();
+      else expect(current).toMatchObject({ title: 'Updated', status: 'completed' });
+      expect(useChatStore.getState().reconnectToGatewayOperation).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(['stop marker', 'replacement marker'])(
     'rejects a live response overtaken by a %s',
     async (change) => {

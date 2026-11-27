@@ -54,6 +54,7 @@ export const WORKSPACE_SETTINGS_TABS: ReadonlySet<string> = new Set([
   'creds',
   'credits',
   'devices',
+  'drive',
   'environments',
   'general',
   'hotkey',
@@ -75,6 +76,7 @@ export const WORKSPACE_SETTINGS_TABS: ReadonlySet<string> = new Set([
   // deep-links still land on `/:slug/settings/statistics`.
   'stats',
   'storage',
+  'subscription-accounts',
   'teams',
   'usage',
 ]);

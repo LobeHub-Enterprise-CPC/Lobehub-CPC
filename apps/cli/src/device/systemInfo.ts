@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 
+import { BROWSER_IDENTIFIER } from '@lobechat/device-control/agent-browser';
 import type { DeviceSystemInfo } from '@lobechat/device-gateway-client';
 import { resolveHeteroSpawnCommand } from '@lobechat/heterogeneous-agents/resolveCliCommand';
 import type { RuntimeProbeCache } from '@lobechat/heterogeneous-agents/runtimeProbeCache';
@@ -9,6 +10,7 @@ import { getShellInfo } from '@lobechat/local-file-shell';
 
 import { CLI_CONFIG_DIR_NAME } from '../constants/identity';
 import { cliVersion } from '../pkg';
+import type { BrowserDevice } from '../tools/browser';
 
 /**
  * Checks the currently resolved Codex binary without creating a conversation.
@@ -85,7 +87,9 @@ export async function probeNativeRuntimes(): Promise<string[]> {
  */
 export async function collectSystemInfo(
   nativeRuntimes: RuntimeProbeCache,
+  browser?: BrowserDevice,
 ): Promise<DeviceSystemInfo> {
+  const supportedTools = browser ? [BROWSER_IDENTIFIER] : [];
   const home = os.homedir();
   const platform = process.platform;
   const videosDir = platform === 'linux' ? 'Videos' : 'Movies';
@@ -101,6 +105,7 @@ export async function collectSystemInfo(
     musicPath: path.join(home, 'Music'),
     picturesPath: path.join(home, 'Pictures'),
     supportedAgentRuntimes: await nativeRuntimes.get(),
+    ...(supportedTools.length > 0 && { supportedTools }),
     userDataPath: path.join(home, CLI_CONFIG_DIR_NAME),
     videosPath: path.join(home, videosDir),
     workingDirectory: process.cwd(),

@@ -1,4 +1,4 @@
-import type { AgentState } from '@lobechat/agent-runtime';
+import { type AgentState, getLlmCallCount } from '@lobechat/agent-runtime';
 import { parse } from '@lobechat/conversation-flow';
 import { isAgentOperationInFlight, ThreadStatus } from '@lobechat/types';
 import debug from 'debug';
@@ -36,6 +36,7 @@ const callbackSchema = z.object({
   usageBaseline: z
     .object({
       totalCost: z.number().optional(),
+      totalLlmCalls: z.number().optional(),
       totalMessages: z.number().optional(),
       totalTokens: z.number().optional(),
       totalToolCalls: z.number().optional(),
@@ -131,6 +132,7 @@ export async function threadCallback(c: Context): Promise<Response> {
         progressStep,
         startedAt,
         threadId,
+        totalLlmCalls: getLlmCallCount(state!),
         totalMessages,
         totalTokens: calculateTotalTokens(state!.usage),
         totalToolCalls: body.toolCalls,
@@ -163,12 +165,14 @@ export async function threadCallback(c: Context): Promise<Response> {
     const summary = state
       ? {
           cost: state.cost?.total,
+          llmCalls: getLlmCallCount(state) as number | undefined,
           tokens: calculateTotalTokens(state.usage),
           toolCalls: state.usage?.tools?.totalCalls,
           error: state.error,
         }
       : {
           cost: (durableOperation!.cost as AgentState['cost'] | null)?.total,
+          llmCalls: undefined as number | undefined,
           tokens: calculateTotalTokens(durableUsage ?? undefined),
           toolCalls: durableUsage?.tools?.totalCalls,
           error: durableOperation!.error,
@@ -210,6 +214,7 @@ export async function threadCallback(c: Context): Promise<Response> {
           summary: {
             error: summary.error,
             totalCost: summary.cost,
+            totalLlmCalls: summary.llmCalls,
             totalTokens: summary.tokens,
             totalToolCalls: summary.toolCalls,
           },

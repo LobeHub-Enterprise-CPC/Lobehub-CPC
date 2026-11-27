@@ -1,4 +1,9 @@
 import type { AgentRuntimeContext, AgentState } from '@lobechat/agent-runtime';
+import {
+  isLocalHeterogeneousType,
+  isLocalRuntimeHeterogeneousType,
+  isRemoteHeterogeneousType,
+} from '@lobechat/heterogeneous-agents';
 import debug from 'debug';
 import { and, asc, eq, gte, isNotNull, isNull, lt, notInArray, or, sql } from 'drizzle-orm';
 import urlJoin from 'url-join';
@@ -53,7 +58,6 @@ const DEFAULT_MAX_REDRIVE_ATTEMPTS = 3;
 const DEFAULT_LIMIT = 50;
 
 /**
-/**
  * How far one sweep may page past candidates it skips. A skipped candidate
  * (its delivery still queued, say) costs nothing and does not count against
  * the limit, so the oldest rows cannot hide a stranded one behind them; these
@@ -63,11 +67,36 @@ const MAX_SWEEP_PAGES = 10;
 const SWEEP_TIME_BUDGET_MS = 20_000;
 
 /**
- * Bound the oldest-first scan so long-dead rows without coordinator state
- * cannot fill every candidate slot on every tick. Runtime state expires after
- * four hours, so a day leaves ample room to recover recent failures.
+ * How far back the sweep looks for candidates.
+ *
+ * Without a floor the oldest-first scan never gets past rows nobody will ever
+ * recover: long-dead `running` rows without coordinator state would fill every
+ * candidate slot on every tick, so a run that died five minutes ago was never
+ * examined. Runtime state expires after four hours, so a day leaves ample room
+ * to recover recent failures, and a stateless heterogeneous run is retired well
+ * inside it (see `HETERO_SILENCE_MS`).
  */
 const DEFAULT_LOOKBACK_MS = 24 * 60 * 60_000;
+
+/**
+ * How long a heterogeneous run (Claude Code, Codex, …) may go without any
+ * `heteroIngest` batch before this sweep retires it.
+ *
+ * Deliberately the same window as the agent-gateway inactivity watchdog uses
+ * for hetero runs (`INACTIVITY_WATCHDOG_TIMEOUT_HETERO`, 60 min): a long shell
+ * command inside the CLI reaches the server as silence, and this must not be
+ * stricter than the path it backs up. The two read the same clock — every
+ * ingest batch both refreshes this lease and pushes the events that reset the
+ * gateway's — so whichever runs first wins and the other finds the row
+ * terminal.
+ */
+const HETERO_SILENCE_MS = 60 * 60_000;
+
+const isHeterogeneousProvider = (provider: string | null | undefined): boolean =>
+  !!provider &&
+  (isLocalHeterogeneousType(provider) ||
+    isRemoteHeterogeneousType(provider) ||
+    isLocalRuntimeHeterogeneousType(provider));
 
 /** Bound how many overlapping topics one sweep reports. */
 const CONCURRENT_FOREGROUND_REPORT_LIMIT = 20;
@@ -97,6 +126,8 @@ const isSkipReason = (outcome: string): outcome is StaleSkipReason =>
   (SKIP_REASONS as readonly string[]).includes(outcome);
 
 export interface ReapStaleOperationsParams {
+  /** Silence after which a stateless heterogeneous run is retired. */
+  heteroSilenceMs?: number;
   limit?: number;
   /** Ignore rows whose lease froze longer ago than this. */
   lookbackMs?: number;
@@ -270,6 +301,7 @@ export class StaleOperationReaper {
     const limit = params?.limit ?? DEFAULT_LIMIT;
     const now = Date.now();
     const staleBefore = new Date(now - staleAfterMs);
+    const heteroStaleBefore = new Date(now - (params?.heteroSilenceMs ?? HETERO_SILENCE_MS));
     const notBefore = new Date(now - (params?.lookbackMs ?? DEFAULT_LOOKBACK_MS));
     const deadline = now + SWEEP_TIME_BUDGET_MS;
 
@@ -319,7 +351,12 @@ export class StaleOperationReaper {
         lastExamined = { id: candidate.id, updatedAt: candidate.updatedAt };
         result.examined += 1;
         try {
-          const outcome = await this.recover(candidate, staleBefore, maxRedriveAttempts);
+          const outcome = await this.recover(
+            candidate,
+            staleBefore,
+            heteroStaleBefore,
+            maxRedriveAttempts,
+          );
           if (isSkipReason(outcome)) {
             result.skipped += 1;
             result.skippedReasons[outcome] += 1;
@@ -443,6 +480,9 @@ export class StaleOperationReaper {
         .select({
           createdAt: agentOperations.createdAt,
           id: agentOperations.id,
+          // The lease as a Date, for the heterogeneous-silence check in `recover`.
+          leaseRefreshedAt: agentOperations.updatedAt,
+          provider: agentOperations.provider,
           updatedAt: sql<string>`${agentOperations.updatedAt}::text`,
           userId: agentOperations.userId,
           workspaceId: agentOperations.workspaceId,
@@ -452,7 +492,8 @@ export class StaleOperationReaper {
           and(
             eq(agentOperations.status, 'running'),
             lt(agentOperations.updatedAt, staleBefore),
-            // Keep unrecoverable history out of the limited candidate window.
+            // See DEFAULT_LOOKBACK_MS: without this floor the oldest-first
+            // window is permanently filled by long-dead rows.
             gte(agentOperations.updatedAt, notBefore),
             // A never-heartbeated row is only meaningful once it is older than
             // the window too; `startedAt` is the lease's initial value.
@@ -470,8 +511,16 @@ export class StaleOperationReaper {
   }
 
   private async recover(
-    candidate: { createdAt?: Date; id: string; userId: string; workspaceId: string | null },
+    candidate: {
+      createdAt?: Date;
+      id: string;
+      leaseRefreshedAt?: Date | null;
+      provider?: string | null;
+      userId: string;
+      workspaceId: string | null;
+    },
     staleBefore: Date,
+    heteroStaleBefore: Date,
     maxRedriveAttempts: number,
   ): Promise<'abandoned' | 'alive' | 'redriven' | StaleSkipReason> {
     const operationId = candidate.id;
@@ -497,11 +546,34 @@ export class StaleOperationReaper {
     // `heteroIngest` bails out on `touchRunning` returning false, so every
     // subsequent batch of a live session would be dropped before persistence.
     //
-    // Stateless-but-genuinely-dead operations are the inactivity watchdog's
-    // job (it reaches them through `finalize-abandoned`), and it has the
-    // gateway-side evidence to tell the two apart. This sweep deliberately
-    // limits itself to runs it can actually resume.
-    if (!state) return 'no_state';
+    // So a stateless heterogeneous run is only retired once it has been silent
+    // for the full hetero window — the same window the agent-gateway inactivity
+    // watchdog uses. That watchdog used to be the only thing that ever ended
+    // such a run, and it does not always fire: on 2026-10-12 two Codex runs on
+    // one desktop went silent in the same minute; one was abandoned after an
+    // hour, the other stayed `running` (its Task refusing every new message as
+    // "Topic is already running") until the user paused it, and dozens more
+    // hetero rows have sat `running` for days. This is the server-side backstop.
+    // `abandonIfStillStale` re-checks the lease inside its UPDATE, so a batch
+    // that lands meanwhile keeps the run alive.
+    if (!state) {
+      if (
+        isHeterogeneousProvider(candidate.provider) &&
+        candidate.leaseRefreshedAt &&
+        new Date(candidate.leaseRefreshedAt).getTime() < heteroStaleBefore.getTime()
+      ) {
+        return this.abandonIfStillStale(
+          operationModel,
+          operationId,
+          heteroStaleBefore,
+          'hetero_silent',
+        );
+      }
+
+      // Any other stateless operation is left alone: this sweep only acts on
+      // runs it can resume or can prove dead.
+      return 'no_state';
+    }
     if (!this.queueService) return 'no_queue';
 
     // Parked operations have their own resume paths; a plain step would run

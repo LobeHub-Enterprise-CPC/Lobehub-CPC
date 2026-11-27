@@ -1,4 +1,5 @@
 import { type DeviceControlDeps, executeDeviceRpc } from '@lobechat/device-control';
+import { BROWSER_IDENTIFIER } from '@lobechat/device-control/agent-browser';
 import type {
   AgentRunRequestMessage,
   GatewayClient,
@@ -12,6 +13,7 @@ import type { resolveToken } from '../auth/resolveToken';
 import type { CliMaintenance } from '../daemon/maintenance';
 import { appendLog } from '../daemon/manager';
 import { executeToolCall } from '../tools';
+import { type BrowserDevice, executeBrowserCall } from '../tools/browser';
 import { log } from '../utils/logger';
 import { spawnHeteroAgentRun } from './agentRun';
 import { collectSystemInfo } from './systemInfo';
@@ -32,6 +34,8 @@ const assertExecutionCurrent = (request: ExecutionRequest) => {
 
 /** Everything a gateway connection's request handlers need from the host process. */
 export interface GatewayHandlerContext {
+  /** The device's `agent-browser`, when the browser tool is enabled for this process. */
+  browser?: BrowserDevice;
   deps: DeviceControlDeps;
   error: (msg: string) => void;
   /** Read at dispatch time — the underlying auth may be refreshed mid-session. */
@@ -62,7 +66,7 @@ export function bindGatewayClientHandlers(
     if (!executionCurrent(request)) return;
     info(`Received system_info_request: requestId=${request.requestId}`);
     try {
-      const systemInfo = await collectSystemInfo(ctx.nativeRuntimes);
+      const systemInfo = await collectSystemInfo(ctx.nativeRuntimes, ctx.browser);
       if (!executionCurrent(request)) return;
       client.sendSystemInfoResponse({
         attemptId: request.attemptId,
@@ -102,6 +106,8 @@ export function bindGatewayClientHandlers(
     const result = await maintenance
       .run(() => {
         assertExecutionCurrent(request);
+        if (toolCall.identifier === BROWSER_IDENTIFIER)
+          return executeBrowserCall(ctx.browser, toolCall.apiName, toolCall.arguments, timeout);
         return executeToolCall(
           toolCall.apiName,
           toolCall.arguments,

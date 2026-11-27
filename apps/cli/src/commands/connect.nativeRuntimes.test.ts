@@ -58,6 +58,13 @@ vi.mock('../auth/resolveToken', () => ({
     userId: 'test-user',
   }),
 }));
+vi.mock('../auth/gatewayIdentity', async () => {
+  const { deviceGatewayTestIdentity } = await import('./connectTestUtils');
+  return {
+    createGatewayIdentityProvider: vi.fn(() => async () => deviceGatewayTestIdentity({})),
+    isGatewayIdentityRetryable: () => false,
+  };
+});
 vi.mock('../settings', () => ({
   addWorkspaceEnrollment: vi.fn(),
   loadOrCreateConnectionId: vi.fn().mockReturnValue('test-connection-id'),
@@ -67,7 +74,9 @@ vi.mock('../settings', () => ({
   loadWorkspaceEnrollments: vi.fn().mockReturnValue([]),
   normalizeUrl: vi.fn((url?: string) => (url ? url.replace(/\/$/, '') : undefined)),
   removeWorkspaceEnrollment: vi.fn(),
+  resolveCommandMode: () => 'auto',
   resolveDeviceMetricsBacklogPath: vi.fn((id: string) => `/tmp/device-metrics/${id}.json`),
+  resolveServerUrl: () => 'https://app.lobehub.com',
   saveDeviceGatewayUrl: vi.fn(),
   saveSettings: vi.fn(),
 }));
@@ -215,6 +224,9 @@ describe('connect native agent runtimes', () => {
     await createProgram().parseAsync(['node', 'test', 'connect']);
     for (const requestId of ['probe-1', 'probe-2', 'probe-3']) {
       await clientEventHandlers['system_info_request']?.({
+        attemptId: `attempt-${requestId}`,
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
         requestId,
         type: 'system_info_request',
       });
@@ -236,12 +248,18 @@ describe('connect native agent runtimes', () => {
   it('reprobes native Codex when the gateway connection is re-established', async () => {
     await createProgram().parseAsync(['node', 'test', 'connect']);
     await clientEventHandlers['system_info_request']?.({
+      attemptId: 'attempt-new',
+      executionSignal: new AbortController().signal,
+      isExecutionCurrent: () => true,
       requestId: 'probe-new',
       type: 'system_info_request',
     });
     codexProbe.connect.mockRejectedValueOnce(new Error('binary downgraded'));
     clientEventHandlers['connected']?.();
     await clientEventHandlers['system_info_request']?.({
+      attemptId: 'attempt-downgrade',
+      executionSignal: new AbortController().signal,
+      isExecutionCurrent: () => true,
       requestId: 'probe-downgrade',
       type: 'system_info_request',
     });

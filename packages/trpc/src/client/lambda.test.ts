@@ -108,6 +108,15 @@ describe('lambdaClient large-input query transport', () => {
       'ids',
       150,
     ],
+    [
+      'device.getAgentDeviceBindings',
+      () =>
+        lambdaClient.device.getAgentDeviceBindings.query({
+          agentIds: Array.from({ length: 100 }, (_, i) => `agt_${String(i).padStart(12, '0')}`),
+        }),
+      'agentIds',
+      100,
+    ],
   ] as const)(
     'sends %s with a large path/id array as a POST request',
     async (path, call, arrayField, expectedLength) => {
@@ -244,6 +253,24 @@ describe('lambdaClient transport lanes', () => {
     expect(tokenUrl).not.toContain('agent.getAgentConfigById');
   });
 
+  // Entering a workspace revalidates every SWR key at once; batched, the read
+  // that decides whether to open workspace onboarding waited for the slowest
+  // home read and the admin stayed on the home page.
+  it('sends the workspace settings read as its own unbatched request', async () => {
+    fetchMock.mockImplementation(respondByLane);
+
+    await Promise.all([
+      lambdaClient.workspace.getSettings.query(),
+      lambdaClient.agent.getAgentConfigById.query({ agentId: 'agt_test' }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const settingsUrl = requestedUrls().find((url) => url.includes('workspace.getSettings'));
+    expect(settingsUrl).toBeDefined();
+    expect(settingsUrl).not.toContain('batch=1');
+    expect(settingsUrl).not.toContain('agent.getAgentConfigById');
+  });
+
   // One-shot relay: the server reads the channel this tab subscribed from the
   // request headers, so the call carries its own headers and never shares a
   // batch with calls that must not be relayed.
@@ -340,6 +367,31 @@ describe('lambdaClient unreadable response handling', () => {
     expect(error.message).toBe('TENANT_FROZEN');
     expect(error.meta?.shouldRetry).toBe(false);
     expect(console.error).not.toHaveBeenCalled();
+  });
+
+  // Regression: a gateway HTML error page made @trpc/client fail `res.json()`
+  // and drop the response, so the UI showed `Unexpected token '<', "<!doctype
+  // "... is not valid JSON` with no status or id to trace the failure by.
+  it('turns an HTML error page into readable copy that keeps the request id', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('<!doctype html><html><body>504</body></html>', {
+        headers: {
+          'cf-ray': 'a4f726100b0cd438-SJC',
+          'content-type': 'text/html',
+          'x-vercel-id': 'sfo1::abc-123',
+        },
+        status: 504,
+      }),
+    );
+
+    const error = await lambdaClient.agent.getAgentConfigById
+      .query({ agentId: 'agt_test' })
+      .catch((e: unknown) => e);
+
+    expect(error).toMatchObject({
+      cause: { requestId: 'sfo1::abc-123', status: 504 },
+      message: 'response.withRequestDetail',
+    });
   });
 
   it('keeps a well-formed tRPC error message untouched', async () => {

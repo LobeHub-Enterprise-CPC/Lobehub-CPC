@@ -24,11 +24,12 @@ const deprecateGroup = (group: Command, replacement: string): Command =>
 /**
  * The pre-move `lh verify …` command surface. Every command now lives under
  * `lh acceptance`; these aliases wire the same implementations and warn, and
- * are scheduled for removal once callers migrate.
+ * are scheduled for removal once callers migrate. Hidden from help and the
+ * man page so only existing callers keep using it.
  */
 export function registerVerifyCommand(program: Command) {
   const verify = program
-    .command('verify')
+    .command('verify', { hidden: true })
     .description(`Deprecated — use \`${CLI_PRIMARY_BIN} acceptance\``);
 
   // `verify acceptance …` — legacy alias of the first-class `lh acceptance`.

@@ -35,10 +35,12 @@ export class MessageModel {
   findLatestAssistantMessageByThread: MessageLookupQueries['findLatestAssistantMessageByThread'];
   findVerifyMessageByOperationId: MessageLookupQueries['findVerifyMessageByOperationId'];
   findLatestAssistantByOperationId: MessageLookupQueries['findLatestAssistantByOperationId'];
+  listLatestTurnAssistantContents: MessageLookupQueries['listLatestTurnAssistantContents'];
   getThreadParentMessages: MessageLookupQueries['getThreadParentMessages'];
   findMessageQueriesById: MessageLookupQueries['findMessageQueriesById'];
   queryBySessionId: MessageLookupQueries['queryBySessionId'];
   queryByKeyword: MessageLookupQueries['queryByKeyword'];
+  searchInTopic: MessageLookupQueries['searchInTopic'];
 
   queryByIds: MessageByIdsQueries['queryByIds'];
 
@@ -80,6 +82,7 @@ export class MessageModel {
   findMessagePlugin: MessagePluginStore['findMessagePlugin'];
   listMessagePluginsByTopic: MessagePluginStore['listMessagePluginsByTopic'];
   findLatestPluginStateInTopic: MessagePluginStore['findLatestPluginStateInTopic'];
+  listToolCallsInTopics: MessagePluginStore['listToolCallsInTopics'];
   listMessagePluginsForOperation: MessagePluginStore['listMessagePluginsForOperation'];
   listMessagePluginsByIds: MessagePluginStore['listMessagePluginsByIds'];
   findToolMessageIdByToolCallId: MessagePluginStore['findToolMessageIdByToolCallId'];
@@ -145,10 +148,12 @@ export class MessageModel {
     this.findLatestAssistantMessageByThread = lookups.findLatestAssistantMessageByThread;
     this.findVerifyMessageByOperationId = lookups.findVerifyMessageByOperationId;
     this.findLatestAssistantByOperationId = lookups.findLatestAssistantByOperationId;
+    this.listLatestTurnAssistantContents = lookups.listLatestTurnAssistantContents;
     this.getThreadParentMessages = lookups.getThreadParentMessages;
     this.findMessageQueriesById = lookups.findMessageQueriesById;
     this.queryBySessionId = lookups.queryBySessionId;
     this.queryByKeyword = lookups.queryByKeyword;
+    this.searchInTopic = lookups.searchInTopic;
     this.queryByIds = byIds.queryByIds;
     this.queryWithWhere = page.queryWithWhere;
     this.queryLastUserMessageByTopics = conversation.queryLastUserMessageByTopics;
@@ -187,6 +192,7 @@ export class MessageModel {
     this.findMessagePlugin = plugins.findMessagePlugin;
     this.listMessagePluginsByTopic = plugins.listMessagePluginsByTopic;
     this.findLatestPluginStateInTopic = plugins.findLatestPluginStateInTopic;
+    this.listToolCallsInTopics = plugins.listToolCallsInTopics;
     this.listMessagePluginsForOperation = plugins.listMessagePluginsForOperation;
     this.listMessagePluginsByIds = plugins.listMessagePluginsByIds;
     this.findToolMessageIdByToolCallId = plugins.findToolMessageIdByToolCallId;

@@ -8,6 +8,9 @@ import { getDirectDeliveryClient } from '@/server/modules/Hatchet/directDelivery
 import { buildTenantCallbackUrl } from '@/server/modules/Tenant/callbackUrl';
 import { advanceGoal } from '@/server/services/goal/advanceGoal';
 import { GOAL_ADVANCE_PATH } from '@/server/services/goal/scheduler';
+import { GoalSubscriptionService } from '@/server/services/goal/subscriptions';
+
+let subscriptionAfter: string | undefined;
 
 const log = debug('lobe-server:workflows:goal:sweep');
 
@@ -45,6 +48,12 @@ export async function sweep(c: Context) {
     const { dryRun = false, limit = 200, staleAfterMs = DEFAULT_STALE_AFTER_MS } = body ?? {};
 
     const db = await getServerDB();
+    if (!dryRun)
+      subscriptionAfter = await GoalSubscriptionService.reconcile(
+        db,
+        subscriptionAfter,
+        Math.min(limit, 100),
+      );
     const stalled = await GoalModel.listStalled(db, {
       limit,
       staleBefore: new Date(Date.now() - staleAfterMs),

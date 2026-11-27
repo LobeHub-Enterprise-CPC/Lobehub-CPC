@@ -1,5 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true
+  },
   "exclude": [
     "node_modules",
     "apps/desktop/**",

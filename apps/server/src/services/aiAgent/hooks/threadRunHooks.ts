@@ -1,4 +1,5 @@
 import type { AgentHookEvent, AgentState } from '@lobechat/agent-runtime';
+import { getLlmCallCount } from '@lobechat/agent-runtime';
 import type { ThreadMetadata } from '@lobechat/types';
 import { ThreadStatus } from '@lobechat/types';
 import debug from 'debug';
@@ -30,12 +31,13 @@ export function calculateTotalTokens(usage?: AgentState['usage']): number | unde
  */
 export type ThreadUsageBaseline = Pick<
   ThreadMetadata,
-  'totalCost' | 'totalMessages' | 'totalTokens' | 'totalToolCalls'
+  'totalCost' | 'totalLlmCalls' | 'totalMessages' | 'totalTokens' | 'totalToolCalls'
 >;
 
 export const pickThreadUsageBaseline = (metadata?: ThreadMetadata | null): ThreadUsageBaseline => ({
   totalCost: metadata?.totalCost,
   totalMessages: metadata?.totalMessages,
+  totalLlmCalls: metadata?.totalLlmCalls,
   totalTokens: metadata?.totalTokens,
   totalToolCalls: metadata?.totalToolCalls,
 });
@@ -79,6 +81,8 @@ export function createThreadMetadataCallbacks(
             operationId: state.operationId,
             startedAt,
             totalMessages: state.messages?.length ?? 0,
+            totalSteps: getLlmCallCount(state),
+            totalLlmCalls: getLlmCallCount(state),
             totalTokens: calculateTotalTokens(state.usage),
             totalToolCalls: accumulatedToolCalls,
           },
@@ -155,6 +159,8 @@ export function createThreadMetadataCallbacks(
             startedAt,
             totalCost: finalState.cost?.total,
             totalMessages: finalState.messages?.length ?? 0,
+            totalSteps: getLlmCallCount(finalState),
+            totalLlmCalls: getLlmCallCount(finalState),
             totalTokens: calculateTotalTokens(finalState.usage),
             totalToolCalls: accumulatedToolCalls,
           },
@@ -188,6 +194,8 @@ export async function applyThreadProgress(
   threadModel: ThreadModel,
   params: ThreadRunWriteParams & {
     progressStep: number;
+    /** LLM calls this run made (user-facing step metric); omitted keeps the stored value. */
+    totalLlmCalls?: number;
     totalMessages: number;
     totalTokens?: number;
     totalToolCalls?: number;
@@ -199,6 +207,7 @@ export async function applyThreadProgress(
     runToken,
     startedAt,
     threadId,
+    totalLlmCalls,
     totalMessages,
     totalTokens,
     totalToolCalls,
@@ -208,6 +217,10 @@ export async function applyThreadProgress(
     operationId,
     startedAt,
     totalCost: usageBaseline.totalCost,
+    ...(totalLlmCalls !== undefined && {
+      totalLlmCalls: addUsage(usageBaseline.totalLlmCalls, totalLlmCalls),
+      totalSteps: addUsage(usageBaseline.totalLlmCalls, totalLlmCalls),
+    }),
     totalMessages,
     totalTokens: addUsage(usageBaseline.totalTokens, totalTokens),
     totalToolCalls: addUsage(usageBaseline.totalToolCalls, totalToolCalls),
@@ -225,6 +238,7 @@ export async function applyThreadCompletion(
     summary?: {
       error?: unknown;
       totalCost?: number | null;
+      totalLlmCalls?: number | null;
       totalTokens?: number | null;
       totalToolCalls?: number | null;
     };
@@ -274,6 +288,10 @@ export async function applyThreadCompletion(
     ...(summary?.totalCost != null && {
       totalCost: addUsage(usageBaseline.totalCost, summary.totalCost),
     }),
+    ...(summary?.totalLlmCalls != null && {
+      totalLlmCalls: addUsage(usageBaseline.totalLlmCalls, summary.totalLlmCalls),
+      totalSteps: addUsage(usageBaseline.totalLlmCalls, summary.totalLlmCalls),
+    }),
     ...(summary?.totalTokens != null && {
       totalTokens: addUsage(usageBaseline.totalTokens, summary.totalTokens),
     }),
@@ -312,6 +330,7 @@ export function createThreadHooks(
             progressStep: event.stepIndex ?? state.stepCount,
             startedAt,
             threadId,
+            totalLlmCalls: getLlmCallCount(state),
             totalMessages: state.messages?.length ?? 0,
             totalTokens: calculateTotalTokens(state.usage),
             totalToolCalls: state.usage?.tools?.totalCalls,
@@ -353,6 +372,7 @@ export function createThreadHooks(
             summary: {
               error: state.error,
               totalCost: state.cost?.total,
+              totalLlmCalls: getLlmCallCount(state),
               totalTokens: calculateTotalTokens(state.usage),
               totalToolCalls: state.usage?.tools?.totalCalls,
             },

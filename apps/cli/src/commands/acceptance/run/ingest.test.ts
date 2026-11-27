@@ -56,12 +56,14 @@ describe('verify ingest-report — every run is an immutable acceptance round', 
     };
 
     dir = mkdtempSync(path.join(tmpdir(), 'lh-ingest-'));
+    vi.spyOn(process, 'cwd').mockReturnValue(dir);
     writeFileSync(path.join(dir, 'result.json'), JSON.stringify({ cases: [] }));
     process.env.LOBEHUB_TOPIC_ID = 'topic-1';
   });
 
   afterEach(() => {
     consoleSpy.mockRestore();
+    vi.mocked(process.cwd).mockRestore();
     vi.unstubAllEnvs();
     delete process.env.LOBEHUB_TOPIC_ID;
     rmSync(dir, { force: true, recursive: true });
@@ -331,7 +333,7 @@ describe('verify ingest-report — every run is an immutable acceptance round', 
       hint: 'LOBEHUB_WORKSPACE_ID=workspace-target',
       target: 'workspace-target',
     },
-    { current: 'workspace-current', hint: 'lh workspace use --personal', target: null },
+    { current: 'workspace-current', hint: 'LOBEHUB_WORKSPACE_ID=personal', target: null },
   ])(
     'rejects scope $current → $target before any remote writes',
     async ({ current, target, hint }) => {

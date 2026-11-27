@@ -47,6 +47,8 @@ const mapToResourceItem = (
 
     id: item.id,
 
+    knowledgeBaseIds: item.knowledgeBaseIds,
+
     // Metadata
     metadata: item.metadata || undefined,
 

@@ -1,9 +1,13 @@
+import { randomUUID } from 'node:crypto';
+import posixPath from 'node:path/posix';
+
 import {
   CloudSandboxIdentifier,
   type SandboxCallToolResult,
   type SandboxExportFileResult,
   selectSandboxInitFiles,
 } from '@lobechat/builtin-tool-cloud-sandbox';
+import { getLocalImageMimeType, MAX_IMAGE_READ_BYTES } from '@lobechat/local-file-shell/read-image';
 import debug from 'debug';
 import { sha256 } from 'js-sha256';
 
@@ -12,6 +16,7 @@ import {
   checkCommand,
   COMMAND_BLOCKED_MESSAGE,
   type CommandGovernanceContext,
+  type CommandGovernanceDecision,
   GOVERNANCE_UNAVAILABLE_MESSAGE,
   GovernanceUnavailableError,
   isGovernanceEnabled,
@@ -23,6 +28,13 @@ import {
   SANDBOX_INIT_TIMEOUT_MS,
   type SandboxInitDownload,
 } from './bootstrap';
+import {
+  environmentInitRan,
+  environmentInitReport,
+  planSandboxEnvironmentInit,
+  SANDBOX_ENVIRONMENT_INIT_TIMEOUT_MS,
+} from './environmentInit';
+import { isSandboxAccessDeniedError, isSandboxAuthError } from './errors';
 import { callTenantSandboxTool } from './tenantWork';
 import type {
   SandboxCommandResult,
@@ -46,10 +58,16 @@ const log = debug('lobe-server:sandbox:service');
  */
 const GOVERNED_SHELL_TOOL_NAMES = new Set(['execScript', 'runCommand', 'executeCode']);
 
+/** `readLocalFile` is the legacy name still used by ComputerRuntime and remote sandboxes. */
+const READ_FILE_TOOL_NAMES = new Set(['readFile', 'readLocalFile']);
+
 export class SandboxMiddlewareService implements SandboxService {
   readonly capabilities: SandboxProviderCapabilities;
   readonly kind: SandboxProviderKind;
 
+  private environmentInitialized = false;
+  /** What applying the environment said, until a shell result carries it. */
+  private pendingEnvironmentReport: string | undefined;
   private filesInitialized = false;
 
   constructor(
@@ -78,20 +96,173 @@ export class SandboxMiddlewareService implements SandboxService {
     toolName: string,
     params: Record<string, unknown>,
   ): Promise<SandboxCallToolResult> {
+    const report = await this.ensureEnvironmentInitialized();
+    if (report) this.pendingEnvironmentReport = report;
     await this.ensureFilesInitialized();
 
+    if (READ_FILE_TOOL_NAMES.has(toolName) && typeof params.path === 'string') {
+      const mimeType = getLocalImageMimeType(params.path);
+      if (mimeType) return this.readSandboxImageFile(params.path, mimeType);
+    }
+
+    const result = await this.callGovernedTool(toolName, params);
+
+    // Held until a shell result can carry it: a first call that lists or
+    // reads files has no output to put it in, and dropping it would hide a
+    // failed setup from the rest of the conversation.
+    const pending = this.pendingEnvironmentReport;
+    if (!pending || !SHELL_TOOLS.has(toolName)) return result;
+    this.pendingEnvironmentReport = undefined;
+
+    return withEnvironmentReport(toolName, result, pending);
+  }
+
+  /**
+   * Apply the topic's environment to the working directory the first time this
+   * service instance is used: clone its repository and run its setup there.
+   *
+   * The command itself decides whether to run: only an empty directory is
+   * initialized, so a temporary sandbox is initialized each time it starts
+   * empty and a folder on the drive once. Best-effort: a failure is reported,
+   * never thrown, and the tool call it precedes still runs.
+   *
+   * Returns what the run printed when it did something, for the next shell
+   * result to carry; nothing when the directory was already initialized.
+   */
+  private async ensureEnvironmentInitialized(): Promise<string | undefined> {
+    if (this.environmentInitialized) return;
+    this.environmentInitialized = true;
+
+    const init = this.options.sandboxInitialization;
+    if (!init || !this.provider.capabilities.shell) return;
+
+    try {
+      const { command, governedCommands } = planSandboxEnvironmentInit(init);
+      const result = await this.callGovernedTool(
+        'runCommand',
+        { command, timeout: SANDBOX_ENVIRONMENT_INIT_TIMEOUT_MS },
+        governedCommands,
+      );
+      if (
+        result.error?.name === 'COMMAND_BLOCKED' ||
+        result.error?.name === 'GOVERNANCE_UNAVAILABLE'
+      ) {
+        return `The environment "${init.name}" could not be applied: ${result.error.message}`;
+      }
+      const stdout = (result.result as { stdout?: string } | null | undefined)?.stdout;
+      // The command always exits cleanly, so a failed call that printed
+      // nothing never reached the sandbox: said so, not passed off as a
+      // folder that was already initialized.
+      if (!environmentInitRan(stdout)) {
+        return result.success ? undefined : environmentInitUnreachable(init.name);
+      }
+
+      log(
+        'Environment %s applied for topic %s: success=%s',
+        init.environmentId,
+        this.options.topicId,
+        result.success,
+      );
+
+      return environmentInitReport(stdout) || undefined;
+    } catch {
+      log('Environment init failed for topic %s', this.options.topicId);
+
+      return environmentInitUnreachable(init.name);
+    }
+  }
+
+  /**
+   * Sandbox counterpart of `readLocalImageFile`: remote readers decode files as
+   * UTF-8, so image bytes either fail or come back as mojibake. Upload the
+   * image through the export pipeline instead and return the same
+   * `{ isImage, imageUrl, imageFileId }` shape the device path produces, which
+   * ComputerRuntime routes to `state.images`. Failures degrade to an
+   * `[Image: name]` placeholder rather than failing the read.
+   */
+  private async readSandboxImageFile(
+    filePath: string,
+    mimeType: string,
+  ): Promise<SandboxCallToolResult> {
+    const filename = posixPath.basename(filePath);
+    const buildResult = (content: string, extra: Record<string, unknown> = {}) => ({
+      result: { content, fileType: mimeType, filename, isImage: true, ...extra },
+      success: true,
+    });
+
+    if (!this.provider.capabilities.exportFile || !this.options.fileService) {
+      return buildResult(
+        `[Image: ${filename}] (upload unavailable — this sandbox cannot export files; the model cannot view this image)`,
+      );
+    }
+
+    const exported = await this.exportAndUploadFile(filePath, filename, {
+      // A visitor's image preview gets the same share provenance the upload
+      // path stamps, so it never surfaces in the creator's library while
+      // `/f/:id` stays openable.
+      ...(this.options.agentShareVisitor
+        ? { metadata: { agentShare: this.options.agentShareVisitor } }
+        : {}),
+      storageName: `${randomUUID()}-${filename}`,
+    });
+
+    if (!exported.success) {
+      // Auth failures must stay failed so the execInSandbox route re-prompts
+      // for Market auth; access-denied refusals must stop the run. Neither may
+      // be softened into the upload-unavailable placeholder.
+      if (isSandboxAuthError(exported.error) || isSandboxAccessDeniedError(exported.error)) {
+        return { error: exported.error, result: null, success: false };
+      }
+
+      return buildResult(
+        `[Image: ${filename}] (upload unavailable — ${exported.error?.message || 'export failed'}; the model cannot view this image)`,
+      );
+    }
+
+    if (!exported.url) {
+      return buildResult(
+        `[Image: ${filename}] (upload unavailable — export failed; the model cannot view this image)`,
+      );
+    }
+
+    if (exported.size !== undefined && exported.size > MAX_IMAGE_READ_BYTES) {
+      return buildResult(
+        `Error: Image file is too large to preview (${exported.size} bytes, limit ${MAX_IMAGE_READ_BYTES}).`,
+      );
+    }
+
+    return buildResult(`[Image: ${filename}]`, {
+      fileType: exported.mimeType?.startsWith('image/') ? exported.mimeType : mimeType,
+      imageFileId: exported.fileId,
+      imageUrl: exported.url,
+    });
+  }
+
+  /**
+   * Command governance for the code-execution tool names; every other tool, and
+   * every governed call that is allowed, goes to the provider through the
+   * tenant work receipt (`callTenantSandboxTool`).
+   */
+  private async callGovernedTool(
+    toolName: string,
+    params: Record<string, unknown>,
+    environmentCommands?: readonly string[],
+  ): Promise<SandboxCallToolResult> {
     const { serverDB, userId } = this.options;
 
     if (!GOVERNED_SHELL_TOOL_NAMES.has(toolName)) {
       return callTenantSandboxTool(this.provider, toolName, params, this.options);
     }
 
+    // Generated environment wrappers contain clone credentials and environment
+    // values. Check the clone and setup commands, and audit the wrapper by name.
     const ctx = {
       apiName: toolName,
       // The exact payload that will execute: `executeCode` runs `code` (never
       // the sibling `command` field, which an attacker can attach as a decoy).
-      commandText:
-        toolName === 'executeCode'
+      commandText: environmentCommands
+        ? 'Sandbox environment initialization'
+        : toolName === 'executeCode'
           ? typeof params?.code === 'string'
             ? params.code
             : JSON.stringify(params ?? {})
@@ -103,14 +274,20 @@ export class SandboxMiddlewareService implements SandboxService {
       userId,
     } satisfies CommandGovernanceContext;
 
-    let decision;
+    let decision: CommandGovernanceDecision = { allowed: true };
     try {
       if (!userId) throw new GovernanceUnavailableError();
       if (!serverDB) {
         if (await isGovernanceEnabled(userId)) throw new GovernanceUnavailableError();
         return callTenantSandboxTool(this.provider, toolName, params, this.options);
       }
-      decision = await checkCommand(ctx, serverDB);
+      for (const commandText of environmentCommands ?? [ctx.commandText]) {
+        const checked = await checkCommand({ ...ctx, commandText }, serverDB);
+        if (!checked.allowed) {
+          decision = checked;
+          break;
+        }
+      }
     } catch (error) {
       // Governance could not be evaluated: nothing runs, and it is not reported as a rule
       // denial (COMMAND_BLOCKED tells the model never to retry).
@@ -149,7 +326,7 @@ export class SandboxMiddlewareService implements SandboxService {
         {
           blocked: false,
           durationMs: Date.now() - startedAt,
-          errorMessage: result.error?.message,
+          errorMessage: environmentCommands ? undefined : result.error?.message,
           success: result.success,
         },
         serverDB,
@@ -361,5 +538,36 @@ export const normalizeSandboxCommandResult = (
     ...(shellId && { shellId }),
     stderr,
     success,
+  };
+};
+
+const SHELL_TOOLS = new Set(['execScript', 'runCommand']);
+
+/**
+ * What the conversation is told when the initializer could not be run at all
+ * — the sandbox did not answer — so a command that follows in an empty folder
+ * is not mistaken for one in the checkout. Nothing was recorded, so the next
+ * call tries again.
+ */
+const environmentInitUnreachable = (name: string) =>
+  `The environment "${name}" could not be applied: the sandbox did not respond. It will be tried again on the next command.`;
+
+/**
+ * The first shell result after an environment was applied, with what applying
+ * it said in front — so the conversation sees why its directory now holds a
+ * checkout, or why it does not. Other tools' results are left as they are:
+ * they have no output to put it in.
+ */
+const withEnvironmentReport = (
+  toolName: string,
+  result: SandboxCallToolResult,
+  report: string,
+): SandboxCallToolResult => {
+  const payload = result.result as { stdout?: string } | null | undefined;
+  if (!SHELL_TOOLS.has(toolName) || !payload || typeof payload !== 'object') return result;
+
+  return {
+    ...result,
+    result: { ...payload, stdout: `[environment] ${report}\n\n${payload.stdout ?? ''}` },
   };
 };

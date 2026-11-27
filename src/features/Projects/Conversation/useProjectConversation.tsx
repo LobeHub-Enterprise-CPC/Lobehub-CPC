@@ -13,7 +13,7 @@ import { topicSelectors } from '@/store/chat/selectors';
 import { useCurrentProjectDetail, useProjectStore } from '@/store/project';
 import { useProjectDirectoryStore, useProjectTopics } from '@/store/projectWorkingDirectory';
 
-import { getProjectConversationPath } from '../Layout/navigation';
+import { getProjectTopicPath } from '../Layout/navigation';
 
 /**
  * Route, store and agent wiring for a project conversation, shared by the
@@ -58,12 +58,9 @@ export const useProjectConversation = () => {
     );
   }, [conversationAgentId]);
 
-  const getConversationPath = useCallback(
-    () => getProjectConversationPath(projectSlug!),
-    [projectSlug],
-  );
+  const getConversationPath = useCallback(() => getProjectTopicPath(projectSlug!), [projectSlug]);
   const getTopicPath = useCallback(
-    (_agentId: string, topicId: string) => getProjectConversationPath(projectSlug!, topicId),
+    (_agentId: string, topicId: string) => getProjectTopicPath(projectSlug!, topicId),
     [projectSlug],
   );
 

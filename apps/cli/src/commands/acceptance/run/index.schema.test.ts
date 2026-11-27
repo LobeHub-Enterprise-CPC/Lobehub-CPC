@@ -23,6 +23,7 @@ describe('offline acceptance report commands', () => {
     vi.spyOn(console, 'log').mockImplementation((line) => printed.push(String(line)));
     vi.mocked(getTrpcClient).mockRejectedValue(new Error('No account configured'));
     dir = await mkdtemp(path.join(tmpdir(), 'lh-offline-report-'));
+    vi.spyOn(process, 'cwd').mockReturnValue(dir);
   });
 
   afterEach(async () => {

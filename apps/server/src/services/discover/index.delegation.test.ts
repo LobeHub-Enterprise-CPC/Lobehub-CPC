@@ -208,7 +208,7 @@ describe('DiscoverService delegation and market proxies', () => {
     });
 
     // The private Market SDK types the version as a string; it reaches Market as the same query value.
-    it('passes the detail version through as a string', async () => {
+    it('passes the detail version to Market as a number', async () => {
       market.agentGroups.getAgentGroupDetail.mockResolvedValue({ identifier: 'g' });
 
       await expect(
@@ -216,7 +216,7 @@ describe('DiscoverService delegation and market proxies', () => {
       ).resolves.toEqual({ identifier: 'g' });
       expect(market.agentGroups.getAgentGroupDetail).toHaveBeenCalledWith('g', {
         locale: 'en',
-        version: '3',
+        version: 3,
       });
     });
   });

@@ -1,3 +1,4 @@
+import { type AgentRuntimeContext, getLlmCallCount } from '@lobechat/agent-runtime';
 import { context as otelContext, trace as otelTrace } from '@lobechat/observability-otel/api';
 import {
   buildInvokeAgentAttributes,
@@ -17,6 +18,7 @@ import {
 } from '../../types';
 import { MAX_CRASHED_STEP_ATTEMPTS, STEP_LOCK_TTL_SECONDS } from '../constants';
 import { StepOwnershipLostError } from '../executionErrors';
+import { isShareRunRevoked } from '../shareRunGate';
 import type { AgentRuntimeServiceContext } from '../types';
 import { createStepLockOwner } from '../utils';
 import { startStepAbortPoll, type StepAbortPoll } from './abortPoll';
@@ -27,11 +29,13 @@ import {
   replayPendingCompletionLifecycle,
 } from './completion';
 import { queueNextStepAfterOwnershipLoss, scheduleNextStep } from './continuation';
+import { runPendingInit } from './deferredInit';
 import { failStep } from './failure';
 import {
   handleStepLockConflict,
   replayPendingInterventionLifecycle,
   runLockFreeDelivery,
+  settleSkippedStep,
   skipUnrunnableStep,
 } from './guards';
 import { dispatchAfterStepHooks, dispatchBeforeStepHooks, persistStepTracking } from './hooks';
@@ -257,6 +261,31 @@ export async function executeStep(
       }
       await assertGatewayStateExecution(operationId, agentState.execution);
 
+      // A run created without its init still carries the turn's request: run
+      // that init here, after the step claim and before anything is published.
+      let deferredInitContext: AgentRuntimeContext | undefined;
+      if (agentState.request) {
+        const init = await runPendingInit(
+          {
+            abortShareRun: (state) => deps.buildShareAbortResult(operationId, state),
+            agentOperationModel: deps.agentOperationModel,
+            coordinator: deps.coordinator,
+            isShareRunRevoked: (state) =>
+              isShareRunRevoked(
+                deps.delegate.verifyShareRunStillAuthorized,
+                operationId,
+                stepIndex,
+                state,
+              ),
+            runDeferredInit: deps.delegate.runDeferredInit,
+            settleSkippedStep: (state) => settleSkippedStep(deps, operationId, state),
+          },
+          { agentState, operationId, request: agentState.request, stepIndex },
+        );
+        if (init.result) return init.result;
+        deferredInitContext = init.context;
+      }
+
       const replayed = await replayPendingInterventionLifecycle(deps, {
         agentState,
         assertOwnership,
@@ -286,9 +315,14 @@ export async function executeStep(
       const { uiMessages: stepStartUiMessages, messages: stepEntryMessages } =
         await deps.queryStepEntryMessages(agentState);
       await deps.streamManager.publishStreamEvent(operationId, {
-        data: gatewayMessagePatchEnabled
-          ? { messageRevision: stepIndex }
-          : { ...(stepStartUiMessages !== undefined && { uiMessages: stepStartUiMessages }) },
+        data: {
+          ...(gatewayMessagePatchEnabled
+            ? { messageRevision: stepIndex }
+            : { ...(stepStartUiMessages !== undefined && { uiMessages: stepStartUiMessages }) }),
+          // User-facing metric: completed LLM calls, independent of the
+          // execution `stepIndex` used for scheduling/idempotency.
+          llmCalls: getLlmCallCount(agentState),
+        },
         stepIndex,
         type: 'step_start',
       });
@@ -358,7 +392,12 @@ export async function executeStep(
         },
       });
 
-      const input = await prepareStepInput(deps, { agentState, params, stepEntryMessages });
+      const input = await prepareStepInput(deps, {
+        agentState,
+        deferredInitContext,
+        params,
+        stepEntryMessages,
+      });
       const { currentContext } = input;
 
       const { startAt, stepResult } = await runAndReconcileStep(deps, {

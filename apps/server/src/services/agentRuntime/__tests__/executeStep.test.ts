@@ -1785,7 +1785,7 @@ describe('AgentRuntimeService.executeStep - step_start uiMessages payload', () =
     const stepStartCall = streamManager.publishStreamEvent.mock.calls.find(
       ([, evt]: any) => evt?.type === 'step_start',
     );
-    expect(stepStartCall[1].data).toEqual({ messageRevision: 5 });
+    expect(stepStartCall[1].data).toEqual({ llmCalls: 0, messageRevision: 5 });
   });
 
   it('still pushes the whole snapshot to a client that declared nothing', async () => {
@@ -1817,7 +1817,7 @@ describe('AgentRuntimeService.executeStep - step_start uiMessages payload', () =
     const stepStartCall = streamManager.publishStreamEvent.mock.calls.find(
       ([, evt]: any) => evt?.type === 'step_start',
     );
-    expect(stepStartCall[1].data).toEqual({
+    expect(stepStartCall[1].data).toMatchObject({
       uiMessages: [{ id: 'large-history', role: 'user' }],
     });
   });

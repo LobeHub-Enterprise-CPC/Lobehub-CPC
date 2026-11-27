@@ -27,7 +27,7 @@ describe('mainAreaMetaRoutes (Electron adapter)', () => {
   });
 
   it('uses the active resource category for the tab title and icon', () => {
-    const { static: staticMeta } = matchRouteMeta(mainAreaMetaRoutes, '/resource/images');
+    const { static: staticMeta } = matchRouteMeta(mainAreaMetaRoutes, '/resource/drive/images');
 
     expect(staticMeta.titleKey).toBe('navigation.resourceImages');
     expect(staticMeta.icon).toBe(ImageIcon);
@@ -60,7 +60,7 @@ describe('mainAreaMetaRoutes (Electron adapter)', () => {
   });
 
   it('resolves project conversation meta with a dynamic title runner', () => {
-    const matched = matchRouteMeta(mainAreaMetaRoutes, '/project/prj_1/conversation/tpc_1');
+    const matched = matchRouteMeta(mainAreaMetaRoutes, '/project/prj_1/topic/tpc_1');
 
     expect(matched.static.titleKey).toBe('project:topics.title');
     expect(matched.static.icon).toBeDefined();
@@ -89,7 +89,7 @@ describe('mainAreaMetaRoutes (Electron adapter)', () => {
   });
 
   it('resolves project meta for workspace-scoped tab urls', () => {
-    const matched = matchRouteMeta(mainAreaMetaRoutes, '/team-x/project/prj_1/conversation/tpc_1');
+    const matched = matchRouteMeta(mainAreaMetaRoutes, '/team-x/project/prj_1/topic/tpc_1');
 
     expect(matched.static.titleKey).toBe('project:topics.title');
     expect(matched.params.projectId).toBe('prj_1');

@@ -44,8 +44,19 @@ export interface ExecRunContext {
    * the runtime creates the assistant row itself in the host's message store.
    */
   assistantMessageId?: string;
+  /**
+   * Channel facts of a bot-originated run. Ambient like the agent config: the
+   * operation keeps them on `principal.actor.bot` / `world.channel`, so a stage
+   * that re-runs later reads them back from there rather than from the turn's
+   * request.
+   */
+  botContext?: InternalExecAgentParams['botContext'];
+  botPlatformContext?: InternalExecAgentParams['botPlatformContext'];
   canUseDevice: boolean;
   deviceAccessReason: DeviceAccessReason;
+  /** Tri-state disabled plugin identifiers; mirrored on `world.disabledPluginIds`. */
+  disabledPluginIds: string[];
+  discordContext?: InternalExecAgentParams['discordContext'];
   /** Effective model for this run (topic-pinned model already applied). */
   model: string;
   parentMessageId?: string;
@@ -227,6 +238,8 @@ export interface InternalExecAgentParams extends ExecAgentParams {
   functionTools?: Array<{ description?: string; name: string; parameters?: Record<string, any> }>;
   /** External lifecycle hooks (auto-adapt to local/production mode) */
   hooks?: AgentHook[];
+  /** Initial LLM-call count offset for resumed operations (accumulated from previous runs) */
+  initialLlmCalls?: number;
   /** Initial step count offset for resumed operations (accumulated from previous runs) */
   initialStepCount?: number;
   /**

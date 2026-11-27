@@ -33,6 +33,7 @@ describe('artifact publish', () => {
 
   beforeEach(() => {
     workingDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'lh-artifact-'));
+    writeManifest({});
     exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
     consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     fetchSpy = vi

@@ -60,6 +60,7 @@ import { documentRouter } from './document';
 import { documentCommentRouter } from './documentComment';
 import { documentLikeRouter } from './documentLike';
 import { enterpriseKnowledgeRouter } from './enterpriseKnowledge';
+import { environmentRouter } from './environment';
 import { executionPolicyRouter } from './executionPolicy';
 import { expertiseRouter } from './expertise';
 import { exporterRouter } from './exporter';
@@ -131,6 +132,7 @@ export const lambdaRouter = router({
   agentEvalExternal: agentEvalExternalRouter,
   agentLabel: agentLabelRouter,
   agentSkills: agentSkillsRouter,
+  environment: environmentRouter,
   sandboxStorage: sandboxStorageRouter,
   agentTrace: agentTraceRouter,
   expertise: expertiseRouter,

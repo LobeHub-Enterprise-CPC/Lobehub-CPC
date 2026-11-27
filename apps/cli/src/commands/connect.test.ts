@@ -1,4 +1,7 @@
-import type * as DeviceControlModule from '@lobechat/device-control';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import type * as DeviceGatewayClientModule from '@lobechat/device-gateway-client';
 import { GatewayClient } from '@lobechat/device-gateway-client';
 import { Command } from 'commander';
@@ -13,7 +16,12 @@ import { CLI_DISPLAY_NAME } from '../constants/identity';
 import { removeStatus, spawnDaemon, stopDaemon, writeStatus } from '../daemon/manager';
 import type * as DeviceRegister from '../device/register';
 import type * as SystemInfoModule from '../device/systemInfo';
-import { loadDeviceGatewayUrl, resolveCommandMode, saveDeviceGatewayUrl } from '../settings';
+import {
+  loadDeviceGatewayUrl,
+  resolveCommandMode,
+  resolveServerUrl,
+  saveDeviceGatewayUrl,
+} from '../settings';
 import { executeToolCall } from '../tools';
 import { cleanupAllProcesses, probeSandbox } from '../tools/shell';
 import { log, setVerbose } from '../utils/logger';
@@ -83,7 +91,7 @@ vi.mock('../settings', () => ({
   // check is a no-op and every scenario below is unaffected by it.
   resolveCommandMode: vi.fn().mockReturnValue('auto'),
   resolveDeviceMetricsBacklogPath: vi.fn((id: string) => `/tmp/device-metrics/${id}.json`),
-  resolveServerUrl: () => 'https://app.lobehub.com',
+  resolveServerUrl: vi.fn(),
   saveDeviceGatewayUrl: vi.fn(),
   saveSettings: vi.fn(),
 }));
@@ -149,21 +157,6 @@ let connectCalled = false;
 let lastSentToolResponse: any = null;
 let lastSentSystemInfoResponse: any = null;
 const clientReportMetrics = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const metricsSampler = vi.hoisted(() => ({
-  flush: vi.fn().mockResolvedValue(undefined),
-  options: undefined as any,
-  start: vi.fn().mockResolvedValue(undefined),
-  stop: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('@lobechat/device-control', async (importOriginal) => ({
-  ...(await importOriginal<typeof DeviceControlModule>()),
-  DeviceMetricsSampler: vi.fn().mockImplementation(function (opts: any) {
-    metricsSampler.options = opts;
-    return metricsSampler;
-  }),
-}));
-
 vi.mock('@lobechat/device-gateway-client', async (importOriginal) => ({
   // Address resolution is real; only the socket is faked.
   ...(await importOriginal<typeof DeviceGatewayClientModule>()),
@@ -213,6 +206,7 @@ describe('connect command', () => {
     mockStatus = null;
     clientOptions = {};
     vi.mocked(resolveToken).mockResolvedValue(OFFICIAL_AUTH);
+    vi.mocked(resolveServerUrl).mockReturnValue(OFFICIAL_AUTH.serverUrl);
     vi.mocked(loadDeviceGatewayUrl).mockReturnValue(undefined);
     getGlobalConfig.mockResolvedValue({ serverConfig: {} });
   });
@@ -346,7 +340,7 @@ describe('connect command', () => {
       expect(clientOptions).toMatchObject({
         gatewayUrl: 'https://gw.example.com/edge',
         serverUrl: SELF_HOSTED,
-        token: 'test-token',
+        token: 'dedicated-ticket',
       });
       expect(writeStatus).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -422,6 +416,7 @@ describe('connect command', () => {
 
     it('opens workspace shares on the same gateway as the personal connection', async () => {
       vi.mocked(resolveToken).mockResolvedValue({ ...OFFICIAL_AUTH, serverUrl: SELF_HOSTED });
+      vi.mocked(resolveServerUrl).mockReturnValue(SELF_HOSTED);
       getGlobalConfig.mockResolvedValue({
         serverConfig: { deviceGatewayUrl: 'https://gw.example.com' },
       });
@@ -429,6 +424,9 @@ describe('connect command', () => {
       const personal = clientOptions;
 
       await clientEventHandlers['rpc_request']?.({
+        attemptId: 'rpc-attempt',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
         method: 'enrollWorkspace',
         params: { token: 'ws-token', workspaceId: 'ws-1' },
         requestId: 'rpc-1',
@@ -439,9 +437,13 @@ describe('connect command', () => {
       expect(clientOptions).toMatchObject({
         gatewayUrl: 'https://gw.example.com',
         serverUrl: SELF_HOSTED,
-        token: 'ws-token',
+        token: 'dedicated-ticket',
         workspaceId: 'ws-1',
       });
+      expect(createGatewayIdentityProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ serverUrl: SELF_HOSTED }),
+        expect.objectContaining({ initialTicket: 'ws-token', workspaceId: 'ws-1' }),
+      );
     });
 
     it('passes --gateway through to the daemon child, which resolves the same way', async () => {
@@ -603,11 +605,6 @@ describe('connect command', () => {
       await handler();
     }
 
-    // Pending health samples get a bounded push before the socket closes.
-    expect(metricsSampler.stop).toHaveBeenCalledWith({ flushTimeoutMs: 3000 });
-    expect(metricsSampler.stop.mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(cleanupAllProcesses).mock.invocationCallOrder[0],
-    );
     expect(cleanupAllProcesses).toHaveBeenCalled();
     expect(removeStatus).toHaveBeenCalled();
   });
@@ -649,6 +646,108 @@ describe('connect command', () => {
     } else {
       expect(sysInfo.videosPath).toContain('Videos');
     }
+  });
+
+  describe.skipIf(process.platform === 'win32')('browser tool', () => {
+    let binDir: string;
+    let binary: string;
+
+    beforeEach(async () => {
+      binDir = await mkdtemp(path.join(os.tmpdir(), 'lh-connect-browser-'));
+      binary = path.join(binDir, 'agent-browser');
+      // Records its argv, stdin and AGENT_BROWSER_* env, then answers like
+      // `agent-browser --json batch`.
+      await writeFile(
+        binary,
+        `#!/bin/sh\nprintf '%s ' "$@" > "$0.argv"\nenv | grep '^AGENT_BROWSER_' > "$0.env"\ncat > "$0.stdin"\nprintf '[{"command":["open"],"error":null,"result":{"title":"T","url":"https://e.com/"},"success":true}]'\n`,
+      );
+      await chmod(binary, 0o755);
+      vi.stubEnv('PATH', `${binDir}${path.delimiter}/bin${path.delimiter}/usr/bin`);
+    });
+
+    afterEach(async () => {
+      vi.unstubAllEnvs();
+      await rm(binDir, { force: true, recursive: true });
+    });
+
+    const navigateCall = {
+      attemptId: 'attempt-browser',
+      executionSignal: new AbortController().signal,
+      isExecutionCurrent: () => true,
+      requestId: 'req-browser',
+      toolCall: {
+        apiName: 'navigate',
+        arguments: JSON.stringify({ __topicId: 'tpc_1', url: 'https://e.com' }),
+        identifier: 'lobe-browser',
+      },
+      type: 'tool_call_request',
+    };
+
+    it('advertises the browser tool from agent-browser on PATH and runs calls with it', async () => {
+      // A user's own agent-browser profile must not reach the model's browser.
+      vi.stubEnv('AGENT_BROWSER_PROFILE', 'Default');
+      await createProgram().parseAsync(['node', 'test', 'connect']);
+
+      await clientEventHandlers['system_info_request']?.({
+        attemptId: 'attempt-browser-info',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
+        requestId: 'r',
+        type: 'system_info_request',
+      });
+      expect(lastSentSystemInfoResponse.result.systemInfo.supportedTools).toEqual(['lobe-browser']);
+
+      await clientEventHandlers['tool_call_request']?.(navigateCall);
+      expect(executeToolCall).not.toHaveBeenCalled();
+      expect(lastSentToolResponse.result).toMatchObject({
+        state: { title: 'T', url: 'https://e.com/' },
+        success: true,
+      });
+      const argv = await readFile(`${binary}.argv`, 'utf8');
+      expect(argv).toMatch(
+        /^--namespace lobehub --config \S+agent-browser\.json --headed false --idle-timeout 10m --session lobehub-topic-tpc_1 --json batch --bail $/,
+      );
+      expect(await readFile(`${binary}.env`, 'utf8')).toBe('');
+      expect(JSON.parse(await readFile(`${binary}.stdin`, 'utf8'))).toEqual([
+        ['open', 'https://e.com'],
+      ]);
+    });
+
+    it('rejects browser calls when no agent-browser is available', async () => {
+      vi.stubEnv('PATH', '/nonexistent');
+      await createProgram().parseAsync(['node', 'test', 'connect']);
+
+      await clientEventHandlers['system_info_request']?.({
+        attemptId: 'attempt-browser-info',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
+        requestId: 'r',
+        type: 'system_info_request',
+      });
+      expect(lastSentSystemInfoResponse.result.systemInfo).not.toHaveProperty('supportedTools');
+
+      await clientEventHandlers['tool_call_request']?.(navigateCall);
+      expect(executeToolCall).not.toHaveBeenCalled();
+      expect(lastSentToolResponse.result).toMatchObject({
+        error: expect.stringContaining('agent-browser'),
+        success: false,
+      });
+    });
+
+    it('passes an explicit --agent-browser to the daemon child', async () => {
+      await createProgram().parseAsync([
+        'node',
+        'test',
+        'connect',
+        '--daemon',
+        '--agent-browser',
+        path.relative(process.cwd(), binary),
+      ]);
+
+      expect(vi.mocked(spawnDaemon).mock.calls[0]?.[0]).toEqual(
+        expect.arrayContaining(['--agent-browser', binary]),
+      );
+    });
   });
 
   describe('--daemon flag', () => {

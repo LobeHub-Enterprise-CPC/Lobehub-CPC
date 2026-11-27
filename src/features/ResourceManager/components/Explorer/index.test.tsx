@@ -156,16 +156,17 @@ describe('ResourceExplorer', () => {
     },
   );
 
-  it('keeps library contents excluded from the All resource query', () => {
+  it('lists every uploaded file, library ones included, and no pages in the drive', () => {
     render(<ResourceExplorer />);
 
     expect(mocks.useFetchResources).toHaveBeenCalledWith(
       expect.objectContaining({
         category: FilesTabs.All,
+        filesOnly: true,
         includeContentPreview: false,
         libraryId: undefined,
         parentId: null,
-        showFilesInKnowledgeBase: false,
+        showFilesInKnowledgeBase: true,
       }),
     );
   });
@@ -214,6 +215,20 @@ describe('ResourceExplorer', () => {
       expect.objectContaining({
         libraryId: 'kb-shared',
         visibility: undefined,
+      }),
+    );
+  });
+
+  it('lists the library own rows, pages and folders included, inside a library', () => {
+    mocks.resourceManagerState.libraryId = 'kb-shared';
+
+    render(<ResourceExplorer />);
+
+    expect(mocks.useFetchResources).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filesOnly: false,
+        libraryId: 'kb-shared',
+        showFilesInKnowledgeBase: false,
       }),
     );
   });

@@ -190,10 +190,14 @@ export const generateTrustedClientToken = (userInfo: TrustedClientUserInfo): str
 
     if (!MARKET_KID_PATTERN.test(MARKET_TRUSTED_CLIENT_ID)) throw new Error('unusable client id');
 
-    // `<kid>.<ciphertext>`: the private SDK puts the payload's `clientId` in front as the kid. Market
-    // requires the signed payload to carry that same `clientId`, which is what binds the plaintext kid
-    // to the token.
-    return createTrustedClientToken(signedPayload, MARKET_TRUSTED_CLIENT_SECRET);
+    // `<kid>.<ciphertext>`: the enterprise Market looks the signing client up by the plaintext kid and
+    // rejects a token without one. The published SDK returns the bare ciphertext (the hosted Market
+    // has a single client), so the payload's `clientId` is put in front here. Market requires the
+    // signed payload to carry that same `clientId`, which is what binds the plaintext kid to the token.
+    const ciphertext = createTrustedClientToken(signedPayload, MARKET_TRUSTED_CLIENT_SECRET);
+    return ciphertext.startsWith(`${signedPayload.clientId}.`)
+      ? ciphertext
+      : `${signedPayload.clientId}.${ciphertext}`;
   } catch {
     // Neither the error nor its message is logged or chained: the signer's
     // messages can quote the secret or the payload.

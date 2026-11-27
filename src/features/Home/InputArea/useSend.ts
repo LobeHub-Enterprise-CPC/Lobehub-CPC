@@ -10,7 +10,7 @@ import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspa
 import { taskDetailPath } from '@/features/AgentTasks/shared/taskDetailPath';
 import type { SendButtonHandler } from '@/features/ChatInput/store/initialState';
 import { buildMessageContextSelections } from '@/features/ChatInput/utils/contextSelections';
-import { getProjectConversationPath } from '@/features/Projects/Layout/navigation';
+import { getProjectTopicPath } from '@/features/Projects/Layout/navigation';
 import { useResourceAccess } from '@/features/ResourcePermission/useResourceAccess';
 import { useHomeDailyBrief } from '@/hooks/useHomeDailyBrief';
 import { usePermission } from '@/hooks/usePermission';
@@ -269,7 +269,7 @@ export const useSend = (mode: HomeMode = 'chat') => {
 
               submitted = true;
               setHomeSelectedProjectId(undefined);
-              router.push(getProjectConversationPath(projectId, topic.id));
+              router.push(getProjectTopicPath(projectId, topic.id));
               break;
             }
 

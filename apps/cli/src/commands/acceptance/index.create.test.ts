@@ -22,6 +22,7 @@ const attachRun = vi.fn();
 const getUserState = vi.fn();
 const findProject = vi.fn();
 let output: ReturnType<typeof vi.spyOn>;
+let workingDirectory: string;
 
 const run = async (args: string[]) => {
   const program = new Command().exitOverride().configureOutput({ writeErr: () => {} });
@@ -30,8 +31,10 @@ const run = async (args: string[]) => {
 };
 const jsonOutput = () => JSON.parse(String(output.mock.calls.at(-1)?.[0]));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  workingDirectory = await mkdtemp(path.join(tmpdir(), 'lh-acceptance-create-'));
+  vi.spyOn(process, 'cwd').mockReturnValue(workingDirectory);
   output = vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.mocked(getTrpcClient).mockResolvedValue({
     acceptance: {
@@ -47,9 +50,10 @@ beforeEach(() => {
   getUserState.mockResolvedValue({ settings: { general: { responseLanguage: 'en-US' } } });
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  await rm(workingDirectory, { force: true, recursive: true });
 });
 
 describe('acceptance create', () => {

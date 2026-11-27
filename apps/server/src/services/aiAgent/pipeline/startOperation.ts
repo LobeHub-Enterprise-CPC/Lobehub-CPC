@@ -51,6 +51,7 @@ export interface StartOperationInput {
   includeFinalState?: boolean;
   /** Final runtime context — base prep context with 16b/16c overrides applied. */
   initialContext: OperationPrepResult['initialContext'];
+  initialLlmCalls?: number;
   initialStepCount?: number;
   /** Relay executor the calling client declared; lands on `state.host.llmExecutor`. */
   llmExecutor?: InternalExecAgentParams['llmExecutor'];
@@ -121,6 +122,7 @@ export const startOperation = async (
     evalRuntime,
     hooks,
     initialContext,
+    initialLlmCalls,
     initialStepCount,
     maxSteps,
     operationId,
@@ -281,6 +283,7 @@ export const startOperation = async (
       projectInstructions: prep.projectInstructions,
       initialContext,
       initialMessages: prep.allMessages,
+      initialLlmCalls,
       initialStepCount,
       ...(providedApprovalResolutionRequestId && approvalSourceOperationId
         ? {

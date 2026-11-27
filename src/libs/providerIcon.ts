@@ -3,26 +3,12 @@ import { isBrandedProviderId } from '@lobechat/const/errorBranding';
 import {
   ProviderCombine as LobeProviderCombine,
   ProviderIcon as LobeProviderIcon,
-  providerMappings,
-  Unsloth,
 } from '@lobehub/icons';
 /* eslint-enable no-restricted-imports */
 import { type ComponentProps, createElement } from 'react';
 
 import { ProductLogo } from '@/components/Branding/ProductLogo';
 import { isCustomBranding } from '@/const/version';
-
-/**
- * @lobehub/icons 5.18 exports Unsloth but omits its provider mapping. Register
- * the official artwork until the library includes it, preserving an upstream
- * mapping when present. Keep this alongside provider icon consumers so the
- * complete mapping table stays outside the SPA's initial dependency graph.
- */
-if (
-  !providerMappings.some(({ keywords }) => keywords.some((key) => key.toLowerCase() === 'unsloth'))
-) {
-  providerMappings.push({ Icon: Unsloth, keywords: ['unsloth'] });
-}
 
 // Stored provider IDs remain unchanged in private deployments. Apply branding
 // at the shared resolver, including error cards and combined wordmarks, rather

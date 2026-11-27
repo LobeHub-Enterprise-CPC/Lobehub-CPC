@@ -5,10 +5,12 @@ import { describe, expect, it } from 'vitest';
 import { resolveDeviceClientKinds } from '../clientKinds';
 
 describe('resolveDeviceClientKinds', () => {
-  it('keeps desktop-only builtin tools off `lh connect`', () => {
+  // `lh connect` runs the browser with agent-browser; which client serves a
+  // call is chosen per device by `browserRuntime`, which pins `clientKinds`.
+  it('lets both clients run the browser tool', () => {
     expect(
       resolveDeviceClientKinds({ identifier: BrowserIdentifier, kind: 'tool', type: 'tool' }),
-    ).toEqual(['desktop']);
+    ).toEqual(['cli', 'desktop']);
   });
 
   it('lets any client run tools both clients implement', () => {
