@@ -14,6 +14,21 @@ import type * as loggerModule from '../src/utils/logger';
 const testHomeDirName = `.lobehub-test-${process.pid}`;
 process.env.LOBEHUB_CLI_HOME = testHomeDirName;
 
+// Offline suites select their own account and conversation, even from inside a live CLI session.
+for (const name of [
+  'LOBEHUB_AGENT_ID',
+  'LOBEHUB_CONNECT_SERVICE',
+  'LOBEHUB_DAEMON',
+  'LOBEHUB_JWT',
+  'LOBEHUB_JWT_FILE',
+  'LOBEHUB_OPERATION_ID',
+  'LOBEHUB_SERVER',
+  'LOBEHUB_TOPIC_ID',
+  'LOBEHUB_WORKSPACE_ID',
+]) {
+  delete process.env[name];
+}
+
 afterAll(() => {
   fs.rmSync(path.join(os.homedir(), testHomeDirName), { force: true, recursive: true });
 });

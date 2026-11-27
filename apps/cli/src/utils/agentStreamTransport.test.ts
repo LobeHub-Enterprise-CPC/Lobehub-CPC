@@ -1,9 +1,21 @@
 import type { AgentStreamEvent } from '@lobechat/agent-gateway-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createGatewayIdentityProvider } from '../auth/gatewayIdentity';
 import { streamAgentEvents } from './agentStream';
 import type { AgentHistoryPage } from './agentStreamTransport';
-import { AgentGatewayUnavailableError, AgentJournalUnsupportedError, consumeAgentStream } from './agentStreamTransport';
+import {
+  AgentGatewayUnavailableError,
+  AgentJournalUnsupportedError,
+  consumeAgentStream,
+} from './agentStreamTransport';
+
+vi.mock('../auth/gatewayIdentity', async () => ({
+  createGatewayIdentityProvider: vi.fn(
+    (await import('./agentStreamTestUtils')).streamTestIdentityProvider,
+  ),
+}));
+vi.mock('../auth/resolveToken', () => ({ parseJwtSub: () => 'test-user' }));
 
 let sockets: TestSocket[];
 class TestSocket {
@@ -366,7 +378,14 @@ describe('recoverable WebSocket transport', () => {
     await flush();
     sockets[0].disconnect();
     await vi.advanceTimersByTimeAsync(1000);
-    expect(sockets[1].sent[0]).toMatchObject({ token: 'refreshed', type: 'auth' });
+    expect(createGatewayIdentityProvider).toHaveBeenLastCalledWith(
+      expect.objectContaining({ token: 'refreshed', tokenType: 'jwt' }),
+      { audience: 'urn:lobehub:gateway:agent', operationId: 'op-1' },
+    );
+    expect(sockets[1].sent[0]).toMatchObject({
+      token: expect.stringMatching(/^TEST\./),
+      type: 'auth',
+    });
     journal.push(event(2, 'agent_runtime_end'));
     sockets[1].message({ type: 'agent_event' });
     await flush();

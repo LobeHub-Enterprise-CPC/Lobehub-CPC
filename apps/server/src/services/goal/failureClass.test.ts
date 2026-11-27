@@ -1,6 +1,8 @@
 import { VERIFICATION_OUT_OF_CREDITS_ERROR } from '@lobechat/const/goal';
 import { describe, expect, it } from 'vitest';
 
+import { HETERO_DISPATCH_ERROR_HEADLINES } from '@/server/services/aiAgent/helpers/heteroErrors';
+
 import { classifyGoalFailure, parseQuotaResetAt } from './failureClass';
 
 /**
@@ -52,6 +54,7 @@ describe('classifyGoalFailure', () => {
       "The device this agent runs on is offline, so the run couldn't start. Check that the LobeHub desktop app (or the `lh` CLI) is running and connected, then try again.",
       'device',
     ],
+    [HETERO_DISPATCH_ERROR_HEADLINES.DEVICE_OFFLINE, 'device'],
     ['GATEWAY_NOT_CONFIGURED', 'gateway'],
     ['InvalidProviderAPIKey', 'credentials'],
     // The verifier's credit refusal has no retry branch; the setup gate owns it.

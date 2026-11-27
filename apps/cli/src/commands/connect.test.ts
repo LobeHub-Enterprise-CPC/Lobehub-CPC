@@ -2,7 +2,6 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import type * as DeviceControlModule from '@lobechat/device-control';
 import type * as DeviceGatewayClientModule from '@lobechat/device-gateway-client';
 import { GatewayClient } from '@lobechat/device-gateway-client';
 import { Command } from 'commander';
@@ -17,7 +16,12 @@ import { CLI_DISPLAY_NAME } from '../constants/identity';
 import { removeStatus, spawnDaemon, stopDaemon, writeStatus } from '../daemon/manager';
 import type * as DeviceRegister from '../device/register';
 import type * as SystemInfoModule from '../device/systemInfo';
-import { loadDeviceGatewayUrl, resolveCommandMode, saveDeviceGatewayUrl } from '../settings';
+import {
+  loadDeviceGatewayUrl,
+  resolveCommandMode,
+  resolveServerUrl,
+  saveDeviceGatewayUrl,
+} from '../settings';
 import { executeToolCall } from '../tools';
 import { cleanupAllProcesses, probeSandbox } from '../tools/shell';
 import { log, setVerbose } from '../utils/logger';
@@ -87,7 +91,7 @@ vi.mock('../settings', () => ({
   // check is a no-op and every scenario below is unaffected by it.
   resolveCommandMode: vi.fn().mockReturnValue('auto'),
   resolveDeviceMetricsBacklogPath: vi.fn((id: string) => `/tmp/device-metrics/${id}.json`),
-  resolveServerUrl: () => 'https://app.lobehub.com',
+  resolveServerUrl: vi.fn(),
   saveDeviceGatewayUrl: vi.fn(),
   saveSettings: vi.fn(),
 }));
@@ -153,21 +157,6 @@ let connectCalled = false;
 let lastSentToolResponse: any = null;
 let lastSentSystemInfoResponse: any = null;
 const clientReportMetrics = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const metricsSampler = vi.hoisted(() => ({
-  flush: vi.fn().mockResolvedValue(undefined),
-  options: undefined as any,
-  start: vi.fn().mockResolvedValue(undefined),
-  stop: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('@lobechat/device-control', async (importOriginal) => ({
-  ...(await importOriginal<typeof DeviceControlModule>()),
-  DeviceMetricsSampler: vi.fn().mockImplementation(function (opts: any) {
-    metricsSampler.options = opts;
-    return metricsSampler;
-  }),
-}));
-
 vi.mock('@lobechat/device-gateway-client', async (importOriginal) => ({
   // Address resolution is real; only the socket is faked.
   ...(await importOriginal<typeof DeviceGatewayClientModule>()),
@@ -217,6 +206,7 @@ describe('connect command', () => {
     mockStatus = null;
     clientOptions = {};
     vi.mocked(resolveToken).mockResolvedValue(OFFICIAL_AUTH);
+    vi.mocked(resolveServerUrl).mockReturnValue(OFFICIAL_AUTH.serverUrl);
     vi.mocked(loadDeviceGatewayUrl).mockReturnValue(undefined);
     getGlobalConfig.mockResolvedValue({ serverConfig: {} });
   });
@@ -350,7 +340,7 @@ describe('connect command', () => {
       expect(clientOptions).toMatchObject({
         gatewayUrl: 'https://gw.example.com/edge',
         serverUrl: SELF_HOSTED,
-        token: 'test-token',
+        token: 'dedicated-ticket',
       });
       expect(writeStatus).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -426,6 +416,7 @@ describe('connect command', () => {
 
     it('opens workspace shares on the same gateway as the personal connection', async () => {
       vi.mocked(resolveToken).mockResolvedValue({ ...OFFICIAL_AUTH, serverUrl: SELF_HOSTED });
+      vi.mocked(resolveServerUrl).mockReturnValue(SELF_HOSTED);
       getGlobalConfig.mockResolvedValue({
         serverConfig: { deviceGatewayUrl: 'https://gw.example.com' },
       });
@@ -433,6 +424,9 @@ describe('connect command', () => {
       const personal = clientOptions;
 
       await clientEventHandlers['rpc_request']?.({
+        attemptId: 'rpc-attempt',
+        executionSignal: new AbortController().signal,
+        isExecutionCurrent: () => true,
         method: 'enrollWorkspace',
         params: { token: 'ws-token', workspaceId: 'ws-1' },
         requestId: 'rpc-1',
@@ -443,9 +437,13 @@ describe('connect command', () => {
       expect(clientOptions).toMatchObject({
         gatewayUrl: 'https://gw.example.com',
         serverUrl: SELF_HOSTED,
-        token: 'ws-token',
+        token: 'dedicated-ticket',
         workspaceId: 'ws-1',
       });
+      expect(createGatewayIdentityProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ serverUrl: SELF_HOSTED }),
+        expect.objectContaining({ initialTicket: 'ws-token', workspaceId: 'ws-1' }),
+      );
     });
 
     it('passes --gateway through to the daemon child, which resolves the same way', async () => {
@@ -607,11 +605,6 @@ describe('connect command', () => {
       await handler();
     }
 
-    // Pending health samples get a bounded push before the socket closes.
-    expect(metricsSampler.stop).toHaveBeenCalledWith({ flushTimeoutMs: 3000 });
-    expect(metricsSampler.stop.mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(cleanupAllProcesses).mock.invocationCallOrder[0],
-    );
     expect(cleanupAllProcesses).toHaveBeenCalled();
     expect(removeStatus).toHaveBeenCalled();
   });

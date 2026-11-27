@@ -15,7 +15,10 @@ const transport = vi.hoisted(() => {
 });
 
 vi.mock('@/envs/app', () => ({ appEnv: { enableQueueAgentRuntime: false } }));
-vi.mock('./redis', () => ({ getAgentRuntimeRedisClient: () => transport.client }));
+vi.mock('./redis', () => ({
+  getAgentRuntimeRedisClient: () => transport.client,
+  isAgentRuntimeRedisEnabled: () => true,
+}));
 vi.mock('./GatewayStreamNotifier', () => ({ GatewayStreamNotifier: vi.fn() }));
 
 // Separate module graphs represent independent inline runtime instances. Only

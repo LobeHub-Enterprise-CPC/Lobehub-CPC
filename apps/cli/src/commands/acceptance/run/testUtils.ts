@@ -68,6 +68,7 @@ export const usePublicationHarness = () => {
       settings: { general: { responseLanguage: 'en-US' } },
     });
     state.dir = await mkdtemp(path.join(tmpdir(), 'lh-evidence-'));
+    vi.spyOn(process, 'cwd').mockReturnValue(state.dir);
     await writeFile(path.join(state.dir, "screen's shot.png"), 'image fixture');
     await writeFile(path.join(state.dir, 'scroll.mp4'), 'video fixture');
     await writeFile(path.join(state.dir, 'output.txt'), 'Observed the expected response.');

@@ -4,8 +4,10 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resolveCliDirName } from '../constants/identity';
+
 const tmpDir = path.join(os.tmpdir(), 'lobehub-cli-test-execution-policy');
-const settingsDir = path.join(tmpDir, '.lobehub');
+const settingsDir = path.join(tmpDir, resolveCliDirName());
 const cacheFile = path.join(settingsDir, 'execution-policy-cache.json');
 
 vi.mock('node:os', async (importOriginal) => {

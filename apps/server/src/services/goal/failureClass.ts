@@ -56,6 +56,11 @@ const ENVIRONMENT_RULES: Array<{
   problem: (match: RegExpExecArray) => GoalEnvironmentProblem;
 }> = [
   {
+    // Stored failures can name a different desktop brand after a deployment changes.
+    pattern: /The device this agent runs on is offline, so the run couldn['’]t start\./,
+    problem: () => ({ kind: 'device' }),
+  },
+  {
     pattern: /Working directory (?:does not exist|is not a directory)(?: on [^:]+)?: (\S+)/i,
     problem: (match) => ({ kind: 'workingDirectory', path: match[1].replace(/[.,;]+$/, '') }),
   },

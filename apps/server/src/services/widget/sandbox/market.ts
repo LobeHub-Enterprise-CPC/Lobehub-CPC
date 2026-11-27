@@ -1,7 +1,7 @@
 import { MarketAPIError, type MarketSDK } from '@lobehub/market-sdk';
 import debug from 'debug';
 
-import { isTrustedClientEnabled } from '@/libs/trusted-client';
+import { isTrustedClientEnabled, resolveMarketServiceIdentity } from '@/libs/trusted-client';
 import { MarketService } from '@/server/services/market';
 
 import {
@@ -22,12 +22,15 @@ export interface MarketWidgetSandboxRunnerOptions {
   /** Defaults to `isTrustedClientEnabled`: Market only accepts trusted clients here. */
   isEnabled?: () => boolean;
   /** Defaults to the Market SDK acting as the run's actor. */
-  sandboxFor?: (actor: WidgetSandboxActor) => SandboxClient;
+  sandboxFor?: (actor: WidgetSandboxActor) => SandboxClient | Promise<SandboxClient>;
 }
 
-const defaultSandboxFor = (actor: WidgetSandboxActor): SandboxClient =>
+const defaultSandboxFor = async (actor: WidgetSandboxActor): Promise<SandboxClient> =>
   new MarketService({
-    userInfo: { userId: actor.userId, workspaceId: actor.workspaceId ?? undefined },
+    userInfo: await resolveMarketServiceIdentity({
+      userId: actor.userId,
+      workspaceId: actor.workspaceId ?? undefined,
+    }),
   }).market.sandbox;
 
 /** Market's error body: `{ error: '<code>', error_description?: '…' }`. */
@@ -50,7 +53,7 @@ const describeMarketError = (error: MarketAPIError) => {
  */
 export class MarketWidgetSandboxRunner implements WidgetSandboxRunner {
   private readonly isEnabled: () => boolean;
-  private readonly sandboxFor: (actor: WidgetSandboxActor) => SandboxClient;
+  private readonly sandboxFor: NonNullable<MarketWidgetSandboxRunnerOptions['sandboxFor']>;
 
   constructor(options: MarketWidgetSandboxRunnerOptions = {}) {
     this.isEnabled = options.isEnabled ?? isTrustedClientEnabled;
@@ -67,7 +70,8 @@ export class MarketWidgetSandboxRunner implements WidgetSandboxRunner {
 
     const timeoutMs = clampSandboxTimeout(request.timeoutMs);
     try {
-      const result = await this.sandboxFor(request.actor).run(
+      const sandbox = await this.sandboxFor(request.actor);
+      const result = await sandbox.run(
         {
           egress: {
             allow: request.network.allow,

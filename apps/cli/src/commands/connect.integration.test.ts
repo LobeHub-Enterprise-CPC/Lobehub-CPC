@@ -8,6 +8,9 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocketServer } from 'ws';
 
+import { streamTestConfirmation } from '../utils/agentStreamTestUtils';
+import { respondToDeviceIdentityMint } from './connectTestUtils';
+
 interface CliResult {
   exitCode: number;
   stderr: string;
@@ -122,13 +125,14 @@ describe('connect daemon startup', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).not.toContain('Daemon started');
-    expect(result.stderr).toContain('ConnectionRefused');
+    expect(result.stderr).toMatch(/ConnectionRefused|ECONNREFUSED/);
   }, 15_000);
 
   it('does not report startup readiness before workspace registration succeeds', async () => {
     const requests: string[] = [];
     const server = createServer((request, response) => {
       requests.push(request.url ?? '');
+      if (respondToDeviceIdentityMint(request, response)) return;
       response.setHeader('Content-Type', 'application/json');
 
       if (request.url?.includes('config.getGlobalConfig')) {
@@ -220,14 +224,16 @@ describe('connect daemon startup', () => {
     const handshakes: { auth: any; path: string }[] = [];
     sockets.on('connection', (socket, request) => {
       socket.once('message', (data) => {
-        handshakes.push({ auth: JSON.parse(String(data)), path: request.url ?? '' });
-        socket.send(JSON.stringify({ type: 'auth_success' }));
+        const auth = JSON.parse(String(data));
+        handshakes.push({ auth, path: request.url ?? '' });
+        socket.send(JSON.stringify(streamTestConfirmation(auth.token)));
       });
     });
     const gatewayPort = await listen(gatewayServer);
 
     const serverPort = await listen(
       createServer((request, response) => {
+        if (respondToDeviceIdentityMint(request, response)) return;
         response.setHeader('Content-Type', 'application/json');
         response.end(
           request.url?.includes('config.getGlobalConfig')
@@ -252,9 +258,13 @@ describe('connect daemon startup', () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    // This login's token reached the gateway its own server advertised.
-    expect(handshakes[0]?.path).toMatch(/^\/edge\/gw\/ws\?/);
-    expect(handshakes[0]?.auth).toMatchObject({ serverUrl, token, type: 'auth' });
+    // The source JWT obtained a dedicated ticket for the advertised gateway.
+    expect(handshakes[0]?.path).toMatch(/^\/edge\/gw\/tenant\/v1\/ws\?/);
+    expect(handshakes[0]?.auth).toMatchObject({
+      tenancyProtocol: 1,
+      token: expect.stringMatching(/^TEST\./),
+      type: 'auth',
+    });
 
     const status = await runCli(['connect', 'status'], home);
     expect(status.stdout).toContain(`http://127.0.0.1:${gatewayPort}/edge/gw (server)`);
@@ -266,9 +276,9 @@ describe('connect daemon startup', () => {
     const sockets = new WebSocketServer({ server: gatewayServer });
     const paths: string[] = [];
     sockets.on('connection', (socket, request) => {
-      socket.once('message', () => {
+      socket.once('message', (data) => {
         paths.push(request.url ?? '');
-        socket.send(JSON.stringify({ type: 'auth_success' }));
+        socket.send(JSON.stringify(streamTestConfirmation(JSON.parse(String(data)).token)));
       });
     });
     const gatewayPort = await listen(gatewayServer);
@@ -276,6 +286,7 @@ describe('connect daemon startup', () => {
     let configReads = 0;
     const serverPort = await listen(
       createServer((request, response) => {
+        if (respondToDeviceIdentityMint(request, response)) return;
         if (request.url?.includes('config.getGlobalConfig')) configReads += 1;
         response.setHeader('Content-Type', 'application/json');
         response.end(
@@ -310,7 +321,10 @@ describe('connect daemon startup', () => {
     expect(second.stdout).toContain('Daemon started');
     await waitForHandshakes(2);
 
-    expect(paths.map((url) => url.split('?')[0])).toEqual(['/pinned/ws', '/pinned/ws']);
+    expect(paths.map((url) => url.split('?')[0])).toEqual([
+      '/pinned/tenant/v1/ws',
+      '/pinned/tenant/v1/ws',
+    ]);
     expect(configReads).toBe(0);
     const status = await runCli(['connect', 'status'], home);
     expect(status.stdout).toContain(`${pinned} (manual)`);

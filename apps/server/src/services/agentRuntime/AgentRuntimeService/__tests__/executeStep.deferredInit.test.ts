@@ -15,7 +15,10 @@ vi.mock('@lobechat/model-runtime', (...args) =>
 
 const { ssrfSafeFetch: mockSsrfSafeFetch } = vi.hoisted(() => ({ ssrfSafeFetch: vi.fn() }));
 
-vi.mock('@lobechat/ssrf-safe-fetch', () => ({ ssrfSafeFetch: mockSsrfSafeFetch }));
+vi.mock('@lobechat/ssrf-safe-fetch', () => ({
+  createSsrfSafeFetch: () => mockSsrfSafeFetch,
+  ssrfSafeFetch: mockSsrfSafeFetch,
+}));
 
 // Mock trusted client to avoid server-side env access
 vi.mock('@/libs/trusted-client', (...args) =>
@@ -266,7 +269,12 @@ describe('AgentRuntimeService executeStep', () => {
       expect(step).not.toHaveBeenCalled();
       // The completion consumers (and the durable row) hear about the stop.
       expect(emit).toHaveBeenCalledWith('test-operation-1', expect.anything(), 'interrupted');
-      expect(dispatch).toHaveBeenCalledWith('test-operation-1', expect.anything(), 'interrupted');
+      expect(dispatch).toHaveBeenCalledWith(
+        'test-operation-1',
+        expect.objectContaining({ status: 'interrupted' }),
+        'interrupted',
+        { assertOwnership: undefined },
+      );
       // The interrupt may have landed only its sentinel: the runtime state has
       // to be written too, or Redis keeps reading `running` forever.
       expect(coordinator.saveAgentState).toHaveBeenCalledWith(
@@ -300,7 +308,12 @@ describe('AgentRuntimeService executeStep', () => {
       expect(step).not.toHaveBeenCalled();
       expect(coordinator.saveAgentState).not.toHaveBeenCalled();
       expect(emit).toHaveBeenCalledWith('test-operation-1', expect.anything(), 'interrupted');
-      expect(dispatch).toHaveBeenCalledWith('test-operation-1', expect.anything(), 'interrupted');
+      expect(dispatch).toHaveBeenCalledWith(
+        'test-operation-1',
+        expect.objectContaining({ status: 'interrupted' }),
+        'interrupted',
+        { assertOwnership: undefined },
+      );
     });
 
     it('discards the init result when Stop lands while the init runs', async () => {
@@ -367,7 +380,12 @@ describe('AgentRuntimeService executeStep', () => {
       // The last write leaves the run interrupted, not `running`.
       const saves = coordinator.saveAgentState.mock.calls;
       expect(saves.at(-1)[1]).toMatchObject({ status: 'interrupted' });
-      expect(dispatch).toHaveBeenCalledWith('test-operation-1', expect.anything(), 'interrupted');
+      expect(dispatch).toHaveBeenCalledWith(
+        'test-operation-1',
+        expect.objectContaining({ status: 'interrupted' }),
+        'interrupted',
+        { assertOwnership: undefined },
+      );
     });
 
     // The init can outlive the inactivity watchdog. Abandonment settles the
@@ -471,6 +489,7 @@ describe('AgentRuntimeService executeStep', () => {
         'test-operation-1',
         expect.objectContaining({ status: 'interrupted' }),
         'interrupted',
+        { assertOwnership: undefined },
       );
       expect(publish).not.toHaveBeenCalledWith(
         'test-operation-1',

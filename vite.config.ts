@@ -164,7 +164,14 @@ export default defineConfig({
       '@lobehub/ui > dayjs/plugin/weekOfYear.js',
       '@lobehub/ui > dayjs/plugin/weekYear.js',
     ],
-    exclude: [...sharedOptimizeDeps.exclude, ...lobeUiImportSources, '@lobehub/icons'],
+    exclude: [
+      ...sharedOptimizeDeps.exclude,
+      ...lobeUiImportSources,
+      '@lobehub/icons',
+      // Keep importer-specific versions. The app pins 2.1 while the CJK plugin uses 2.2.
+      'mdast-util-to-markdown',
+      'remark-cjk-friendly',
+    ],
   },
   plugins: [
     isMobile &&

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createCallerFactory } from '@/libs/trpc/lambda';
 import { createContextInner } from '@/libs/trpc/lambda/context';
+import type * as ContentScopeModule from '@/server/services/enterpriseKnowledge/contentScope';
 
 import { documentRouter } from './document';
 
@@ -45,6 +46,10 @@ vi.mock('@/server/services/document', () => ({
       updateDocument: mocks.updateDocument,
     };
   }),
+}));
+vi.mock('@/server/services/enterpriseKnowledge/contentScope', async (importOriginal) => ({
+  ...(await importOriginal<typeof ContentScopeModule>()),
+  resolveContentScope: vi.fn().mockResolvedValue({ enterprise: false }),
 }));
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn().mockImplementation(function () {

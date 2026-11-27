@@ -305,14 +305,14 @@ describe('streamAgentEvents', () => {
     await promise;
   });
 
-  it('should construct correct WebSocket URL from HTTPS gateway URL', async () => {
+  it('preserves the configured gateway path when converting HTTPS to WebSocket', async () => {
     const promise = streamAgentEvents({
-      gatewayUrl: 'https://agent-gateway.lobehub.com',
+      gatewayUrl: 'https://gateway.test/tenant/v1',
       operationId: 'op-123',
     });
 
     await flush();
-    expect(capturedWs!.url).toBe('wss://agent-gateway.lobehub.com/tenant/v1/ws?operationId=op-123');
+    expect(capturedWs!.url).toBe('wss://gateway.test/tenant/v1/ws?operationId=op-123');
 
     journal.push({
       data: { reason: 'done' },

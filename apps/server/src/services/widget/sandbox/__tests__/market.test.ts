@@ -1,6 +1,13 @@
 import { MarketAPIError } from '@lobehub/market-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
+import { resolveMarketServiceIdentity } from '@/libs/trusted-client';
+import { MarketService } from '@/server/services/market';
+
+vi.mock('@/libs/trusted-client', () => ({
+  isTrustedClientEnabled: () => true,
+  resolveMarketServiceIdentity: vi.fn(),
+}));
 vi.mock('@/server/services/market', () => ({ MarketService: vi.fn() }));
 
 const { MarketWidgetSandboxRunner } = await import('../market');
@@ -37,6 +44,25 @@ const apiError = (status: number, body?: unknown) =>
   new MarketAPIError(status, 'Error', body as any);
 
 describe('MarketWidgetSandboxRunner', () => {
+  it('uses the widget owner’s resolved tenant identity with Market', async () => {
+    const identity = {
+      email: 'owner@example.com',
+      orgUnitIds: ['department-1'],
+      tenantId: '3b59ff02-01cb-44e2-900e-f9807f83bb67',
+      userId: request.actor.userId,
+    };
+    const run = vi.fn().mockResolvedValue(result);
+    vi.mocked(resolveMarketServiceIdentity).mockResolvedValueOnce(identity);
+    vi.mocked(MarketService).mockImplementationOnce(function () {
+      return { market: { sandbox: { run } } } as unknown as MarketService;
+    });
+
+    await expect(new MarketWidgetSandboxRunner().run(request)).resolves.toMatchObject({
+      exitCode: 0,
+    });
+    expect(MarketService).toHaveBeenCalledWith({ userInfo: identity });
+  });
+
   it('runs through the Market SDK as the widget actor and maps the result', async () => {
     const { runner, sandbox, sandboxFor } = setup(async () => result);
 

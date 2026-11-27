@@ -75,6 +75,7 @@ describe('executeWidgetRun', () => {
       {},
       'run-1',
       expect.objectContaining({ status: 'succeeded', stderr: 'sent [REDACTED:GITHUB_TOKEN]' }),
+      expect.any(Function),
     );
   });
 
