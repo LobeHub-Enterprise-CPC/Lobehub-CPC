@@ -505,24 +505,36 @@ describe('remembered-account root decision', () => {
     expect(response.headers.getSetCookie()).toEqual([]);
   });
 
-  it.each([0, 1])(
-    'keeps today’s path for %i organization(s), including the remembered tenant entry',
-    async (count) => {
-      mocks.accountOrganizations.mockResolvedValue(
-        Array.from({ length: count }, (_, index) => ({ id: `tenant-${index}` })),
-      );
-      const finder = await middleware(documentNavigation('/', { cookie: accountCookie() }));
-      finderOf(finder);
-
+  it.each(['', '; lobe-last-tenant=tenant-1'])(
+    'resumes the only matching organization even without a separate tenant cookie (%s)',
+    async (navigationCookie) => {
+      mocks.accountOrganizations.mockResolvedValue([{ id: 'tenant-1' }]);
       const entry = await middleware(
-        documentNavigation('/', {
-          cookie: `${accountCookie()}; lobe-last-tenant=tenant-1`,
-        }),
+        documentNavigation('/', { cookie: `${accountCookie()}${navigationCookie}` }),
       );
-      await expectFragmentRedirect(entry, 'http://localhost:3010/orgs/acme/__entry#');
+      await expectFragmentRedirect(entry, 'http://localhost:3010/orgs/acme/__entry?signin=1#');
+      expect(mocks.remembered).toHaveBeenCalledWith('tenant-1');
       expect(headerOf(entry)).toBeNull();
     },
   );
+
+  it('leaves a remembered email with no current organization on the finder path', async () => {
+    mocks.accountOrganizations.mockResolvedValue([]);
+    finderOf(await middleware(documentNavigation('/', { cookie: accountCookie() })));
+    const response = await middleware(
+      documentNavigation('/', { cookie: `${accountCookie()}; lobe-last-tenant=tenant-1` }),
+    );
+    await expectFragmentRedirect(response, 'http://localhost:3010/orgs/acme/__entry#');
+  });
+
+  it('checks the session at a more recently visited organization without resuming the other login', async () => {
+    mocks.accountOrganizations.mockResolvedValue([{ id: 'tenant-1' }]);
+    const response = await middleware(
+      documentNavigation('/', { cookie: `${accountCookie()}; lobe-last-tenant=tenant-2` }),
+    );
+    await expectFragmentRedirect(response, 'http://localhost:3010/orgs/acme/__entry#');
+    expect(mocks.remembered).toHaveBeenCalledWith('tenant-2');
+  });
 
   it('does not read the account cookie without one, or with switch=1, desktop or a non-document request', async () => {
     for (const request of [
@@ -580,7 +592,7 @@ describe('remembered-account root decision', () => {
             cookie: `${accountCookie('private@example.com')}; lobe-last-tenant=tenant-1`,
           }),
         );
-        await expectFragmentRedirect(response, 'http://localhost:3010/orgs/acme/__entry#');
+        await expectFragmentRedirect(response, 'http://localhost:3010/orgs/acme/__entry?signin=1#');
         const logged = JSON.stringify(warn.mock.calls);
         expect(logged).toContain('TENANT_ACCOUNT_MEMORY_UNAVAILABLE');
         expect(logged).not.toContain('private@example.com');

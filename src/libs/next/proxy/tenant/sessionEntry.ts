@@ -27,8 +27,9 @@ import type { TenantMiddlewareDeps } from './types';
  * comes from the directory (`activeUrl`) or the platform URL, never from the request.
  *
  * - valid session: the organization root.
- * - no session (missing, expired, revoked): the organization finder, prefilled with the
- *   remembered email; cookies Better Auth clears for a dead session ride on this response.
+ * - no session (missing, expired, revoked): the organization's sign-in page when requested,
+ *   otherwise the finder. Either can prefill the remembered email on the platform; cookies
+ *   Better Auth clears for a dead session ride on this response.
  * - the organization refuses admission (frozen, offline, expired, not activated): its root,
  *   whose page explains it. The session is not judged then; there is no scope to read it in.
  * - the organization vanished: the organization finder.
@@ -44,9 +45,9 @@ export const sessionEntry = async (
 ) => {
   const root = `${route.activeUrl}/#`;
   const finder = `${new URL(endpointHosts().appUrl).origin}/?switch=1#`;
-  const entryUrl = `${route.activeUrl}${SESSION_ENTRY_PATH}`;
   const signin = req.nextUrl.searchParams.getAll('signin');
   const wantsSignIn = signin.length === 1 && signin[0] === '1';
+  const retryUrl = `${route.activeUrl}${SESSION_ENTRY_PATH}${wantsSignIn ? '?signin=1' : ''}#`;
   // Either no-session target is prefilled with the remembered email when this platform
   // request carries a readable account cookie (custom domains never see that cookie).
   const noSessionTarget = () => {
@@ -61,11 +62,10 @@ export const sessionEntry = async (
     if (memory) target.searchParams.set('email', memory.email);
     return `${target.origin}${target.pathname}${target.search}#`;
   };
-  const redirect = (location: string) =>
-    navigationRedirect(deps, req, headers, location, `${entryUrl}#`);
+  const redirect = (location: string) => navigationRedirect(deps, req, headers, location, retryUrl);
   const unavailable = (reason: string) => {
     console.warn('TENANT_SESSION_ENTRY_UNAVAILABLE', { reason });
-    return navigationUnavailable(deps, req, `${entryUrl}#`);
+    return navigationUnavailable(deps, req, retryUrl);
   };
 
   let entered;

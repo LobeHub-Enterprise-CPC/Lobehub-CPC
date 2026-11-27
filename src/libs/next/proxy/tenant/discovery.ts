@@ -104,31 +104,30 @@ export const discoveryNavigation = async (
 
   const appUrl = endpointHosts().appUrl;
   const accountValue = accountCookieValue(req.headers, appUrl);
-  let clearAccount = false;
-  if (accountValue && accountCookieAvailable()) {
-    const account = readAccountMemory(accountValue);
-    if (!account) clearAccount = true;
-    else {
-      try {
-        // Optional work: it takes a free discovery slot or falls back to today's path at once.
-        const organizations = await findAccountOrganizations({
-          email: account.email,
-          headers: req.headers,
-          signal: req.signal,
-        });
-        if (organizations.length >= 2) return discoveryPage(deps, req, headers, undefined, true);
-      } catch (error) {
-        // A rate limit or lookup failure never turns into an error page, and the log carries
-        // only a reason code: never the remembered email or the cookie.
-        console.warn('TENANT_ACCOUNT_MEMORY_UNAVAILABLE', {
-          reason: accountFailureReason(error),
-        });
-      }
+  const canReadAccount = !!accountValue && accountCookieAvailable();
+  const account = canReadAccount ? readAccountMemory(accountValue) : null;
+  let signInTenantId = account?.tenantId;
+  if (account) {
+    try {
+      // Optional work: it takes a free discovery slot or falls back to the saved organization.
+      const organizations = await findAccountOrganizations({
+        email: account.email,
+        headers: req.headers,
+        signal: req.signal,
+      });
+      if (organizations.length >= 2) return discoveryPage(deps, req, headers, undefined, true);
+      if (organizations[0]?.id !== account.tenantId) signInTenantId = undefined;
+    } catch (error) {
+      // A rate limit or lookup failure never turns into an error page, and the log carries
+      // only a reason code: never the remembered email or the cookie.
+      console.warn('TENANT_ACCOUNT_MEMORY_UNAVAILABLE', {
+        reason: accountFailureReason(error),
+      });
     }
   }
 
   const rememberedNavigation = async () => {
-    const remembered = req.cookies.get(tenantCookieName(appUrl))?.value;
+    const remembered = req.cookies.get(tenantCookieName(appUrl))?.value ?? signInTenantId;
     if (!remembered) return discoveryPage(deps, req, headers);
     const clear = () => {
       const response = discoveryPage(deps, req, headers);
@@ -140,8 +139,14 @@ export const discoveryNavigation = async (
       // This service reads PostgreSQL in a fresh transaction, independently of routing caches
       // and lifecycle admission: stopped tenants still have a usable switch-organisation page.
       const state = await getTenantEndpoints().get(remembered);
-      // The organization decides whether the browser has a session there (the session entry).
-      return navigationRedirect(deps, req, headers, `${state.activeUrl}${SESSION_ENTRY_PATH}#`);
+      // Only resume a sign-in where the saved email and organization match.
+      const query = remembered === signInTenantId ? '?signin=1' : '';
+      return navigationRedirect(
+        deps,
+        req,
+        headers,
+        `${state.activeUrl}${SESSION_ENTRY_PATH}${query}#`,
+      );
     } catch (error) {
       if ((error as { code?: string } | null)?.code === 'TENANT_NOT_FOUND') return clear();
       console.warn('TENANT_MEMORY_UNAVAILABLE', { reason: routingUnavailableReasonOf(error) });
@@ -150,6 +155,6 @@ export const discoveryNavigation = async (
   };
 
   const response = await rememberedNavigation();
-  if (clearAccount) response.headers.append('set-cookie', clearAccountCookie(appUrl));
+  if (canReadAccount && !account) response.headers.append('set-cookie', clearAccountCookie(appUrl));
   return response;
 };

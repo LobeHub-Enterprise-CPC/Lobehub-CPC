@@ -669,7 +669,8 @@ describe('sign-in entry flag (signin=1)', () => {
     await expectFragmentRedirect(vanished, 'http://localhost:3010/?switch=1#');
 
     mocks.enterSlug.mockRejectedValueOnce(new Error('boom'));
-    const failed = await middleware(documentNavigation(`${entryPath}?signin=1`));
+    const failed = await middleware(documentNavigation(`${entryPath}?signin=1&token=secret`));
     expect(failed.status).toBe(503);
+    expect(await failed.text()).toContain(`href="${ACTIVE}/__entry?signin=1#"`);
   });
 });
