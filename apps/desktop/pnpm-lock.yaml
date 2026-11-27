@@ -5,8 +5,8 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@lobehub/market-sdk': file:../../vendor/lobehub-market-sdk-0.41.0-cpc.2.tgz
-  '@lobehub/market-types': file:../../vendor/lobehub-market-types-1.17.1-cpc.2.tgz
+  '@lobehub/market-sdk': file:../../vendor/lobehub-market-sdk-0.47.0-tituwork.1.tgz
+  '@lobehub/market-types': file:../../vendor/lobehub-market-types-1.23.0-tituwork.1.tgz
   node-gyp: ^12.4.0
   react: 19.2.7
   react-dom: 19.2.7
@@ -687,11 +687,11 @@ importers:
         specifier: workspace:*
         version: link:../business/const
       '@lobehub/market-sdk':
-        specifier: file:../../apps/desktop/../../vendor/lobehub-market-sdk-0.41.0-cpc.2.tgz
-        version: file:../../vendor/lobehub-market-sdk-0.41.0-cpc.2.tgz(supports-color@9.4.0)(zod@4.6.5)
+        specifier: file:../../apps/desktop/../../vendor/lobehub-market-sdk-0.47.0-tituwork.1.tgz
+        version: file:../../vendor/lobehub-market-sdk-0.47.0-tituwork.1.tgz(supports-color@9.4.0)(zod@4.6.5)
       '@lobehub/market-types':
-        specifier: file:../../apps/desktop/../../vendor/lobehub-market-types-1.17.1-cpc.2.tgz
-        version: file:../../vendor/lobehub-market-types-1.17.1-cpc.2.tgz
+        specifier: file:../../apps/desktop/../../vendor/lobehub-market-types-1.23.0-tituwork.1.tgz
+        version: file:../../vendor/lobehub-market-types-1.23.0-tituwork.1.tgz
       '@lobehub/ui':
         specifier: ^6.0.4
         version: 6.0.4(@lobehub/fluent-emoji@5.0.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(@lobehub/icons@6.0.0)(@shikijs/themes@4.5.0)(@types/mdast@4.0.4)(@types/react@19.3.0)(date-fns@4.4.0)(micromark-util-types@2.0.3)(micromark@4.0.3(supports-color@9.4.0))(motion@14.2.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(supports-color@9.4.0)
@@ -1353,11 +1353,11 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -2114,15 +2114,15 @@ packages:
       react: 19.2.7
       react-dom: 19.2.7
 
-  '@lobehub/market-sdk@file:../../vendor/lobehub-market-sdk-0.41.0-cpc.2.tgz':
-    resolution: {integrity: sha512-GYn/cxWBQG0w6fj/ycoBK1xLCF5wgY8wT9U07H9vpDKRq33a1Dt4DkoxFYQ8QmanM1qbNeXwAadvNQr1PJxxvQ==, tarball: file:../../vendor/lobehub-market-sdk-0.41.0-cpc.2.tgz}
-    version: 0.41.0-cpc.2
+  '@lobehub/market-sdk@file:../../vendor/lobehub-market-sdk-0.47.0-tituwork.1.tgz':
+    resolution: {integrity: sha512-AYjDMaEgT1vLPfvR+lrxSRZgMadh6hOcZ5Nm0aoJA8VwJbeE16V5n2gpx+q+D1xd4MMB4eW4NXj26dK4MIbOeA==, tarball: file:../../vendor/lobehub-market-sdk-0.47.0-tituwork.1.tgz}
+    version: 0.47.0-tituwork.1
     peerDependencies:
       zod: ^3.24.4
 
-  '@lobehub/market-types@file:../../vendor/lobehub-market-types-1.17.1-cpc.2.tgz':
-    resolution: {integrity: sha512-vFkvw+srvHR0IZyc2kf8b6H3NGgk3EWx5G4mWT4VET5xj8bG8xxn5qb/FzlVmn9eQv+qoKDeJNCqsqBcX/Zg1w==, tarball: file:../../vendor/lobehub-market-types-1.17.1-cpc.2.tgz}
-    version: 1.17.1-cpc.2
+  '@lobehub/market-types@file:../../vendor/lobehub-market-types-1.23.0-tituwork.1.tgz':
+    resolution: {integrity: sha512-A6pLWpKk5sDm6ngQ0VejPd7TVkjQsvJRaG1DU6R+aj7WuYOq7dXnjkQmYnIpr/fjwxr6Ck5U3QmSJcGAo9JbaQ==, tarball: file:../../vendor/lobehub-market-types-1.23.0-tituwork.1.tgz}
+    version: 1.23.0-tituwork.1
 
   '@lobehub/streamdown@1.4.0':
     resolution: {integrity: sha512-kkqq2nqwcqz+rV/eUPQ7vY1TQWHWZE3kQt1MsSLtNFLNXMoKYPiF+cdahP97uunWKtf2dB48q/nkSWaZzEKRSw==}
@@ -2357,6 +2357,7 @@ packages:
   '@opentelemetry/sdk-trace-base@2.11.0':
     resolution: {integrity: sha512-H19x/TX/LZdqiYOjM7fqtSxwlplC5pgelavqbQdHbhdq0q/AI/TGkM2dfGuuynTXmJPeF2HoZVoPDu+TGoW78A==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
@@ -4865,6 +4866,7 @@ packages:
 
   fetch-socks@1.3.3:
     resolution: {integrity: sha512-jI22jzTf7x3GAcUoZARwuxKBPotb3PFkemVWqxlF2qV55FhRytRJrn95HeLoUMq2vkIbY3aQqNYytvZKqUoMaQ==}
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
 
   fflate@0.8.3:
     resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
@@ -9295,9 +9297,10 @@ snapshots:
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
 
-  '@lobehub/market-sdk@file:../../vendor/lobehub-market-sdk-0.41.0-cpc.2.tgz(supports-color@9.4.0)(zod@4.6.5)':
+  '@lobehub/market-sdk@file:../../vendor/lobehub-market-sdk-0.47.0-tituwork.1.tgz(supports-color@9.4.0)(zod@4.6.5)':
     dependencies:
-      '@lobehub/market-types': file:../../vendor/lobehub-market-types-1.17.1-cpc.2.tgz
+      '@lobehub/market-types': file:../../vendor/lobehub-market-types-1.23.0-tituwork.1.tgz
+      '@opentelemetry/api': 1.9.1
       debug: 4.4.3(supports-color@9.4.0)
       jose: 6.2.12
       url-join: 5.0.0
@@ -9305,7 +9308,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@lobehub/market-types@file:../../vendor/lobehub-market-types-1.17.1-cpc.2.tgz':
+  '@lobehub/market-types@file:../../vendor/lobehub-market-types-1.23.0-tituwork.1.tgz':
     dependencies:
       zod: 3.25.76
 

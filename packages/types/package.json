@@ -16,8 +16,8 @@
   },
   "dependencies": {
     "@lobechat/business-const": "workspace:*",
-    "@lobehub/market-sdk": "file:../../vendor/lobehub-market-sdk-0.41.0-cpc.2.tgz",
-    "@lobehub/market-types": "file:../../vendor/lobehub-market-types-1.17.1-cpc.2.tgz",
+    "@lobehub/market-sdk": "file:../../vendor/lobehub-market-sdk-0.47.0-tituwork.1.tgz",
+    "@lobehub/market-types": "file:../../vendor/lobehub-market-types-1.23.0-tituwork.1.tgz",
     "ajv": "^8.20.0",
     "model-bank": "workspace:*",
     "type-fest": "^4.41.0",
